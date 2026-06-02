@@ -2,6 +2,7 @@
 #include "common/logger.h"
 #include "common/message_types.h"
 #include "common/subscriber_profile.h"
+#include "common/pcap_writer.h"
 #include <stdexcept>
 
 static constexpr const char* PCRF_IP   = "127.0.0.1";
@@ -97,6 +98,15 @@ void PcrfNode::handleCCR(const std::vector<uint8_t>& payload) {
                      "  MaxDL=" + std::to_string(profile->max_dl_bps/1000000) + "Mbps");
     Logger::ie_field("  Charging rule: '" + profile->charging_rule + "'");
     Logger::pcrf("PCRF: → SEND Diameter Gx CCA-I — policy approved");
+    // PCAP: CCR received (P-GW→PCRF) then CCA sent (PCRF→P-GW)
+    PcapWriter::instance().writeDiameter(
+        DiameterCmd::CREDIT_CONTROL, DiameterApp::GX, true,
+        PcapWriter::IP_PGW, PcapWriter::PORT_GX,
+        PcapWriter::IP_PCRF, PcapWriter::PORT_GX);
+    PcapWriter::instance().writeDiameter(
+        DiameterCmd::CREDIT_CONTROL, DiameterApp::GX, false,
+        PcapWriter::IP_PCRF, PcapWriter::PORT_GX,
+        PcapWriter::IP_PGW, PcapWriter::PORT_GX);
 
     // Build CCA-I response with charging rules
     MessageWriter rsp(MessageType::DIA_GX_CCA_I, next_seq_++);

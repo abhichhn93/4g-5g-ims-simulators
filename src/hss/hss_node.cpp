@@ -1,6 +1,7 @@
 #include "hss/hss_node.h"
 #include "common/tlv.h"
 #include "common/logger.h"
+#include "common/pcap_writer.h"
 #include <random>
 #include <stdexcept>
 
@@ -107,6 +108,10 @@ void HssNode::handleAIR(const std::vector<uint8_t>& payload, uint32_t req_seq) {
 
     if (mme_conn_.sendFrame(w.frame())) {
         Logger::hss("HSS: → SEND Diameter AIA [TS 29.272 §5.2.3.2] — auth vectors delivered");
+        PcapWriter::instance().writeDiameter(
+            DiameterCmd::AUTH_INFO, DiameterApp::S6A, false,
+            PcapWriter::IP_HSS, PcapWriter::PORT_DIA,
+            PcapWriter::IP_MME, PcapWriter::PORT_DIA);
     } else {
         Logger::warn("HSS", "failed to send AIA");
     }

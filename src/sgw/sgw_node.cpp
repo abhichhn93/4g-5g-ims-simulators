@@ -1,5 +1,6 @@
 #include "sgw/sgw_node.h"
 #include "common/logger.h"
+#include "common/pcap_writer.h"
 #include <stdexcept>
 #include <cstdio>
 
@@ -93,6 +94,8 @@ void SgwNode::handleCreateSessionReq(const std::vector<uint8_t>& payload, const 
     Logger::sys("SGW: allocated TEIDs — S11-ctrl=" + std::to_string(sgw_s11_teid) +
                 " S1U-data=" + std::to_string(sgw_s1u_teid));
     Logger::sys("SGW: → FORWARD CreateSessionReq to P-GW via S5 interface (UDP port " + std::to_string(PGW_PORT) + ")");
+    PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_REQ, 0,
+        PcapWriter::IP_SGW, PcapWriter::PORT_SGW, PcapWriter::IP_PGW, PcapWriter::PORT_PGW);
 
     // Forward Create Session Request to P-GW (S5 interface)
     MessageWriter fwd(MessageType::GTP_CREATE_SESSION_REQ, next_seq_++);
@@ -141,7 +144,11 @@ void SgwNode::handleCreateSessionReq(const std::vector<uint8_t>& payload, const 
                   ue_ip_bytes[0], ue_ip_bytes[1], ue_ip_bytes[2], ue_ip_bytes[3]);
 
     Logger::sys("SGW: ← RECV GTP-C CreateSessionRsp from P-GW — UE IP=" + std::string(ue_ip_str));
+    PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_RSP, pgw_s5_teid,
+        PcapWriter::IP_PGW, PcapWriter::PORT_PGW, PcapWriter::IP_SGW, PcapWriter::PORT_SGW);
     Logger::sys("SGW: → SEND GTP-C CreateSessionRsp to MME (with S-GW's TEIDs + UE IP)");
+    PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_RSP, sgw_s11_teid,
+        PcapWriter::IP_SGW, PcapWriter::PORT_SGW, PcapWriter::IP_MME, PcapWriter::PORT_SGW);
 
     // Send Create Session Response to MME (with S-GW's TEIDs + UE IP from P-GW)
     MessageWriter rsp(MessageType::GTP_CREATE_SESSION_RSP, next_seq_++);
@@ -178,6 +185,10 @@ void SgwNode::handleModifyBearerReq(const std::vector<uint8_t>& payload, const s
     Logger::sys("SGW: REAL: S-GW updates its downlink routing table:");
     Logger::sys("SGW:   When P-GW sends downlink packet → S-GW looks up eNB TEID → encapsulates in GTP-U → sends to eNB");
     Logger::sys("SGW: → SEND GTP-C ModifyBearerRsp to MME");
+    PcapWriter::instance().writeGTPv2(GtpMsgType::MODIFY_BEARER_REQ, 0,
+        PcapWriter::IP_MME, PcapWriter::PORT_SGW, PcapWriter::IP_SGW, PcapWriter::PORT_SGW);
+    PcapWriter::instance().writeGTPv2(GtpMsgType::MODIFY_BEARER_RSP, 0,
+        PcapWriter::IP_SGW, PcapWriter::PORT_SGW, PcapWriter::IP_MME, PcapWriter::PORT_SGW);
 
     MessageWriter rsp(MessageType::GTP_MODIFY_BEARER_RSP, next_seq_++);
     rsp.writeU8(Tag::GTP_CAUSE, 16);  // success

@@ -1,4 +1,5 @@
 #include "pgw/pgw_node.h"
+#include "common/pcap_writer.h"
 #include "common/logger.h"
 #include <chrono>
 #include <cstdio>
@@ -112,6 +113,8 @@ void PgwNode::handleCreateSessionReq(const std::vector<uint8_t>& payload, const 
     }
 
     Logger::sys("PGW: ← GTP-C CreateSessionReq from S-GW  IMSI=" + std::to_string(imsi) + " APN=" + apn);
+    PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_REQ, 0,
+        PcapWriter::IP_SGW, PcapWriter::PORT_PGW, PcapWriter::IP_PGW, PcapWriter::PORT_PGW);
 
     // ── Gx: Get policy from PCRF before creating session ─────
     // DESIGN: P-GW can't create a bearer without PCRF approval.
@@ -147,6 +150,8 @@ void PgwNode::handleCreateSessionReq(const std::vector<uint8_t>& payload, const 
     rsp.writeBytes(Tag::GTP_UE_IP,       ip_b, 4);
     rsp.writeU8   (Tag::GTP_EBI,         ebi);
     s5_socket_.sendToAddr(rsp.udpPayload(), sgw_addr);
+    PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_RSP, pgw_teid,
+        PcapWriter::IP_PGW, PcapWriter::PORT_PGW, PcapWriter::IP_SGW, PcapWriter::PORT_SGW);
 }
 
 void PgwNode::receiveLoop() {

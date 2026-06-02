@@ -1,5 +1,6 @@
 #include "enb/enb_node.h"
 #include "common/logger.h"
+#include "common/pcap_writer.h"
 #include <stdexcept>
 #include <cstdio>
 #include <thread>
@@ -76,17 +77,25 @@ void EnbNode::handleDLNas(const std::vector<uint8_t>& payload) {
     }
 
     Logger::enb("[rx_th] ← DL NAS Transport  nas_type=0x" + [&]{ char b[8]; std::snprintf(b,8,"%02X",nas_type); return std::string(b); }());
+    // PCAP: S1AP DL NAS Transport (MME→eNB)
+    PcapWriter::instance().writeS1AP(
+        nas_type == 0x52 ? "NAS-AuthRequest(DL)" : "NAS-SecurityModeCmd(DL)",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP);
     if (nas_type == 0x52 && rand_b.size() >= 8) {
-        // Auth Request — simulate UE computing RES = RAND^0x55
         uint8_t res[8]; for(int i=0;i<8;i++) res[i]=rand_b[i]^0x55;
         Logger::enb("[rx_th] SIM: UE computes RES=RAND^0x55 — sending Auth Response");
         std::lock_guard<std::mutex> lk(mme_send_mtx_);
         MessageWriter ul(MessageType::S1AP_UL_NAS_TRANSPORT, next_seq_++);
         ul.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
         ul.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
-        ul.writeU8 (Tag::NAS_MSG_TYPE,   0x53);  // Auth Response
+        ul.writeU8 (Tag::NAS_MSG_TYPE,   0x53);
         ul.writeBytes(Tag::NAS_RES, res, 8);
         mme_conn_.sendFrame(ul.frame());
+        // PCAP: S1AP UL NAS Transport (eNB→MME) — Auth Response
+        PcapWriter::instance().writeS1AP("NAS-AuthResponse(UL)",
+            PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+            PcapWriter::IP_MME, PcapWriter::PORT_S1AP);
     }
 }
 
@@ -121,25 +130,32 @@ void EnbNode::handleICSR(const std::vector<uint8_t>& payload) {
 
     uint32_t enb_teid = next_enb_teid_.fetch_add(1);
 
-    // Send Initial Context Setup Response
+    // PCAP: S1AP Initial Context Setup Request (MME→eNB)
+    PcapWriter::instance().writeS1AP("S1AP-InitialContextSetupReq",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP);
     Logger::enb("[rx_th] → S1AP InitialContextSetupResponse  eNB S1-U TEID=" + std::to_string(enb_teid));
     { std::lock_guard<std::mutex> lk(mme_send_mtx_);
       MessageWriter rsp(MessageType::S1AP_INITIAL_CONTEXT_SETUP_RSP, next_seq_++);
       rsp.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
       rsp.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
       rsp.writeU32(Tag::ICSR_ENB_TEID,  enb_teid);
-      mme_conn_.sendFrame(rsp.frame()); }
+      mme_conn_.sendFrame(rsp.frame());
+      PcapWriter::instance().writeS1AP("S1AP-InitialContextSetupRsp",
+          PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+          PcapWriter::IP_MME, PcapWriter::PORT_S1AP); }
 
-    // Brief pause, then simulate UE sending Attach Complete
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    Logger::enb("[rx_th] SIM: UE received Attach Accept, IP=" + std::string(ue_ip));
-    Logger::enb("[rx_th] SIM: UE sends NAS Attach Complete (0x46) → forwarded as UL NAS Transport");
+    Logger::enb("[rx_th] SIM: UE sends NAS Attach Complete (0x46)");
     { std::lock_guard<std::mutex> lk(mme_send_mtx_);
       MessageWriter ac(MessageType::S1AP_UL_NAS_TRANSPORT, next_seq_++);
       ac.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
       ac.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
-      ac.writeU8 (Tag::NAS_MSG_TYPE,   0x46);  // Attach Complete
-      mme_conn_.sendFrame(ac.frame()); }
+      ac.writeU8 (Tag::NAS_MSG_TYPE,   0x46);
+      mme_conn_.sendFrame(ac.frame());
+      PcapWriter::instance().writeS1AP("NAS-AttachComplete(UL)",
+          PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+          PcapWriter::IP_MME, PcapWriter::PORT_S1AP); }
 }
 
 void EnbNode::commandLoop() {
@@ -183,6 +199,10 @@ void EnbNode::sendInitialUEMessage(uint32_t ue_index) {
     w.writeU64(Tag::NAS_IMSI,         imsi);
     w.writeU8 (Tag::NAS_UE_CAP,       0xE0);
     mme_conn_.sendFrame(w.frame());
+    // PCAP: S1AP Initial UE Message = Attach Request
+    PcapWriter::instance().writeS1AP("S1AP-InitialUEMsg(AttachReq)",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP);
 }
 
 void EnbNode::submitCommand(const std::string& cmd) {

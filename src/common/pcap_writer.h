@@ -1,59 +1,47 @@
 #pragma once
 // ============================================================
-// PCAP WRITER — writes real protocol headers so Wireshark
-// shows Diameter / GTPv2 / SIP (not just raw TCP/UDP)
+// PCAP WRITER — all 8 attach steps visible in Wireshark
 //
-// APPROACH:
-//   We keep TCP/UDP as transport (easy, cross-platform).
-//   We write real APPLICATION-LAYER headers on top:
-//     - Diameter (RFC 6733): 20-byte header → Wireshark shows "Diameter"
-//     - GTPv2    (TS 29.274): 8-byte header → Wireshark shows "GTPv2"
-//     - SIP      (RFC 3261): text format → Wireshark shows "SIP"
+// Protocols shown:
+//   Diameter  port 3868/3869  → shows "Diameter" (S6a AIR/AIA, Gx CCR/CCA)
+//   GTPv2     port 2123/2124  → shows "GTPv2"    (Create/Modify/Delete Session)
+//   SIP       port 5060       → shows "SIP"       (REGISTER, INVITE, 200 OK)
+//   S1AP      port 36412      → shows "TCP" + Lua dissector decodes it
 //
-//   Port numbers tell Wireshark which dissector to use:
-//     3868 → Diameter   2123/2124 → GTPv2   5060 → SIP
-//
-// FORMAT: PCAP with LINKTYPE_RAW (101) = raw IPv4
-//   Each packet: pcap_pkthdr (16B) + IP header (20B) + TCP/UDP + payload
-//
-// INTERVIEW: "Why not real SCTP?"
-//   macOS doesn't support SCTP in userspace without kernel extensions.
-//   Wireshark identifies protocols by port + application header, not
-//   transport. TCP on port 3868 → Diameter decode. Perfectly valid.
+// TCP SYN FIX: Diameter requires TCP. Wireshark only applies Diameter
+// dissector if it sees a proper TCP stream. We write fake SYN/SYN-ACK/ACK
+// before the first data packet on each new TCP connection.
 // ============================================================
 #include <cstdint>
 #include <string>
 #include <mutex>
+#include <set>
 #include <fstream>
 #include <vector>
 #include <atomic>
 #include <chrono>
 #include <cstring>
 
-// ── Diameter Command Codes (TS 29.272, TS 29.212) ────────────
 enum class DiameterCmd : uint32_t {
     CREDIT_CONTROL    = 272,   // Gx CCR/CCA
     AUTH_INFO         = 318,   // S6a AIR/AIA
     UPDATE_LOCATION   = 316,   // S6a ULR/ULA
     SERVER_ASSIGNMENT = 301,   // Cx SAR/SAA
-    USER_AUTH         = 300,   // Cx UAR/UAA
 };
 
 enum class DiameterApp : uint32_t {
-    BASE         = 0,
-    S6A          = 16777251,  // 3GPP S6a (TS 29.272)
-    GX           = 16777238,  // 3GPP Gx  (TS 29.212)
-    CX           = 16777216,  // 3GPP Cx  (TS 29.229)
+    S6A = 16777251,
+    GX  = 16777238,
+    CX  = 16777216,
 };
 
-// ── GTPv2 Message Types (TS 29.274 §8.1) ─────────────────────
 enum class GtpMsgType : uint8_t {
-    CREATE_SESSION_REQ  = 32,
-    CREATE_SESSION_RSP  = 33,
-    MODIFY_BEARER_REQ   = 34,
-    MODIFY_BEARER_RSP   = 35,
-    DELETE_SESSION_REQ  = 36,
-    DELETE_SESSION_RSP  = 37,
+    CREATE_SESSION_REQ = 32,
+    CREATE_SESSION_RSP = 33,
+    MODIFY_BEARER_REQ  = 34,
+    MODIFY_BEARER_RSP  = 35,
+    DELETE_SESSION_REQ = 36,
+    DELETE_SESSION_RSP = 37,
 };
 
 class PcapWriter {
@@ -63,35 +51,47 @@ public:
     void open(const std::string& filename = "mme_capture.pcap");
     void close();
 
-    // Write a Diameter message (shows as "Diameter" in Wireshark)
-    void writeDiameter(DiameterCmd cmd, DiameterApp app,
-                       bool is_request,
+    // Diameter — writes SYN handshake first if new connection
+    void writeDiameter(DiameterCmd cmd, DiameterApp app, bool is_request,
                        uint32_t src_ip, uint16_t src_port,
                        uint32_t dst_ip, uint16_t dst_port,
                        const std::vector<uint8_t>& avp_data = {});
 
-    // Write a GTPv2 message (shows as "GTPv2" in Wireshark)
-    void writeGTPv2(GtpMsgType msg_type,
-                    uint32_t teid,
+    // GTPv2 over UDP
+    void writeGTPv2(GtpMsgType msg_type, uint32_t teid,
                     uint32_t src_ip, uint16_t src_port,
                     uint32_t dst_ip, uint16_t dst_port,
                     const std::vector<uint8_t>& ie_data = {});
 
-    // Write a SIP message (shows as "SIP" in Wireshark)
+    // SIP text over TCP — writes SYN first if new connection
     void writeSIP(const std::string& sip_text,
                   uint32_t src_ip, uint16_t src_port,
                   uint32_t dst_ip, uint16_t dst_port);
 
-    // Convenience IPs
-    static constexpr uint32_t IP_UE   = 0x7F000001; // 127.0.0.1
-    static constexpr uint32_t IP_ENB  = 0x7F000002;
-    static constexpr uint32_t IP_MME  = 0x7F000003;
-    static constexpr uint32_t IP_HSS  = 0x7F000004;
-    static constexpr uint32_t IP_SGW  = 0x7F000005;
-    static constexpr uint32_t IP_PGW  = 0x7F000006;
-    static constexpr uint32_t IP_PCRF = 0x7F000007;
-    static constexpr uint32_t IP_PCSCF= 0x7F000008;
-    static constexpr uint32_t IP_SCSCF= 0x7F000009;
+    // S1AP (our custom TLV) over TCP port 36412
+    // Wireshark shows TCP — Lua dissector decodes message names
+    void writeS1AP(const std::string& msg_name,
+                   uint32_t src_ip, uint16_t src_port,
+                   uint32_t dst_ip, uint16_t dst_port,
+                   const std::vector<uint8_t>& payload = {});
+
+    // Node IPs used in pcap frames (loopback range)
+    static constexpr uint32_t IP_UE    = 0x7F000001; // 127.0.0.1
+    static constexpr uint32_t IP_ENB   = 0x7F000002;
+    static constexpr uint32_t IP_MME   = 0x7F000003;
+    static constexpr uint32_t IP_HSS   = 0x7F000004;
+    static constexpr uint32_t IP_SGW   = 0x7F000005;
+    static constexpr uint32_t IP_PGW   = 0x7F000006;
+    static constexpr uint32_t IP_PCRF  = 0x7F000007;
+    static constexpr uint32_t IP_PCSCF = 0x7F000008;
+    static constexpr uint32_t IP_SCSCF = 0x7F000009;
+
+    static constexpr uint16_t PORT_S1AP  = 36412;
+    static constexpr uint16_t PORT_DIA   = 3868;
+    static constexpr uint16_t PORT_GX    = 3869;
+    static constexpr uint16_t PORT_SGW   = 2123;
+    static constexpr uint16_t PORT_PGW   = 2124;
+    static constexpr uint16_t PORT_SIP   = 5060;
 
 private:
     PcapWriter() = default;
@@ -100,21 +100,36 @@ private:
     void writeGlobalHeader();
     void writePacket(const std::vector<uint8_t>& frame);
 
+    // Write TCP 3-way handshake for new connection (makes Wireshark decode Diameter/SIP)
+    void ensureTcpHandshake(uint32_t src_ip, uint16_t src_port,
+                            uint32_t dst_ip, uint16_t dst_port);
+
     std::vector<uint8_t> buildIPTCP(uint32_t src_ip, uint16_t src_port,
                                     uint32_t dst_ip, uint16_t dst_port,
-                                    const std::vector<uint8_t>& payload);
+                                    const std::vector<uint8_t>& payload,
+                                    uint8_t tcp_flags = 0x18); // PSH+ACK default
     std::vector<uint8_t> buildIPUDP(uint32_t src_ip, uint16_t src_port,
                                     uint32_t dst_ip, uint16_t dst_port,
                                     const std::vector<uint8_t>& payload);
 
-    static void putU8 (std::vector<uint8_t>& v, uint8_t  x);
-    static void putU16(std::vector<uint8_t>& v, uint16_t x); // big-endian
-    static void putU32(std::vector<uint8_t>& v, uint32_t x); // big-endian
-    static void putU32le(std::vector<uint8_t>& v, uint32_t x); // little-endian
+    static void     putU16  (std::vector<uint8_t>& v, uint16_t x);
+    static void     putU32  (std::vector<uint8_t>& v, uint32_t x);
+    static void     putU32le(std::vector<uint8_t>& v, uint32_t x);
     static uint16_t ipChecksum(const uint8_t* buf, int len);
 
-    std::ofstream     file_;
-    std::mutex        mtx_;
-    std::atomic<uint32_t> seq_{1};
-    bool              open_{false};
+    // Connection key: encode (src_ip, src_port, dst_ip, dst_port) as 96-bit value
+    // We use a sorted pair so A→B and B→A share the same handshake
+    static uint64_t connKey(uint32_t a_ip, uint16_t a_port,
+                            uint32_t b_ip, uint16_t b_port) {
+        // Sort so key is direction-independent
+        uint64_t a = (uint64_t(a_ip) << 16) | a_port;
+        uint64_t b = (uint64_t(b_ip) << 16) | b_port;
+        return (a < b) ? (a << 32 | b) : (b << 32 | a);
+    }
+
+    std::ofstream             file_;
+    std::mutex                mtx_;
+    std::atomic<uint32_t>     seq_{1};
+    std::set<uint64_t>        tcp_started_;  // connections that have SYN written
+    bool                      open_{false};
 };
