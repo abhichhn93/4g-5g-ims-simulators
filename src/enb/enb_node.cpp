@@ -79,9 +79,31 @@ void EnbNode::handleDLNas(const std::vector<uint8_t>& payload) {
     Logger::enb("[rx_th] ← DL NAS Transport  nas_type=0x" + [&]{ char b[8]; std::snprintf(b,8,"%02X",nas_type); return std::string(b); }());
     // PCAP: S1AP DL NAS Transport (MME→eNB)
     PcapWriter::instance().writeS1AP(
-        nas_type == 0x52 ? "NAS-AuthRequest(DL)" : "NAS-SecurityModeCmd(DL)",
+        nas_type == 0x52 ? "NAS-AuthRequest(DL)" :
+        nas_type == 0x5D ? "NAS-SecurityModeCmd(DL)" : "NAS-DL",
         PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
         PcapWriter::IP_ENB, PcapWriter::PORT_S1AP);
+
+    if (nas_type == 0x5D) {
+        // Security Mode Command received — UE activates algorithms, sends Complete
+        Logger::enb("[rx_th] ← NAS Security Mode Command (0x5D)");
+        Logger::ie_field("  Cipher: EEA2 (AES-128-CTR), Integrity: EIA2 (AES-128-CMAC)");
+        Logger::ie_field("  UE derives KNASenc + KNASint from KASME");
+        Logger::ie_field("  REAL: all subsequent NAS messages are integrity-protected + ciphered");
+        Logger::enb("[rx_th] → NAS Security Mode Complete (0x5E)  UE activated security");
+
+        std::lock_guard<std::mutex> lk(mme_send_mtx_);
+        MessageWriter smc_complete(MessageType::S1AP_UL_NAS_TRANSPORT, next_seq_++);
+        smc_complete.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+        smc_complete.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
+        smc_complete.writeU8 (Tag::NAS_MSG_TYPE,   0x5E);  // Security Mode Complete
+        mme_conn_.sendFrame(smc_complete.frame());
+        PcapWriter::instance().writeS1AP("NAS-SecurityModeComplete(UL)",
+            PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+            PcapWriter::IP_MME, PcapWriter::PORT_S1AP);
+        return;
+    }
+
     if (nas_type == 0x52 && rand_b.size() >= 8) {
         uint8_t res[8]; for(int i=0;i<8;i++) res[i]=rand_b[i]^0x55;
         Logger::enb("[rx_th] SIM: UE computes RES=RAND^0x55 — sending Auth Response");

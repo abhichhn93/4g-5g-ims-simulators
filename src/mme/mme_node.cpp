@@ -138,7 +138,7 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
         }
     }
 
-    VLog::step(1, 8, "ATTACH REQUEST",
+    VLog::step(1, 9, "ATTACH REQUEST",
                "UE", Logger::CLR_ENB, "eNB → MME", Logger::CLR_MME)
         .ie("IMSI",  std::to_string(imsi))
         .ie("TAI",   "MCC=" + std::to_string(mcc) + " MNC=" + std::to_string(mnc) + " TAC=0x" + std::to_string(tac))
@@ -171,7 +171,7 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
                 " → only locks 1 of 64 buckets → 64x less contention than single global mutex");
 
     // ── STEP 2: Diameter AIR to HSS ──────────────────────────
-    VLog::step(2, 8, "AUTHENTICATION-INFORMATION-REQ (AIR)",
+    VLog::step(2, 9, "AUTHENTICATION-INFORMATION-REQ (AIR)",
                "MME", Logger::CLR_MME, "HSS", Logger::CLR_HSS)
         .ie("Interface",  "Diameter S6a [TS 29.272 §7.2.5]")
         .ie("IMSI",       std::to_string(imsi))
@@ -206,7 +206,7 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
     for(int i=0;i< 8;i++) snprintf(xres_hex+i*2,3,"%02X",av.xres[i]);
     for(int i=0;i<16;i++) snprintf(autn_hex+i*2,3,"%02X",av.autn[i]);
 
-    VLog::step(3, 8, "AUTHENTICATION-INFORMATION-ANS (AIA)",
+    VLog::step(3, 9, "AUTHENTICATION-INFORMATION-ANS (AIA)",
                "HSS", Logger::CLR_HSS, "MME", Logger::CLR_MME)
         .ie("RAND",  std::string(rand_hex) + "  (random challenge)")
         .ie("XRES",  std::string(xres_hex) + "  (expected response — MME stores this)")
@@ -221,7 +221,7 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
 
     // Send Auth Request to eNB (DL NAS Transport)
     // ── STEP 4: NAS Auth Request ──────────────────────────────
-    VLog::step(4, 8, "NAS AUTH REQUEST  (DL NAS Transport)",
+    VLog::step(4, 9, "NAS AUTH REQUEST  (DL NAS Transport)",
                "MME", Logger::CLR_MME, "eNB → UE", Logger::CLR_ENB)
         .ie("RAND", std::string(rand_hex) + "  (UE uses RAND+Ki to compute RES)")
         .ie("AUTN", std::string(autn_hex) + "  (UE verifies network is authentic)")
@@ -262,7 +262,7 @@ void MmeNode::handleULNasTransport(const std::vector<uint8_t>& payload) {
         if (ok) {
             char res_hex[17]={};
             for(int i=0;i<8&&i<(int)res.size();i++) snprintf(res_hex+i*2,3,"%02X",res[i]);
-            VLog::step(5, 8, "NAS AUTH RESPONSE  (UL NAS Transport)",
+            VLog::step(5, 9, "NAS AUTH RESPONSE  (UL NAS Transport)",
                        "UE", Logger::CLR_ENB, "eNB → MME", Logger::CLR_MME)
                 .ie("RES",  std::string(res_hex) + "  (UE computed this from RAND+Ki)")
                 .ie("XRES", std::string(res_hex) + "  (matches — SIM card is genuine)")
@@ -271,11 +271,43 @@ void MmeNode::handleULNasTransport(const std::vector<uint8_t>& payload) {
                 .state("MME", "CHALLENGE_SENT → SESSION_PENDING")
                 .next("MME sends Security Mode Command, then Create Session to S-GW")
                 .flush();
+            // ── STEP 6: NAS Security Mode Command ────────────
+            VLog::step(6, 9, "NAS SECURITY MODE COMMAND  (DL NAS Transport)",
+                       "MME", Logger::CLR_MME, "eNB → UE", Logger::CLR_ENB)
+                .ie("NAS Msg Type",  "0x5D = Security Mode Command")
+                .ie("NAS Cipher",    "EEA2 (AES-128-CTR) — NAS ciphering algorithm")
+                .ie("NAS Integrity", "EIA2 (AES-128-CMAC) — NAS integrity algorithm")
+                .ie("KASME",         "root key derived from CK+IK (from AIA)")
+                .ie("KNASenc",       "derived from KASME — encrypts NAS messages")
+                .ie("KNASint",       "derived from KASME — MAC-I integrity tag")
+                .state("UE",  "AUTHENTICATED → SECURITY_MODE")
+                .state("MME", "AUTH_PENDING → SECURITY_MODE")
+                .next("UE activates selected algorithms, sends Security Mode Complete")
+                .flush();
+
+            { MessageWriter smc(MessageType::S1AP_DL_NAS_TRANSPORT, next_seq_++);
+              smc.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+              smc.writeU32(Tag::ENB_UE_S1AP_ID, ctx->enb_ue_s1ap_id);
+              smc.writeU8 (Tag::NAS_MSG_TYPE,   0x5D);  // Security Mode Command
+              enb_conn_.sendFrame(smc.frame());
+              PcapWriter::instance().writeS1AP("NAS-SecurityModeCmd(DL)",
+                  PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+                  PcapWriter::IP_ENB, PcapWriter::PORT_S1AP); }
+
             ctx->emm_state = EmmState::SESSION_PENDING;
             handleAuthSuccess(mme_id);
         } else {
             Logger::warn("MME","AUTH FAILED for IMSI="+std::to_string(ctx->imsi));
         }
+    } else if (nas_type == 0x5E) {
+        // Security Mode Complete — NAS security activated
+        Logger::mme("[mme_th] ← NAS Security Mode Complete (0x5E)  mme_id=" + std::to_string(mme_id));
+        Logger::ie_field("  EEA2 + EIA2 activated ✓ — all NAS now encrypted + integrity-protected");
+        Logger::ie_field("  INTERVIEW: this is NAS-layer security (different from AS/radio security)");
+        Logger::ie_field("  AS security activated later via KeNB in InitialContextSetupRequest");
+        PcapWriter::instance().writeS1AP("NAS-SecurityModeComplete(UL-seen-by-MME)",
+            PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+            PcapWriter::IP_MME, PcapWriter::PORT_S1AP);
     } else if (nas_type == 0x46) {
         // Attach Complete
         Logger::mme("[mme_th] ← UL NAS Transport (Attach Complete 0x46)  mme_id=" + std::to_string(mme_id));
@@ -288,7 +320,7 @@ void MmeNode::handleULNasTransport(const std::vector<uint8_t>& payload) {
             std::chrono::steady_clock::now() - ctx->attach_start).count();
         if (metrics_) metrics_->recordAttach(double(latency_ms));
 
-        VLog::step(8, 8, "ATTACH COMPLETE  ✓  UE REGISTERED",
+        VLog::step(8, 9, "ATTACH COMPLETE  ✓  UE REGISTERED",
                    "UE", Logger::CLR_ENB, "eNB → MME", Logger::CLR_MME)
             .ie("IMSI",    std::to_string(ctx->imsi))
             .ie("UE IP",   (b ? b->ue_ip : "?") + "  (allocated by P-GW)")
@@ -305,7 +337,7 @@ void MmeNode::handleULNasTransport(const std::vector<uint8_t>& payload) {
 void MmeNode::handleAuthSuccess(uint32_t mme_id) {
     auto ctx = ue_store_.find(mme_id);
     if (!ctx) return;
-    VLog::step(6, 8, "CREATE SESSION REQUEST  (GTPv2)",
+    VLog::step(7, 9, "CREATE SESSION REQUEST  (GTPv2)",
                "MME", Logger::CLR_MME, "S-GW → P-GW", Logger::CLR_SGW)
         .ie("Interface", "GTP-Cv2 S11 [TS 29.274] port 2123")
         .ie("IMSI",      std::to_string(ue_store_.find(mme_id) ? ue_store_.find(mme_id)->imsi : 0))
