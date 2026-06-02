@@ -9,6 +9,7 @@
 #include "ims/pcscf_node.h"
 #include "ims/scscf_node.h"
 #include "ims/ims_hss.h"
+#include "ims/ims_diagrams.h"
 
 // ============================================================
 // IMS SERVER — run this FIRST in Terminal 4 (or any terminal)

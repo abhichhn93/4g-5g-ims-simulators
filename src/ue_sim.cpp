@@ -228,6 +228,40 @@ public:
             ue_ip_num(), 5060, PcapWriter::IP_SCSCF, 5060);
     }
 
+    void doVideo() {
+        if (state_ != UeState::IN_CALL) { print("Not in a call."); return; }
+        print("→ SIP re-INVITE  (add VIDEO to voice call)");
+        print("  SDP: m=audio 50000 AMR-WB  +  m=video 50002 H264/90000");
+        print("  MTAS: checks video policy — H264 approved");
+        print("  P-CSCF: Rx AAR update — add video component to bearer");
+        print("  PCRF: installs QCI=2 video bearer alongside QCI=1 voice");
+
+        MessageWriter w(static_cast<MessageType>(uint16_t(SipMsgType::SIP_INVITE)), next_seq_++);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID)), current_call_id_);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_FROM)),    cfg_.impu);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_TO)),      callee_impu_);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_SDP)),
+            "audio:" + std::to_string(cfg_.rtp_port) + "/AMR-WB;"
+            "video:" + std::to_string(cfg_.rtp_port+2) + "/H264/90000;a=sendrecv");
+        conn_.sendFrame(w.frame());
+    }
+
+    void doVoice() {
+        if (state_ != UeState::IN_CALL) { print("Not in a call."); return; }
+        print("→ SIP re-INVITE  (drop video, voice only)");
+        print("  SDP: m=audio 50000 AMR-WB  +  m=video 0 H264 (port=0 = remove)");
+        print("  P-CSCF: Rx STR for video component → QCI=2 bearer released");
+
+        MessageWriter w(static_cast<MessageType>(uint16_t(SipMsgType::SIP_INVITE)), next_seq_++);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID)), current_call_id_);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_FROM)),    cfg_.impu);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_TO)),      callee_impu_);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_SDP)),
+            "audio:" + std::to_string(cfg_.rtp_port) + "/AMR-WB;"
+            "video:0/H264/90000;port=0;a=sendrecv");
+        conn_.sendFrame(w.frame());
+    }
+
     void doBye() {
         if (state_ != UeState::IN_CALL && state_ != UeState::ON_HOLD) {
             print("Not in a call."); return;
@@ -308,6 +342,15 @@ private:
                 printBanner("👥 IN CONFERENCE CALL", Logger::CLR_MTAS);
                 print("  3-party: MRFP mixing audio streams");
                 print("  Each hears the other two via MRFP bridge");
+                print("  Type CONF LEAVE (BYE) to leave conference");
+            } else if (reason == "VIDEO-ADD") {
+                printBanner("📹 VIDEO CALL ACTIVE", Logger::CLR_PCSCF);
+                print("  Audio: AMR-WB (QCI=1) + Video: H264/90000 (QCI=2)");
+                print("  Type VOICE to drop video and keep voice only");
+            } else if (reason == "VIDEO-REMOVE") {
+                printBanner("🎤 VOICE ONLY (video dropped)", Logger::CLR_ENB);
+                print("  QCI=2 video bearer released");
+                print("  QCI=1 voice bearer still active");
             } else if (reason == "BYE") {
                 state_ = UeState::REGISTERED;
                 printBanner("✓ CALL ENDED", Logger::CLR_SYS);
@@ -441,7 +484,7 @@ int main(int argc, char* argv[]) {
               << "  |  RTP port: " << cfg.rtp_port << "\n"
               << "  +==========================================+\n"
               << "  Commands: REG  CALL A|B|C  ACCEPT  REJECT\n"
-              << "            HOLD  RESUME  CONF C  BYE  STATUS  QUIT\n"
+              << "            HOLD  RESUME  VIDEO  VOICE  CONF C  BYE  STATUS  QUIT\n"
               << "  ----------------------------------------\n\n";
 
     std::signal(SIGINT, sig_handler);
@@ -487,7 +530,9 @@ int main(int argc, char* argv[]) {
             for (auto& c : tgt) c = char(std::toupper(unsigned(c)));
             ue.doConference(tgt);
         }
-        else std::cout << "  Unknown. Try: REG CALL ACCEPT REJECT HOLD RESUME CONF BYE STATUS\n";
+        else if (cmd == "VIDEO") ue.doVideo();
+        else if (cmd == "VOICE") ue.doVoice();
+        else std::cout << "  Unknown. Try: REG CALL ACCEPT REJECT HOLD RESUME VIDEO VOICE CONF BYE STATUS\n";
 
         if (!g_stop.load()) std::cout << "\n" << cfg.label << "> " << std::flush;
     }

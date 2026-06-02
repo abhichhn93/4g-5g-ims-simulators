@@ -2,6 +2,7 @@
 #include "common/logger.h"
 #include "common/visual_logger.h"
 #include "common/pcap_writer.h"
+#include "ims/ims_diagrams.h"
 #include <chrono>
 #include <thread>
 #include <stdexcept>
@@ -191,6 +192,9 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
         Logger::ie_field("  MRFC → MRFP: H.248/Megaco — create 3-party audio mixing endpoint");
         cs.in_conference = true;
 
+        // Draw conference diagram
+        Diag::ConferenceJoin(cs.caller_impu, cs.callee_impu, to_impu);
+
         // Send INVITE to third party (UE-C) via P-CSCF
         if (!to_impu.empty()) {
             Logger::scscf("S-CSCF: → INVITE to " + to_impu + " (conference participant)");
@@ -209,6 +213,20 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
         // 200 OK to caller (UE-A) — conference initiated
         sendSipResponse(SipMsgType::SIP_200_OK, call_id, cs.caller_impu, cs.callee_impu, "CONFERENCE");
         Logger::scscf("S-CSCF: → 200 OK (conference bridge active) to caller");
+
+    } else if (sdp.find("video") != std::string::npos &&
+               sdp.find("H264") != std::string::npos) {
+        // ── VIDEO SWITCH ─────────────────────────────────────
+        bool adding = (sdp.find("port=0") == std::string::npos); // port=0 means removing video
+        Logger::scscf("S-CSCF: ← re-INVITE (VIDEO SWITCH)  Call-ID=" + call_id);
+        Logger::ie_field("  SDP: m=audio (AMR-WB) + m=video (H264/90000)");
+        Logger::ie_field("  MTAS: codec policy check — H264 approved for VoLTE");
+        Logger::ie_field("  P-CSCF: Rx AAR update — add video media component");
+        Logger::ie_field("  PCRF: install QCI=2 bearer (video) alongside QCI=1 (voice)");
+        Diag::VideoSwitch(cs.caller_impu, cs.callee_impu, adding);
+        sendToPcscf(payload);
+        sendSipResponse(SipMsgType::SIP_200_OK, call_id, cs.caller_impu, cs.callee_impu,
+                        adding ? "VIDEO-ADD" : "VIDEO-REMOVE");
 
     } else {
         // ── RESUME ───────────────────────────────────────────
@@ -258,11 +276,34 @@ void ScscfNode::handle200Ok(const std::vector<uint8_t>& payload) {
 }
 
 // ── BYE ──────────────────────────────────────────────────────
-void ScscfNode::handleBye(const std::vector<uint8_t>& /*payload*/) {
-    Logger::scscf("S-CSCF: ← BYE — call teardown");
+void ScscfNode::handleBye(const std::vector<uint8_t>& payload) {
+    std::string call_id, from;
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID))) call_id = r.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_FROM))) from = r.readStr();
+        else r.skip();
+    }
+
+    Logger::scscf("S-CSCF: ← BYE  Call-ID=" + call_id);
     Logger::ie_field("  MTAS: CDR closed, generate billing record");
-    Logger::ie_field("  P-CSCF will send Rx STR → PCRF → release QCI=1 bearer");
-    sendSipResponse(SipMsgType::SIP_200_OK, "bye", "", "", "BYE");
+    Logger::ie_field("  P-CSCF: Rx STR → PCRF → QCI=1 bearer released");
+
+    // Check if this was a conference call leaving
+    auto it = calls_.find(call_id);
+    if (it != calls_.end() && it->second.in_conference) {
+        Logger::scscf("S-CSCF: Conference participant leaving — adjusting MRFC/MRFP");
+        // Find the two remaining participants
+        std::string remaining1 = it->second.caller_impu;
+        std::string remaining2 = it->second.callee_impu;
+        Diag::ConferenceLeave(from, remaining1, remaining2);
+        Logger::ie_field("  MRFC: notify MRFP to remove one stream (2-party call remains)");
+    }
+
+    calls_.erase(call_id);
+    sendSipResponse(SipMsgType::SIP_200_OK, call_id, from, "", "BYE");
+    sendToPcscf(payload); // forward BYE to peer
 }
 
 // ── MTAS invocation ───────────────────────────────────────────

@@ -3,6 +3,7 @@
 #include "common/pcap_writer.h"
 #include "common/visual_logger.h"
 #include "ims/sip_text.h"
+#include "ims/ims_diagrams.h"
 #include <chrono>
 #include <thread>
 #include <stdexcept>
@@ -107,81 +108,7 @@ static std::string ueLabel(const std::string& impu) {
     return impu;
 }
 
-// ── Print registration flow diagram ──────────────────────────
-static void printRegDiagram(const std::string& impu, const std::string& contact) {
-    std::string label = ueLabel(impu);
-    std::lock_guard<std::mutex> lk(Logger::getMutex());
-    std::cout << Logger::CLR_PCSCF
-        << "\n  ══ REGISTRATION FLOW: " << label << " ══════════════════════════════\n"
-        << "\n"
-        << "  " << label << "(" << contact << ")  P-CSCF    S-CSCF    IMS-HSS   MTAS\n"
-        << "       │               │           │           │           │\n"
-        << "       │──REGISTER────►│           │           │           │\n"
-        << "       │  IMPU,Contact │──REGISTER►│           │           │\n"
-        << "       │               │           │──Cx SAR──►│           │\n"
-        << "       │               │           │  SAR: I serve this UE │\n"
-        << "       │               │           │◄──Cx SAA──┤           │\n"
-        << "       │               │           │  SAA: iFC + profile   │\n"
-        << "       │               │           │──ISC REGISTER────────►│\n"
-        << "       │               │           │  3rd-party reg        │\n"
-        << "       │◄──200 OK──────┤◄──200 OK──┤           │           │\n"
-        << "       │  P-Assoc-URI  │  Srv-Route│           │           │\n"
-        << "  [REGISTERED]         │           │           │           │\n"
-        << "  ════════════════════════════════════════════════════════\n"
-        << Logger::CLR_RESET << "\n";
-}
-
-// ── Print call flow diagram ───────────────────────────────────
-static void printCallDiagram(const std::string& caller_impu, const std::string& callee_impu) {
-    std::string a = ueLabel(caller_impu);
-    std::string b = ueLabel(callee_impu);
-    std::lock_guard<std::mutex> lk(Logger::getMutex());
-    std::cout << Logger::CLR_SCSCF
-        << "\n  ══ VoLTE CALL FLOW: " << a << " → " << b << " ══════════════════════\n"
-        << "\n"
-        << "  " << a << "     P-CSCF    S-CSCF     MTAS      P-CSCF    " << b << "\n"
-        << "   │          │           │           │           │           │\n"
-        << "   │─INVITE──►│─INVITE───►│─ISC INV──►│           │           │\n"
-        << "   │  SDP offer│           │ OIP+CDR   │           │           │\n"
-        << "   │          │           │◄─continue─┤           │           │\n"
-        << "   │          │           │──────────────────────►│─INVITE───►│\n"
-        << "   │◄─100─────┤◄─100──────┤           │           │           │\n"
-        << "   │          │           │           │           │◄─180 Ring─┤\n"
-        << "   │◄─180─────┤◄─180──────┤           │           │           │\n"
-        << "   │ (ringback)│           │           │           │◄─200 OK───┤\n"
-        << "   │          │           │           │           │  SDP answr │\n"
-        << "   │◄─200 OK──┤◄─200 OK───┤           │           │           │\n"
-        << "   │ SDP answr │─Rx AAR───►PCRF        │           │           │\n"
-        << "   │─ACK──────►│─ACK──────►│           │           │─ACK──────►│\n"
-        << "   │          │QCI=1 bearer│           │           │           │\n"
-        << "   │◄══════RTP/AMR-WB (QCI=1 dedicated bearer)════════════════►│\n"
-        << "  ════════════════════════════════════════════════════════\n"
-        << Logger::CLR_RESET << "\n";
-}
-
-// ── Print conference diagram ──────────────────────────────────
-static void printConfDiagram() {
-    std::lock_guard<std::mutex> lk(Logger::getMutex());
-    std::cout << Logger::CLR_MTAS
-        << "\n  ══ CONFERENCE CALL FLOW ══════════════════════════════════\n"
-        << "\n"
-        << "  UE-A     S-CSCF    MTAS     MRFC      MRFP    UE-B  UE-C\n"
-        << "   │          │         │         │         │       │     │\n"
-        << "   │─re-INV──►│─ISC────►│         │         │       │     │\n"
-        << "   │          │         │─Mr INV──►│         │       │     │\n"
-        << "   │          │         │  create  │─H.248──►│       │     │\n"
-        << "   │          │         │  bridge  │ allocate│       │     │\n"
-        << "   │          │         │◄─200 OK──┤ mixer   │       │     │\n"
-        << "   │          │         │  conf-URI│         │       │     │\n"
-        << "   │          │◄────────┤─INVITE──────────────────────────►│\n"
-        << "   │          │         │          │         │       │◄INV─┤\n"
-        << "   │◄─200 OK──┤         │          │         │       │     │\n"
-        << "   │─RTP──────────────────────────►│◄─RTP───────────────── │\n"
-        << "   │◄─mixed RTP (A hears B+C)──────┤                       │\n"
-        << "   │  MRFC=controller   MRFP=DSP mixer (H.248/Megaco:2944) │\n"
-        << "  ════════════════════════════════════════════════════════\n"
-        << Logger::CLR_RESET << "\n";
-}
+// Diagram helpers — all delegated to ims_diagrams.h
 
 void PcscfNode::handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload) {
     MessageReader r(payload);
@@ -207,7 +134,7 @@ void PcscfNode::handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload
         Logger::ie_field("  IMPU:    " + impu);
         Logger::ie_field("  Contact: " + contact + "  (4G IP from EPC P-GW!)");
         Logger::ie_field("  P-Access-Network-Info: 3GPP-E-UTRAN-FDD");
-        printRegDiagram(impu, contact);
+        Diag::Registration(impu, contact);
         { std::lock_guard<std::mutex> lk(ue_mtx_); ses->impu = impu; ue_by_impu_[impu] = ses; }
         sendToScscf(payload);
         // PCAP
@@ -227,7 +154,7 @@ void PcscfNode::handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload
             call_to_caller_[call_id] = caller_impu;
             call_to_callee_[call_id] = to;
         }
-        printCallDiagram(caller_impu, to);
+        Diag::CallSetup(caller_impu, to);
         sendToScscf(payload);
         PcapWriter::instance().writeSIP(
             SipText::buildInvite(caller_impu, to, "10.0.0.x", call_id, 1),
@@ -247,11 +174,23 @@ void PcscfNode::handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload
         Logger::pcscf("P-CSCF: ← ACK from " + ueLabel(ses->impu) + "  forwarding to callee");
         sendToScscf(payload);
         break;
-    case SipMsgType::SIP_BYE:
+    case SipMsgType::SIP_BYE: {
         Logger::pcscf("P-CSCF: ← BYE from " + ueLabel(ses->impu) + "  Call-ID=" + call_id);
         Logger::ie_field("  Rx STR → PCRF → QCI=1 bearer will be released");
+        // Find peer for BYE diagram
+        std::string peer;
+        { std::lock_guard<std::mutex> lk2(call_mtx_);
+          auto it = call_to_callee_.find(call_id);
+          if (it != call_to_callee_.end()) peer = it->second;
+          else { auto it2 = call_to_caller_.find(call_id);
+                 if (it2 != call_to_caller_.end()) peer = it2->second; } }
+        Diag::CallEnd(ses->impu, peer);
         sendToScscf(payload);
+        // Clean up routing
+        { std::lock_guard<std::mutex> lk2(call_mtx_);
+          call_to_caller_.erase(call_id); call_to_callee_.erase(call_id); }
         break;
+    }
     default:
         sendToScscf(payload);
         break;
@@ -346,7 +285,19 @@ void PcscfNode::handleFromScscf(const std::vector<uint8_t>& payload) {
                 Logger::pcscf("P-CSCF: → Rx AAR to PCRF — QCI=1 dedicated bearer!");
                 sendRxAAR(target, call_id);
             } else if (reason == "CONFERENCE") {
-                printConfDiagram();
+                // Diagram shown by S-CSCF when conference is set up
+            } else if (reason == "re-INVITE-HOLD") {
+                std::string callee;
+                { std::lock_guard<std::mutex> lk2(call_mtx_);
+                  auto it = call_to_callee_.find(call_id);
+                  if (it != call_to_callee_.end()) callee = it->second; }
+                Diag::Hold(target, callee);
+            } else if (reason == "re-INVITE-RESUME") {
+                std::string callee;
+                { std::lock_guard<std::mutex> lk2(call_mtx_);
+                  auto it = call_to_callee_.find(call_id);
+                  if (it != call_to_callee_.end()) callee = it->second; }
+                Diag::Resume(target, callee);
             }
         }
 
