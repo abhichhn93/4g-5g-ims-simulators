@@ -14,6 +14,7 @@
 // ============================================================
 #include <cstdint>
 #include <string>
+#include <map>
 #include <mutex>
 #include <set>
 #include <fstream>
@@ -101,17 +102,28 @@ private:
     void writeGlobalHeader();
     void writePacket(const std::vector<uint8_t>& frame);
 
-    // Write TCP 3-way handshake for new connection (makes Wireshark decode Diameter/SIP)
+    // Proper TCP 3-way handshake with correct sequential seq numbers
+    // Without this Wireshark shows "TCP Previous segment not captured"
+    // and refuses to apply Diameter dissector even on port 3868
     void ensureTcpHandshake(uint32_t src_ip, uint16_t src_port,
                             uint32_t dst_ip, uint16_t dst_port);
 
+    // Build TCP frame with per-connection sequential seq numbers
     std::vector<uint8_t> buildIPTCP(uint32_t src_ip, uint16_t src_port,
                                     uint32_t dst_ip, uint16_t dst_port,
                                     const std::vector<uint8_t>& payload,
-                                    uint8_t tcp_flags = 0x18); // PSH+ACK default
+                                    uint8_t tcp_flags = 0x18,
+                                    uint32_t seq_num = 0,
+                                    uint32_t ack_num = 0);
     std::vector<uint8_t> buildIPUDP(uint32_t src_ip, uint16_t src_port,
                                     uint32_t dst_ip, uint16_t dst_port,
                                     const std::vector<uint8_t>& payload);
+
+    // Per-connection seq number helpers
+    bool     isClient   (uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint16_t dst_port);
+    uint32_t nextSeq    (uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint16_t dst_port);
+    uint32_t peerSeq    (uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint16_t dst_port);
+    void     advanceSeq (uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, uint16_t dst_port, uint32_t bytes);
 
     static void     putU16  (std::vector<uint8_t>& v, uint16_t x);
     static void     putU32  (std::vector<uint8_t>& v, uint32_t x);
@@ -128,9 +140,13 @@ private:
         return (a < b) ? (a << 32 | b) : (b << 32 | a);
     }
 
+    // Per-connection seq tracker: connKey → {client_seq, server_seq}
+    struct ConnSeq { uint32_t client_seq{1000}; uint32_t server_seq{2000}; };
+
     std::ofstream             file_;
     std::mutex                mtx_;
-    std::atomic<uint32_t>     seq_{1};
-    std::set<uint64_t>        tcp_started_;  // connections that have SYN written
-    bool                      open_{false};
+    std::atomic<uint32_t>     pkt_id_{1};          // just for IP ID field
+    std::map<uint64_t, ConnSeq> conn_seq_;          // per-connection seq numbers
+    std::set<uint64_t>          tcp_started_;       // connections that have SYN written
+    bool                        open_{false};
 };

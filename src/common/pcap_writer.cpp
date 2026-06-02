@@ -55,22 +55,39 @@ void PcapWriter::writePacket(const std::vector<uint8_t>& frame) {
     file_.flush();
 }
 
-// ── TCP 3-way handshake ────────────────────────────────────────
-// Wireshark needs SYN before applying Diameter/SIP dissector.
-// We write fake SYN → SYN-ACK → ACK before first data packet.
+// ── TCP 3-way handshake with CORRECT sequential seq numbers ──
+//
+// WHY this matters: Wireshark tracks TCP streams by (src,dst,sport,dport).
+// If seq numbers are random/wrong, it shows "TCP Previous segment not
+// captured" and refuses to apply the Diameter dissector even on port 3868.
+//
+// Correct sequence:
+//   SYN     client→server   seq=ISN_C  ack=0
+//   SYN-ACK server→client   seq=ISN_S  ack=ISN_C+1
+//   ACK     client→server   seq=ISN_C+1 ack=ISN_S+1
+//   DATA    client→server   seq=ISN_C+1 ack=ISN_S+1
+//
+// We use ISN_C=1000 and ISN_S=2000 per connection (simple, valid).
 void PcapWriter::ensureTcpHandshake(uint32_t src_ip, uint16_t src_port,
                                      uint32_t dst_ip, uint16_t dst_port) {
     auto key = connKey(src_ip, src_port, dst_ip, dst_port);
     if (tcp_started_.count(key)) return;
     tcp_started_.insert(key);
 
+    auto& cs = conn_seq_[key];
+    cs.client_seq = 1000;
+    cs.server_seq = 2000;
+
     std::vector<uint8_t> empty;
-    // SYN  (client → server)
-    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, empty, 0x02));
-    // SYN-ACK (server → client)
-    writePacket(buildIPTCP(dst_ip, dst_port, src_ip, src_port, empty, 0x12));
-    // ACK (client → server)
-    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, empty, 0x10));
+    // SYN:     client seq=1000, ack=0
+    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, empty, 0x02, cs.client_seq, 0));
+    // SYN-ACK: server seq=2000, ack=1001
+    writePacket(buildIPTCP(dst_ip, dst_port, src_ip, src_port, empty, 0x12, cs.server_seq, cs.client_seq + 1));
+    // ACK:     client seq=1001, ack=2001
+    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, empty, 0x10, cs.client_seq + 1, cs.server_seq + 1));
+    // Advance client seq past handshake
+    cs.client_seq += 1;  // now 1001
+    cs.server_seq += 1;  // now 2001
 }
 
 // ── Diameter ──────────────────────────────────────────────────
@@ -80,7 +97,7 @@ void PcapWriter::writeDiameter(DiameterCmd cmd, DiameterApp app, bool is_request
                                 const std::vector<uint8_t>& avp_data) {
     uint32_t code  = static_cast<uint32_t>(cmd);
     uint32_t appid = static_cast<uint32_t>(app);
-    uint32_t s     = seq_.fetch_add(1);
+    uint32_t s     = pkt_id_.fetch_add(1);
 
     // Diameter header (20 bytes, RFC 6733 §3)
     std::vector<uint8_t> dia;
@@ -134,7 +151,10 @@ void PcapWriter::writeDiameter(DiameterCmd cmd, DiameterApp app, bool is_request
 
     std::lock_guard<std::mutex> lk(mtx_);
     ensureTcpHandshake(src_ip, src_port, dst_ip, dst_port);
-    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, dia));
+    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, dia, 0x18,
+                            nextSeq(src_ip, src_port, dst_ip, dst_port),
+                            peerSeq(src_ip, src_port, dst_ip, dst_port)));
+    advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(dia.size()));
 }
 
 // ── GTPv2 ─────────────────────────────────────────────────────
@@ -142,7 +162,7 @@ void PcapWriter::writeGTPv2(GtpMsgType msg_type, uint32_t teid,
                              uint32_t src_ip, uint16_t src_port,
                              uint32_t dst_ip, uint16_t dst_port,
                              const std::vector<uint8_t>& ie_data) {
-    uint32_t s = seq_.fetch_add(1);
+    uint32_t s = pkt_id_.fetch_add(1);
     uint16_t gtp_len = uint16_t(4 + ie_data.size());
 
     std::vector<uint8_t> gtp;
@@ -168,7 +188,10 @@ void PcapWriter::writeSIP(const std::string& sip_text,
     std::vector<uint8_t> payload(sip_text.begin(), sip_text.end());
     std::lock_guard<std::mutex> lk(mtx_);
     ensureTcpHandshake(src_ip, src_port, dst_ip, dst_port);
-    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, payload));
+    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, payload, 0x18,
+                            nextSeq(src_ip, src_port, dst_ip, dst_port),
+                            peerSeq(src_ip, src_port, dst_ip, dst_port)));
+    advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(payload.size()));
 }
 
 // ── S1AP (our custom TLV — Lua dissector decodes it) ──────────
@@ -184,34 +207,76 @@ void PcapWriter::writeS1AP(const std::string& msg_name,
 
     std::lock_guard<std::mutex> lk(mtx_);
     ensureTcpHandshake(src_ip, src_port, dst_ip, dst_port);
-    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, data));
+    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, data, 0x18,
+                            nextSeq(src_ip, src_port, dst_ip, dst_port),
+                            peerSeq(src_ip, src_port, dst_ip, dst_port)));
+    advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(data.size()));
+}
+
+// ── Per-connection seq helpers ─────────────────────────────────
+// These determine which seq belongs to which direction.
+// "client" = lower connKey half, "server" = higher.
+bool PcapWriter::isClient(uint32_t src_ip, uint16_t src_port,
+                           uint32_t dst_ip, uint16_t dst_port) {
+    uint64_t a = (uint64_t(src_ip) << 16) | src_port;
+    uint64_t b = (uint64_t(dst_ip) << 16) | dst_port;
+    return a <= b;
+}
+
+uint32_t PcapWriter::nextSeq(uint32_t src_ip, uint16_t src_port,
+                              uint32_t dst_ip, uint16_t dst_port) {
+    auto key = connKey(src_ip, src_port, dst_ip, dst_port);
+    auto& cs = conn_seq_[key];
+    return isClient(src_ip, src_port, dst_ip, dst_port) ? cs.client_seq : cs.server_seq;
+}
+
+uint32_t PcapWriter::peerSeq(uint32_t src_ip, uint16_t src_port,
+                              uint32_t dst_ip, uint16_t dst_port) {
+    auto key = connKey(src_ip, src_port, dst_ip, dst_port);
+    auto& cs = conn_seq_[key];
+    return isClient(src_ip, src_port, dst_ip, dst_port) ? cs.server_seq : cs.client_seq;
+}
+
+void PcapWriter::advanceSeq(uint32_t src_ip, uint16_t src_port,
+                              uint32_t dst_ip, uint16_t dst_port, uint32_t bytes) {
+    auto key = connKey(src_ip, src_port, dst_ip, dst_port);
+    auto& cs = conn_seq_[key];
+    if (isClient(src_ip, src_port, dst_ip, dst_port)) cs.client_seq += bytes;
+    else cs.server_seq += bytes;
 }
 
 // ── IP + TCP frame ─────────────────────────────────────────────
 std::vector<uint8_t> PcapWriter::buildIPTCP(uint32_t src_ip, uint16_t src_port,
                                              uint32_t dst_ip, uint16_t dst_port,
                                              const std::vector<uint8_t>& payload,
-                                             uint8_t tcp_flags) {
+                                             uint8_t tcp_flags,
+                                             uint32_t seq_num,
+                                             uint32_t ack_num) {
     uint16_t ip_total = uint16_t(20 + 20 + payload.size());
     std::vector<uint8_t> ip;
     ip.push_back(0x45); ip.push_back(0x00);
     putU16(ip, ip_total);
-    putU16(ip, uint16_t(seq_.load()));
+    putU16(ip, uint16_t(pkt_id_.fetch_add(1)));
     putU16(ip, 0x4000);
-    ip.push_back(64); ip.push_back(6); // TCP
+    ip.push_back(64); ip.push_back(6); // protocol = TCP
     putU16(ip, 0x0000);
     putU32(ip, src_ip); putU32(ip, dst_ip);
     uint16_t ck = ipChecksum(ip.data(), 20);
     ip[10] = (ck >> 8) & 0xFF; ip[11] = ck & 0xFF;
 
+    // ACK flag: set for all except SYN
+    bool has_ack = (tcp_flags != 0x02);
+
     std::vector<uint8_t> tcp;
-    putU16(tcp, src_port); putU16(tcp, dst_port);
-    putU32(tcp, seq_.fetch_add(1));
-    putU32(tcp, tcp_flags == 0x02 ? 0 : 1); // ack=1 for non-SYN
-    tcp.push_back(0x50);        // data offset = 5
+    putU16(tcp, src_port);
+    putU16(tcp, dst_port);
+    putU32(tcp, seq_num);
+    putU32(tcp, has_ack ? ack_num : 0);
+    tcp.push_back(0x50);       // data offset = 5 (20 bytes, no options)
     tcp.push_back(tcp_flags);
-    putU16(tcp, 65535);
-    putU16(tcp, 0); putU16(tcp, 0);
+    putU16(tcp, 65535);        // window size
+    putU16(tcp, 0x0000);       // checksum (0 = disabled, Wireshark ignores)
+    putU16(tcp, 0x0000);       // urgent pointer
 
     std::vector<uint8_t> frame;
     frame.insert(frame.end(), ip.begin(),      ip.end());
@@ -229,7 +294,7 @@ std::vector<uint8_t> PcapWriter::buildIPUDP(uint32_t src_ip, uint16_t src_port,
     std::vector<uint8_t> ip;
     ip.push_back(0x45); ip.push_back(0x00);
     putU16(ip, ip_total);
-    putU16(ip, uint16_t(seq_.load()));
+    putU16(ip, uint16_t(pkt_id_.load()));
     putU16(ip, 0x4000);
     ip.push_back(64); ip.push_back(17); // UDP
     putU16(ip, 0x0000);
