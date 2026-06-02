@@ -1,5 +1,7 @@
 #include "mme/mme_node.h"
 #include "common/logger.h"
+#include "common/visual_logger.h"
+#include "common/pcap_writer.h"
 #include "common/subscriber_profile.h"
 #include <chrono>
 #include <thread>
@@ -136,8 +138,15 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
         }
     }
 
-    Logger::mme("[mme_th] ← S1AP InitialUEMessage  IMSI=" + std::to_string(imsi) + " eNB-id=" + std::to_string(enb_id));
-    Logger::ie_field("  TAI=MCC:"+std::to_string(mcc)+" MNC:"+std::to_string(mnc)+" TAC:"+std::to_string(tac));
+    VLog::step(1, 8, "ATTACH REQUEST",
+               "UE", Logger::CLR_ENB, "eNB → MME", Logger::CLR_MME)
+        .ie("IMSI",  std::to_string(imsi))
+        .ie("TAI",   "MCC=" + std::to_string(mcc) + " MNC=" + std::to_string(mnc) + " TAC=0x" + std::to_string(tac))
+        .ie("eNB-UE-S1AP-ID", std::to_string(enb_id))
+        .state("UE", "DEREGISTERED → REG_PENDING")
+        .next("MME creates UE context, sends Authentication-Information-Req to HSS")
+        .flush();
+    // PCAP: write this as seen from eNB side — no Diameter yet, just log marker
 
     // Create UE context in sharded store
     auto ctx = std::make_shared<UeContext>();
@@ -161,26 +170,64 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
     Logger::mme("[mme_th] SHARDING: mme_id%64=" + std::to_string(mme_id%64) +
                 " → only locks 1 of 64 buckets → 64x less contention than single global mutex");
 
-    // Send Diameter AIR to HSS
-    Logger::mme("[mme_th] → Diameter AIR to HSS");
+    // ── STEP 2: Diameter AIR to HSS ──────────────────────────
+    VLog::step(2, 8, "AUTHENTICATION-INFORMATION-REQ (AIR)",
+               "MME", Logger::CLR_MME, "HSS", Logger::CLR_HSS)
+        .ie("Interface",  "Diameter S6a [TS 29.272 §7.2.5]")
+        .ie("IMSI",       std::to_string(imsi))
+        .ie("PLMN",       "MCC=" + std::to_string(mcc) + " MNC=" + std::to_string(mnc))
+        .ie("Req-Vectors","1 (number of auth vectors requested)")
+        .state("MME", "IDLE → AUTH_PENDING")
+        .next("HSS runs Milenage algo: Ki+RAND → XRES, AUTN, KASME, CK, IK")
+        .flush();
+
     { MessageWriter air(MessageType::DIA_AIR, next_seq_++);
       air.writeU64(Tag::DIA_IMSI, imsi);
       air.writeU32(Tag::DIA_PLMN, (uint32_t(mcc)<<16)|mnc);
-      hss_conn_.sendFrame(air.frame()); }
+      hss_conn_.sendFrame(air.frame());
+      // PCAP: real Diameter AIR header → Wireshark shows "Diameter"
+      PcapWriter::instance().writeDiameter(
+          DiameterCmd::AUTH_INFO, DiameterApp::S6A, true,
+          PcapWriter::IP_MME, 3868, PcapWriter::IP_HSS, 3868); }
 
-    // BLOCK waiting for AIA (cv.wait — hss_rx_th will notify)
-    Logger::mme("[mme_th] cv.wait for HSS AIA...");
+    // BLOCK on cv.wait (hss_rx_th is PRODUCER, this thread is CONSUMER)
+    Logger::mme("[mme_th] cv.wait — blocking until HSS AIA arrives [condition_variable]");
     AuthVectors av{};
     { std::unique_lock<std::mutex> lk(pending_auth_mutex_);
       pending_auth_cv_.wait(lk, [&]{ return pending_auth_.count(imsi)>0 || stop_.load(); });
       if (stop_.load()) return;
       av = pending_auth_[imsi]; pending_auth_.erase(imsi); }
 
-    Logger::mme("[mme_th] AIA received! Storing auth vectors in UE context");
     { auto c = ue_store_.find(mme_id); if(c){ c->auth = av; c->emm_state=EmmState::AUTH_PENDING; } }
 
+    // ── STEP 3: AIA received ──────────────────────────────────
+    char rand_hex[33]={}, xres_hex[17]={}, autn_hex[33]={};
+    for(int i=0;i<16;i++) snprintf(rand_hex+i*2,3,"%02X",av.rand[i]);
+    for(int i=0;i< 8;i++) snprintf(xres_hex+i*2,3,"%02X",av.xres[i]);
+    for(int i=0;i<16;i++) snprintf(autn_hex+i*2,3,"%02X",av.autn[i]);
+
+    VLog::step(3, 8, "AUTHENTICATION-INFORMATION-ANS (AIA)",
+               "HSS", Logger::CLR_HSS, "MME", Logger::CLR_MME)
+        .ie("RAND",  std::string(rand_hex) + "  (random challenge)")
+        .ie("XRES",  std::string(xres_hex) + "  (expected response — MME stores this)")
+        .ie("AUTN",  std::string(autn_hex) + "  (network auth token — UE verifies this)")
+        .ie("KASME", "derived from CK+IK — root key for NAS/AS security")
+        .state("MME", "AUTH_PENDING → CHALLENGE_SENT")
+        .next("MME sends RAND+AUTN to UE via eNB (NAS Auth Request)")
+        .flush();
+    PcapWriter::instance().writeDiameter(
+        DiameterCmd::AUTH_INFO, DiameterApp::S6A, false,
+        PcapWriter::IP_HSS, 3868, PcapWriter::IP_MME, 3868);
+
     // Send Auth Request to eNB (DL NAS Transport)
-    Logger::mme("[mme_th] → DL NAS Transport (Auth Request) to eNB");
+    // ── STEP 4: NAS Auth Request ──────────────────────────────
+    VLog::step(4, 8, "NAS AUTH REQUEST  (DL NAS Transport)",
+               "MME", Logger::CLR_MME, "eNB → UE", Logger::CLR_ENB)
+        .ie("RAND", std::string(rand_hex) + "  (UE uses RAND+Ki to compute RES)")
+        .ie("AUTN", std::string(autn_hex) + "  (UE verifies network is authentic)")
+        .ie("KSI",  "0 (Key Set Identifier)")
+        .state("UE", "REG_PENDING → AUTH_CHALLENGE")
+        .next("UE runs Milenage: verifies AUTN, computes RES, sends Auth Response");
     MessageWriter dl(MessageType::S1AP_DL_NAS_TRANSPORT, next_seq_++);
     dl.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
     dl.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
@@ -213,8 +260,17 @@ void MmeNode::handleULNasTransport(const std::vector<uint8_t>& payload) {
         if (!ctx) { Logger::warn("MME","no UE context for id="+std::to_string(mme_id)); return; }
         bool ok = (res.size()>=8 && std::memcmp(res.data(), ctx->auth.xres, 8)==0);
         if (ok) {
-            Logger::mme("[mme_th] ✓ AUTH SUCCESS for IMSI=" + std::to_string(ctx->imsi));
-            Logger::ie_field("  RES matches XRES from HSS — UE has correct SIM");
+            char res_hex[17]={};
+            for(int i=0;i<8&&i<(int)res.size();i++) snprintf(res_hex+i*2,3,"%02X",res[i]);
+            VLog::step(5, 8, "NAS AUTH RESPONSE  (UL NAS Transport)",
+                       "UE", Logger::CLR_ENB, "eNB → MME", Logger::CLR_MME)
+                .ie("RES",  std::string(res_hex) + "  (UE computed this from RAND+Ki)")
+                .ie("XRES", std::string(res_hex) + "  (matches — SIM card is genuine)")
+                .ie("Result","RES == XRES ✓  Authentication SUCCESS")
+                .state("UE",  "AUTH_CHALLENGE → AUTHENTICATED")
+                .state("MME", "CHALLENGE_SENT → SESSION_PENDING")
+                .next("MME sends Security Mode Command, then Create Session to S-GW")
+                .flush();
             ctx->emm_state = EmmState::SESSION_PENDING;
             handleAuthSuccess(mme_id);
         } else {
@@ -228,25 +284,39 @@ void MmeNode::handleULNasTransport(const std::vector<uint8_t>& payload) {
         ctx->emm_state = EmmState::REGISTERED;
         auto* b = ctx->defaultBearer();
 
-        // Phase 4: record latency for BULK metrics
         auto latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - ctx->attach_start).count();
         if (metrics_) metrics_->recordAttach(double(latency_ms));
 
-        Logger::mme("[mme_th] ✓ ATTACH COMPLETE — UE REGISTERED!  latency=" +
-                    std::to_string(latency_ms) + "ms");
-        Logger::ie_field("  IMSI=" + std::to_string(ctx->imsi) +
-                         "  MME-id=" + std::to_string(mme_id) +
-                         "  IP=" + (b ? b->ue_ip : "?"));
-        Logger::ie_field("  EMM State: SESSION_PENDING → REGISTERED");
-        Logger::ie_field("  UE now has LTE data connectivity! (Phase 4 will add internet routing)");
-        Logger::ie_field("  REAL: MME sends Modify Bearer Request to S-GW again for charging start");
+        VLog::step(8, 8, "ATTACH COMPLETE  ✓  UE REGISTERED",
+                   "UE", Logger::CLR_ENB, "eNB → MME", Logger::CLR_MME)
+            .ie("IMSI",    std::to_string(ctx->imsi))
+            .ie("UE IP",   (b ? b->ue_ip : "?") + "  (allocated by P-GW)")
+            .ie("QCI-9",   "Default bearer ACTIVE — internet/SIP signalling")
+            .ie("Latency", std::to_string(latency_ms) + "ms  (full attach end-to-end)")
+            .state("UE",   "AUTHENTICATED → REGISTERED")
+            .state("MME",  "SESSION_PENDING → REGISTERED")
+            .ie("VoLTE",   "Run mme_ims to add IMS registration + QCI=1 voice bearer")
+            .next("UE has LTE data. Type REGISTER in mme_ims for VoLTE on top of this bearer")
+            .flush();
     }
 }
 
 void MmeNode::handleAuthSuccess(uint32_t mme_id) {
     auto ctx = ue_store_.find(mme_id);
     if (!ctx) return;
+    VLog::step(6, 8, "CREATE SESSION REQUEST  (GTPv2)",
+               "MME", Logger::CLR_MME, "S-GW → P-GW", Logger::CLR_SGW)
+        .ie("Interface", "GTP-Cv2 S11 [TS 29.274] port 2123")
+        .ie("IMSI",      std::to_string(ue_store_.find(mme_id) ? ue_store_.find(mme_id)->imsi : 0))
+        .ie("APN",       "internet  (Access Point Name)")
+        .ie("PDN-Type",  "IPv4")
+        .ie("QCI",       "9 (default bearer — internet traffic)")
+        .state("Bearer", "NONE → CREATING")
+        .next("S-GW forwards to P-GW, P-GW queries PCRF for QCI policy via Gx")
+        .flush();
+    PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_REQ, 0,
+        PcapWriter::IP_MME, 2123, PcapWriter::IP_SGW, 2123);
     Logger::mme("[mme_th] → Starting GTP-C session setup (Phase 3)");
     if (!sendCreateSession(mme_id, ctx->imsi)) return;
 

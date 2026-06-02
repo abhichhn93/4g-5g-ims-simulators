@@ -8,6 +8,8 @@
 #include <memory>
 
 #include "common/logger.h"
+#include "common/visual_logger.h"
+#include "common/pcap_writer.h"
 #include "common/thread_pool.h"
 #include "common/metrics.h"
 #include "enb/enb_node.h"
@@ -62,18 +64,8 @@ static std::atomic<bool>* g_stop = nullptr;
 static void sig_handler(int) { if(g_stop) g_stop->store(true); }
 
 int main() {
-    Logger::sys("╔══════════════════════════════════════════════════════════════╗");
-    Logger::sys("║  4G EPC MME Simulator — Phase 4                              ║");
-    Logger::sys("║  eNB──S1AP──MME──Dia──HSS                                    ║");
-    Logger::sys("║              └──GTP-C──SGW──GTP-C──PGW──Gx──PCRF             ║");
-    Logger::sys("╚══════════════════════════════════════════════════════════════╝");
-    Logger::sys("Commands:");
-    Logger::sys("  CR <n>    — attach n UEs (sequential)");
-    Logger::sys("  BULK <n>  — attach n UEs via thread pool (8 workers), print P95/P99");
-    Logger::sys("  STATUS    — show UE context table");
-    Logger::sys("  QUIT / Ctrl+C");
-    Logger::sys("Ports: eNB:38412 HSS:3868 SGW:2123 PGW:2124 PCRF:3869 MME-S11:2125");
-    Logger::sys("──────────────────────────────────────────────────────────────────");
+    VLog::printStartupDiagram();
+    PcapWriter::instance().open("mme_capture.pcap");
 
     std::atomic<bool> stop{false};
     std::atomic<bool> enb_ready{false}, hss_ready{false};
