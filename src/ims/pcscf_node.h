@@ -40,6 +40,7 @@ class PcscfNode {
 public:
     PcscfNode(std::atomic<bool>& stop, std::atomic<bool>& pcscf_ready);
     void run();
+    void printStatus();
 
 private:
     std::atomic<bool>& stop_;

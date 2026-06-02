@@ -70,8 +70,19 @@ int main() {
         Logger::sys("Ctrl+C to stop");
     }
 
-    // Block until Ctrl+C
-    while (!stop.load()) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    // Interactive: STATUS command + Ctrl+C to stop
+    Logger::sys("Type STATUS to see connected UEs and active calls. Ctrl+C to stop.");
+    std::string line;
+    std::cout << "\nims-server> " << std::flush;
+    while (!stop.load() && std::getline(std::cin, line)) {
+        if (line == "STATUS" || line == "status")
+            pcscf.printStatus();
+        else if (line == "QUIT" || line == "quit")
+            break;
+        else if (!line.empty())
+            Logger::sys("Commands: STATUS  QUIT  (Ctrl+C to stop)");
+        if (!stop.load()) std::cout << "\nims-server> " << std::flush;
+    }
 
     Logger::sys("Shutting down IMS server...");
     hss_th.join(); scscf_th.join(); pcscf_th.join();
