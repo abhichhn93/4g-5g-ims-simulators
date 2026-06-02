@@ -213,10 +213,12 @@ public:
         print("  S-CSCF → MTAS → MRFC (Mr/SIP) → MRFP (H.248/Megaco)");
         print("  MRFP allocates 3-way audio mixing bridge");
 
+        // KEY: set To = UE-C's IMPU so S-CSCF knows who to add to conference
+        // S-CSCF reads this To: to send INVITE to UE-C
         MessageWriter w(static_cast<MessageType>(uint16_t(SipMsgType::SIP_INVITE)), next_seq_++);
         w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID)), current_call_id_);
         w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_FROM)),    cfg_.impu);
-        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_TO)),      callee_impu_);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_TO)),      it->second); // UE-C's IMPU
         w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_SDP)),     conf_uri + ";a=sendrecv;conf");
         conn_.sendFrame(w.frame());
 
@@ -314,17 +316,44 @@ private:
             break;
 
         case SipMsgType::SIP_INVITE: {
-            // Incoming call
-            if (!call_id.empty()) current_call_id_ = call_id;
-            if (!from.empty()) caller_impu_ = from;
-            state_ = UeState::RINGING;
-            printBanner("📞 INCOMING CALL", Logger::CLR_PCSCF);
-            print("  From:    " + from + "  (CLI)");
-            print("  Call-ID: " + call_id);
-            print("  SDP:     " + (sdp.empty() ? "audio/AMR-WB + video/H264 offer" : sdp));
-            print("  MTAS:    OIP verified, no barring, TIP presentation OK");
-            print("  >>> Type ACCEPT to answer  |  REJECT to decline");
-            // PCAP
+            bool is_hold = (sdp.find("sendonly") != std::string::npos ||
+                            sdp.find("inactive") != std::string::npos);
+            bool is_conf = (sdp.find("conf") != std::string::npos);
+            bool is_reinvite = (!current_call_id_.empty() && call_id == current_call_id_);
+
+            if (is_hold && is_reinvite) {
+                // ── re-INVITE: HOLD ──────────────────────────
+                printBanner("⏸  PUT ON HOLD", Logger::CLR_SGW);
+                print("  Caller put you on hold");
+                print("  SDP: a=sendonly (you still send, caller not receiving)");
+                print("  Hold music playing...");
+                print("  Wait for caller to RESUME");
+
+            } else if (is_conf) {
+                // ── Conference INVITE ─────────────────────────
+                if (!call_id.empty()) current_call_id_ = call_id;
+                if (!from.empty()) caller_impu_ = from;
+                state_ = UeState::RINGING;
+                printBanner("👥 CONFERENCE INVITE", Logger::CLR_MTAS);
+                print("  From:      " + from + "  (adding you to conference)");
+                print("  Call-ID:   " + call_id);
+                print("  MRFC:      conference bridge ready");
+                print("  MRFP:      3-party audio mixing active");
+                print("  SDP:       " + sdp);
+                print("  >>> Type ACCEPT to join conference");
+
+            } else {
+                // ── New incoming call ─────────────────────────
+                if (!call_id.empty()) current_call_id_ = call_id;
+                if (!from.empty()) caller_impu_ = from;
+                state_ = UeState::RINGING;
+                printBanner("📞 INCOMING CALL", Logger::CLR_PCSCF);
+                print("  From:    " + from + "  (CLI — presented by MTAS OIP)");
+                print("  Call-ID: " + call_id + "  (unique dialog ID)");
+                print("  SDP:     " + (sdp.empty() ? "audio/AMR-WB + video/H264 offer" : sdp));
+                print("  MTAS:    OIP verified, TIP presentation OK, CDR started");
+                print("  >>> Type ACCEPT to answer  |  REJECT to decline");
+            }
             PcapWriter::instance().writeSIP(
                 SipText::buildInvite(from, cfg_.impu, "10.0.0.x", call_id, 1),
                 PcapWriter::IP_PCSCF, 5060, ue_ip_num(), 5060);

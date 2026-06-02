@@ -158,28 +158,60 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
                                  const std::string& call_id,
                                  const std::string& from,
                                  const std::string& sdp) {
+    // Extract To header to know who is being added (conference) or held
+    std::string to_impu;
+    MessageReader r2(payload);
+    while (r2.hasMore()) {
+        Tag tag; uint16_t len; if (!r2.peek(tag, len)) break;
+        if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_TO))) { to_impu = r2.readStr(); break; }
+        else r2.skip();
+    }
+
     auto& cs = calls_[call_id];
 
     if (sdp.find("inactive") != std::string::npos || sdp.find("sendonly") != std::string::npos) {
-        // Hold
+        // ── HOLD ─────────────────────────────────────────────
         Logger::scscf("S-CSCF: ← re-INVITE (HOLD)  Call-ID=" + call_id);
-        Logger::ie_field("  SDP: a=sendonly  (caller still sends, stops receiving)");
+        Logger::ie_field("  SDP: a=sendonly  (caller stops receiving, callee hears hold music)");
         Logger::ie_field("  REAL: a=inactive = full hold, a=sendonly = one-way hold");
-        Logger::ie_field("  MTAS: notifies callee UE to play hold music");
+        Logger::ie_field("  MTAS: notified via ISC — plays hold music toward callee");
         cs.on_hold = true;
-        sendToPcscf(payload);  // deliver re-INVITE to callee
+        // Forward re-INVITE to callee so callee UE sees hold state
+        sendToPcscf(payload);
+        // 200 OK back to caller
         sendSipResponse(SipMsgType::SIP_200_OK, call_id, cs.caller_impu, cs.callee_impu, "re-INVITE-HOLD");
-        Logger::scscf("S-CSCF: → 200 OK (hold accepted)  callee is on hold");
+        Logger::scscf("S-CSCF: → 200 OK (hold acknowledged)");
+
     } else if (sdp.find("conf") != std::string::npos) {
-        // Conference
+        // ── CONFERENCE ───────────────────────────────────────
         Logger::scscf("S-CSCF: ← re-INVITE (CONFERENCE)  Call-ID=" + call_id);
-        Logger::ie_field("  SDP: conference URI requested");
-        Logger::ie_field("  MTAS: invoke MRFC (Mr interface, SIP) → allocate mixing bridge");
-        Logger::ie_field("  MRFC → MRFP: H.248 — create 3-party audio mix endpoint");
+        Logger::ie_field("  To: " + to_impu + "  ← third party being added");
+        Logger::ie_field("  MTAS: invoke MRFC via Mr interface (SIP)");
+        Logger::ie_field("  MRFC: allocate conference bridge  conf-URI=sip:conf-N@mrfc");
+        Logger::ie_field("  MRFC → MRFP: H.248/Megaco — create 3-party audio mixing endpoint");
         cs.in_conference = true;
+
+        // Send INVITE to third party (UE-C) via P-CSCF
+        if (!to_impu.empty()) {
+            Logger::scscf("S-CSCF: → INVITE to " + to_impu + " (conference participant)");
+            Logger::ie_field("  P-CSCF will deliver to UE-C terminal");
+            Logger::ie_field("  UE-C: type ACCEPT to join conference");
+
+            MessageWriter inv(static_cast<MessageType>(uint16_t(SipMsgType::SIP_INVITE)), next_seq_++);
+            inv.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_FROM)),    cs.caller_impu);
+            inv.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_TO)),      to_impu);
+            inv.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID)), call_id + "-conf");
+            inv.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_SDP)),
+                "audio:50000/AMR-WB/16000;conf;a=sendrecv");
+            sendToPcscf(inv.frame());
+        }
+
+        // 200 OK to caller (UE-A) — conference initiated
         sendSipResponse(SipMsgType::SIP_200_OK, call_id, cs.caller_impu, cs.callee_impu, "CONFERENCE");
+        Logger::scscf("S-CSCF: → 200 OK (conference bridge active) to caller");
+
     } else {
-        // Resume
+        // ── RESUME ───────────────────────────────────────────
         Logger::scscf("S-CSCF: ← re-INVITE (RESUME)  Call-ID=" + call_id);
         Logger::ie_field("  SDP: a=sendrecv  (restoring bidirectional media)");
         cs.on_hold = false;
