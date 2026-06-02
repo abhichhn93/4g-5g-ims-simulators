@@ -85,6 +85,7 @@ public:
     static constexpr uint32_t IP_PCRF  = 0x7F000007;
     static constexpr uint32_t IP_PCSCF = 0x7F000008;
     static constexpr uint32_t IP_SCSCF = 0x7F000009;
+    static constexpr uint32_t IP_MTAS  = 0x7F00000A;
 
     static constexpr uint16_t PORT_S1AP  = 36412;
     static constexpr uint16_t PORT_DIA   = 3868;
