@@ -92,12 +92,24 @@ void PcscfNode::ueReceiveLoop(UeSession* ses) {
 }
 
 void PcscfNode::scscfReceiveLoop() {
+    Logger::pcscf("P-CSCF: scscfReceiveLoop started — watching for S-CSCF responses");
     while (!stop_.load()) {
         if (!scscf_conn_.hasData(100)) continue;
         std::vector<uint8_t> payload;
-        if (!scscf_conn_.recvFrame(payload)) break;
+        if (!scscf_conn_.recvFrame(payload)) {
+            Logger::warn("P-CSCF", "S-CSCF connection lost — attempting reconnect");
+            // Try to reconnect to S-CSCF rather than dying
+            for (int i = 0; i < 30 && !stop_.load(); ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                try { scscf_conn_ = Socket::connectTo(SCSCF_IP, SCSCF_PORT); break; }
+                catch (...) {}
+            }
+            continue;
+        }
+        Logger::pcscf("P-CSCF: [scscf_rx] received " + std::to_string(payload.size()) + " bytes from S-CSCF");
         handleFromScscf(payload);
     }
+    Logger::pcscf("P-CSCF: scscfReceiveLoop exiting");
 }
 
 // ── Helper: route to UE by IMPU ──────────────────────────────
@@ -324,10 +336,19 @@ void PcscfNode::sendToScscf(const std::vector<uint8_t>& frame) {
 void PcscfNode::sendToUe(const std::string& impu, const std::vector<uint8_t>& frame) {
     std::lock_guard<std::mutex> lk(ue_mtx_);
     auto it = ue_by_impu_.find(impu);
-    if (it != ue_by_impu_.end() && it->second->sock.valid())
-        it->second->sock.sendFrame(frame);
-    else
-        Logger::warn("P-CSCF", "no route to " + ueLabel(impu) + " — IMPU=" + impu);
+    if (it != ue_by_impu_.end() && it->second->sock.valid()) {
+        bool ok = it->second->sock.sendFrame(frame);
+        if (ok)
+            Logger::pcscf("P-CSCF: → delivered " + std::to_string(frame.size()) +
+                          " bytes to " + ueLabel(impu) + " ✓");
+        else
+            Logger::warn("P-CSCF", "sendFrame FAILED for " + ueLabel(impu));
+    } else {
+        Logger::warn("P-CSCF", "NO ROUTE to " + ueLabel(impu) +
+                     " (registered UEs: " + std::to_string(ue_by_impu_.size()) + ")");
+        for (auto& [k,v] : ue_by_impu_)
+            Logger::warn("P-CSCF", "  known: " + ueLabel(k));
+    }
 }
 
 void PcscfNode::sendRxAAR(const std::string& impu, const std::string& call_id) {

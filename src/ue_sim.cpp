@@ -295,7 +295,11 @@ private:
         while (!g_stop.load()) {
             if (!conn_.hasData(100)) continue;
             std::vector<uint8_t> payload;
-            if (!conn_.recvFrame(payload)) break;
+            if (!conn_.recvFrame(payload)) {
+                print("[rx] connection lost — P-CSCF disconnected");
+                break;
+            }
+            print("[rx] got " + std::to_string(payload.size()) + " bytes from P-CSCF");
             handleIncoming(payload);
         }
     }

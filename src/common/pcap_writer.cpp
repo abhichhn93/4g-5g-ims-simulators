@@ -16,6 +16,7 @@ void PcapWriter::open(const std::string& filename) {
     writeGlobalHeader();
     open_ = true;
     tcp_started_.clear();
+    conn_seq_.clear();
     Logger::sys("PCAP: writing to " + filename);
     Logger::sys("PCAP: Wireshark filters:");
     Logger::sys("  diameter              → Diameter S6a (MME↔HSS) + Gx (P-GW↔PCRF)");

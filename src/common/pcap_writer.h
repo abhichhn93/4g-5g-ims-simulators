@@ -88,7 +88,7 @@ public:
     static constexpr uint32_t IP_SCSCF = 0x7F000009;
     static constexpr uint32_t IP_MTAS  = 0x7F00000A;
 
-    static constexpr uint16_t PORT_S1AP  = 36412;
+    static constexpr uint16_t PORT_S1AP  = 38412;  // our simulator uses 38412 (real 3GPP S1AP = 36412 on SCTP)
     static constexpr uint16_t PORT_DIA   = 3868;
     static constexpr uint16_t PORT_GX    = 3869;
     static constexpr uint16_t PORT_SGW   = 2123;
