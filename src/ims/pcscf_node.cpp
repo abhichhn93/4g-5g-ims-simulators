@@ -1,195 +1,274 @@
 #include "ims/pcscf_node.h"
 #include "common/logger.h"
-#include <stdexcept>
+#include "common/pcap_writer.h"
+#include "common/visual_logger.h"
 #include <chrono>
 #include <thread>
+#include <stdexcept>
+#include <sstream>
 
-static constexpr const char* PCSCF_IP   = "127.0.0.1";
-static constexpr uint16_t    PCSCF_PORT  = 5060;
-static constexpr const char* SCSCF_IP   = "127.0.0.1";
-static constexpr uint16_t    SCSCF_PORT  = 5070;
+static constexpr const char* PCSCF_IP  = "127.0.0.1";
+static constexpr uint16_t    PCSCF_PORT = 5060;
+static constexpr const char* SCSCF_IP  = "127.0.0.1";
+static constexpr uint16_t    SCSCF_PORT = 5070;
 
 PcscfNode::PcscfNode(std::atomic<bool>& stop, std::atomic<bool>& pcscf_ready)
     : stop_(stop), pcscf_ready_(pcscf_ready)
 {}
 
 void PcscfNode::run() {
-    Logger::pcscf("P-CSCF: thread started");
-    Logger::pcscf("P-CSCF: REAL: First IMS contact point. UE discovers P-CSCF via");
-    Logger::pcscf("P-CSCF:   PCO (Protocol Config Options) in 4G PDN Connectivity Response.");
-    Logger::pcscf("P-CSCF:   In Ericsson deployment: P-CSCF is often SBC (Session Border Controller).");
+    Logger::pcscf("P-CSCF: starting — multi-UE TCP server on port " + std::to_string(PCSCF_PORT));
+    Logger::pcscf("P-CSCF: REAL: First SIP contact. UE-A, UE-B, UE-C each connect here.");
     try {
-        setupServer();
-        if (!stop_.load()) receiveLoop();
+        connectToSCscf();
+        server_socket_ = Socket::createServer(PCSCF_IP, PCSCF_PORT);
+        pcscf_ready_.store(true);
+        Logger::pcscf("P-CSCF: ready — waiting for UE-A, UE-B, UE-C to connect...");
+
+        // S-CSCF receive thread
+        std::thread scscf_th([this]{ scscfReceiveLoop(); });
+
+        // Accept UE connections loop (runs on this thread)
+        acceptLoop();
+
+        scscf_th.join();
+        for (auto& t : ue_threads_) if (t.joinable()) t.join();
+
     } catch (const std::exception& e) {
         Logger::warn("P-CSCF", e.what());
     }
     Logger::pcscf("P-CSCF: thread exiting");
 }
 
-void PcscfNode::setupServer() {
-    Logger::pcscf("P-CSCF: binding TCP on port " + std::to_string(PCSCF_PORT) + " (SIP standard port)");
-    Logger::pcscf("P-CSCF: REAL: uses UDP or TCP 5060, TLS 5061");
-    server_socket_ = Socket::createServer(PCSCF_IP, PCSCF_PORT);
-    pcscf_ready_.store(true);
-
+void PcscfNode::connectToSCscf() {
     Logger::pcscf("P-CSCF: connecting to S-CSCF on port " + std::to_string(SCSCF_PORT));
-    // Wait for S-CSCF to be ready
     for (int i = 0; i < 50 && !stop_.load(); ++i) {
         try { scscf_conn_ = Socket::connectTo(SCSCF_IP, SCSCF_PORT); break; }
         catch (...) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); }
     }
     Logger::pcscf("P-CSCF: S-CSCF connected ✓");
+}
 
-    Logger::pcscf("P-CSCF: waiting for UE to connect...");
+void PcscfNode::acceptLoop() {
     while (!stop_.load()) {
-        if (server_socket_.hasConnection(100)) {
-            ue_conn_ = server_socket_.accept();
-            Logger::pcscf("P-CSCF: UE connected ✓ — ready for SIP");
-            return;
+        if (!server_socket_.hasConnection(200)) continue;
+        Socket ue_sock = server_socket_.accept();
+        Logger::pcscf("P-CSCF: new UE connected — waiting for REGISTER to learn IMPU");
+
+        auto* ses = new UeSession();
+        ses->sock = std::move(ue_sock);
+        {
+            std::lock_guard<std::mutex> lk(ue_mtx_);
+            ue_sessions_.emplace_back(ses);
         }
+        ue_threads_.emplace_back([this, ses]{ ueReceiveLoop(ses); });
     }
 }
 
-void PcscfNode::receiveLoop() {
-    Logger::pcscf("P-CSCF: receive loop started");
+void PcscfNode::ueReceiveLoop(UeSession* ses) {
     while (!stop_.load()) {
-        // Check from UE
-        if (ue_conn_.valid() && ue_conn_.hasData(50)) {
-            std::vector<uint8_t> payload;
-            if (!ue_conn_.recvFrame(payload)) break;
-            MessageReader r(payload);
-            auto type = static_cast<SipMsgType>(static_cast<uint16_t>(r.msgType()));
-            switch (type) {
-                case SipMsgType::SIP_REGISTER: handleRegister(payload); break;
-                case SipMsgType::SIP_INVITE:   handleInvite(payload);   break;
-                case SipMsgType::SIP_ACK:
-                case SipMsgType::SIP_BYE:      handleBye(payload);      break;
-                default: break;
-            }
+        if (!ses->sock.hasData(100)) continue;
+        std::vector<uint8_t> payload;
+        if (!ses->sock.recvFrame(payload)) break;
+        handleFromUe(ses, payload);
+    }
+}
+
+void PcscfNode::scscfReceiveLoop() {
+    while (!stop_.load()) {
+        if (!scscf_conn_.hasData(100)) continue;
+        std::vector<uint8_t> payload;
+        if (!scscf_conn_.recvFrame(payload)) break;
+        handleFromScscf(payload);
+    }
+}
+
+void PcscfNode::handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload) {
+    MessageReader r(payload);
+    auto type = static_cast<SipMsgType>(static_cast<uint16_t>(r.msgType()));
+
+    // Extract key headers
+    std::string from, to, impu, impi, contact, call_id, sdp;
+    MessageReader r2(payload);
+    while (r2.hasMore()) {
+        Tag tag; uint16_t len; if (!r2.peek(tag, len)) break;
+        if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_FROM)))    from    = r2.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_TO)))  to      = r2.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_IMPU))) impu   = r2.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_IMPI))) impi   = r2.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_CONTACT))) contact = r2.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID))) call_id = r2.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_SDP)))  sdp    = r2.readStr();
+        else r2.skip();
+    }
+
+    switch (type) {
+    case SipMsgType::SIP_REGISTER: {
+        Logger::pcscf("P-CSCF: ← SIP REGISTER from new UE  IMPU=" + impu);
+        Logger::ie_field("  Contact: " + contact + "  (4G IP from P-GW!)");
+        Logger::ie_field("  Via: added by P-CSCF for route tracing");
+        // Register UE session
+        {
+            std::lock_guard<std::mutex> lk(ue_mtx_);
+            ses->impu = impu; ses->registered = false;
+            ue_by_impu_[impu] = ses;
         }
-        // Check from S-CSCF (responses going back to UE)
-        if (scscf_conn_.valid() && scscf_conn_.hasData(50)) {
-            std::vector<uint8_t> payload;
-            if (!scscf_conn_.recvFrame(payload)) break;
-            MessageReader r(payload);
-            auto type = static_cast<SipMsgType>(static_cast<uint16_t>(r.msgType()));
-            if (type == SipMsgType::SIP_200_OK)      handle200Ok(payload);
-            else if (type == SipMsgType::SIP_180_RINGING) handle180Ringing(payload);
-            else forwardToUe(payload);
+        Logger::pcscf("P-CSCF: → forwarding REGISTER to S-CSCF");
+        sendToScscf(payload);
+        break;
+    }
+    case SipMsgType::SIP_INVITE: {
+        Logger::pcscf("P-CSCF: ← SIP INVITE from " + (from.empty()?ses->impu:from));
+        Logger::ie_field("  To:      " + to);
+        Logger::ie_field("  Call-ID: " + call_id + "  (unique dialog ID)");
+        Logger::ie_field("  SDP:     " + (sdp.empty()? "audio/video offer" : sdp));
+        // Store routing: call_id → caller
+        {
+            std::lock_guard<std::mutex> lk(call_mtx_);
+            std::string caller = from.empty() ? ses->impu : from;
+            call_to_caller_[call_id] = caller;
+            call_to_callee_[call_id] = to;
         }
+        Logger::pcscf("P-CSCF: → forwarding INVITE to S-CSCF (will invoke MTAS)");
+        sendToScscf(payload);
+        break;
+    }
+    case SipMsgType::SIP_200_OK: {
+        // 200 OK from callee (accepting call) or re-INVITE response
+        Logger::pcscf("P-CSCF: ← SIP 200 OK from " + ses->impu + "  Call-ID=" + call_id);
+        Logger::ie_field("  SDP answer: codec=AMR-WB/16000 — HD Voice negotiated");
+        Logger::ie_field("  To-tag: dialog fully established");
+        sendToScscf(payload);
+        // Trigger Rx AAR → QCI=1 bearer
+        sendRxAAR(ses->impu, call_id);
+        break;
+    }
+    case SipMsgType::SIP_ACK: {
+        Logger::pcscf("P-CSCF: ← SIP ACK from " + ses->impu);
+        Logger::ie_field("  Confirms 200 OK receipt — SIP 3-way handshake complete");
+        sendToScscf(payload);
+        break;
+    }
+    case SipMsgType::SIP_BYE: {
+        Logger::pcscf("P-CSCF: ← SIP BYE from " + ses->impu + "  Call-ID=" + call_id);
+        Logger::ie_field("  After 200 OK: Rx STR → PCRF → release QCI=1 bearer");
+        sendToScscf(payload);
+        break;
+    }
+    default: {
+        Logger::pcscf("P-CSCF: ← " + std::string(sip_type_str(type)) + " from UE — forwarding");
+        sendToScscf(payload);
+        break;
+    }
     }
 }
 
-void PcscfNode::handleRegister(const std::vector<uint8_t>& payload) {
+void PcscfNode::handleFromScscf(const std::vector<uint8_t>& payload) {
     MessageReader r(payload);
-    std::string from, impu, impi, contact;
-    while (r.hasMore()) {
-        Tag tag; uint16_t len;
-        if (!r.peek(tag, len)) break;
-        if (tag == static_cast<Tag>(static_cast<uint16_t>(SipTag::SIP_FROM)))
-            from = r.readStr();
-        else if (tag == static_cast<Tag>(static_cast<uint16_t>(SipTag::SIP_IMPU)))
-            impu = r.readStr();
-        else if (tag == static_cast<Tag>(static_cast<uint16_t>(SipTag::SIP_IMPI)))
-            impi = r.readStr();
-        else if (tag == static_cast<Tag>(static_cast<uint16_t>(SipTag::SIP_CONTACT)))
-            contact = r.readStr();
-        else r.skip();
+    auto type = static_cast<SipMsgType>(static_cast<uint16_t>(r.msgType()));
+
+    // Extract routing headers
+    std::string to, from, call_id, reason, sdp;
+    MessageReader r2(payload);
+    while (r2.hasMore()) {
+        Tag tag; uint16_t len; if (!r2.peek(tag, len)) break;
+        if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_TO)))       to      = r2.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_FROM))) from    = r2.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID))) call_id = r2.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_REASON))) reason = r2.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_SDP)))  sdp    = r2.readStr();
+        else r2.skip();
     }
 
-    Logger::pcscf("P-CSCF: ← SIP REGISTER from UE");
-    Logger::ie_field("  From: " + from);
-    Logger::ie_field("  IMPU: " + impu + "  (IMS Public Identity — like a phone number URI)");
-    Logger::ie_field("  IMPI: " + impi + "  (IMS Private Identity — like username for auth)");
-    Logger::ie_field("  Contact: " + contact + "  (UE's IP:port for media)");
-    Logger::pcscf("P-CSCF: REAL: adds Via header, checks auth (IMS-AKA), adds Route header");
-    Logger::pcscf("P-CSCF: REAL: discovers I-CSCF via DNS NAPTR query on home domain");
-    Logger::pcscf("P-CSCF: → forwarding REGISTER to S-CSCF (via I-CSCF in real network)");
-
-    forwardToSCscf(payload);
-}
-
-void PcscfNode::handleInvite(const std::vector<uint8_t>& payload) {
-    MessageReader r(payload);
-    std::string from, to, call_id, sdp;
-    while (r.hasMore()) {
-        Tag tag; uint16_t len;
-        if (!r.peek(tag, len)) break;
-        if (tag == static_cast<Tag>(static_cast<uint16_t>(SipTag::SIP_FROM)))
-            from = r.readStr();
-        else if (tag == static_cast<Tag>(static_cast<uint16_t>(SipTag::SIP_TO)))
-            to = r.readStr();
-        else if (tag == static_cast<Tag>(static_cast<uint16_t>(SipTag::SIP_CALL_ID)))
-            call_id = r.readStr();
-        else if (tag == static_cast<Tag>(static_cast<uint16_t>(SipTag::SIP_SDP)))
-            sdp = r.readStr();
-        else r.skip();
+    switch (type) {
+    case SipMsgType::SIP_INVITE: {
+        // S-CSCF routing INVITE to callee — deliver to callee UE
+        Logger::pcscf("P-CSCF: ← S-CSCF routing INVITE → delivering to callee " + to);
+        Logger::ie_field("  MTAS approved: no barring, OIP OK, CDR started");
+        Logger::ie_field("  Call-ID: " + call_id);
+        sendToUe(to, payload);
+        break;
     }
-
-    Logger::pcscf("P-CSCF: ← SIP INVITE from UE (VoLTE call initiation)");
-    Logger::ie_field("  From: " + from);
-    Logger::ie_field("  To:   " + to);
-    Logger::ie_field("  Call-ID: " + call_id);
-    Logger::ie_field("  SDP: " + sdp);
-    Logger::pcscf("P-CSCF: REAL: validates From URI matches registered contact");
-    Logger::pcscf("P-CSCF: REAL: applies preconditions check (RFC 3312) for QoS signalling");
-    Logger::pcscf("P-CSCF: → forwarding INVITE to S-CSCF");
-
-    forwardToSCscf(payload);
-}
-
-void PcscfNode::handle200Ok(const std::vector<uint8_t>& payload) {
-    MessageReader r(payload);
-    std::string reason, call_id;
-    while (r.hasMore()) {
-        Tag tag; uint16_t len;
-        if (!r.peek(tag, len)) break;
-        if (tag == static_cast<Tag>(static_cast<uint16_t>(SipTag::SIP_REASON)))
-            reason = r.readStr();
-        else if (tag == static_cast<Tag>(static_cast<uint16_t>(SipTag::SIP_CALL_ID)))
-            call_id = r.readStr();
-        else r.skip();
+    case SipMsgType::SIP_100_TRYING: {
+        Logger::pcscf("P-CSCF: ← 100 Trying → forwarding to caller");
+        std::string caller;
+        {
+            std::lock_guard<std::mutex> lk(call_mtx_);
+            auto it = call_to_caller_.find(call_id);
+            if (it != call_to_caller_.end()) caller = it->second;
+        }
+        if (!caller.empty()) sendToUe(caller, payload);
+        break;
     }
-    Logger::pcscf("P-CSCF: ← SIP 200 OK from S-CSCF (" + reason + ")");
-    if (reason == "INVITE") {
-        Logger::pcscf("P-CSCF: REAL: This is the key moment — media is now negotiated!");
-        Logger::pcscf("P-CSCF: → Diameter Rx AAR to PCRF — requesting QCI=1 dedicated bearer");
-        Logger::pcscf("P-CSCF: REAL: Rx carries media info (codec, bandwidth, IP:port from SDP)");
-        Logger::pcscf("P-CSCF: PCRF → P-GW: Gx RAR → creates QCI=1 bearer for voice");
-        Logger::pcscf("P-CSCF: QCI=1 = Conversational Voice (lowest latency, highest priority)");
-        sendRxAAR("registered-user", call_id);
+    case SipMsgType::SIP_180_RINGING: {
+        Logger::pcscf("P-CSCF: ← 180 Ringing → forwarding to caller");
+        Logger::ie_field("  To-tag added — SIP dialog established!");
+        Logger::ie_field("  Caller hears ringback tone");
+        std::string caller;
+        {
+            std::lock_guard<std::mutex> lk(call_mtx_);
+            auto it = call_to_caller_.find(call_id);
+            if (it != call_to_caller_.end()) caller = it->second;
+        }
+        if (!caller.empty()) sendToUe(caller, payload);
+        break;
     }
-    forwardToUe(payload);
+    case SipMsgType::SIP_200_OK: {
+        Logger::pcscf("P-CSCF: ← 200 OK (" + reason + ") → forwarding to caller");
+        if (reason == "INVITE" || reason.empty()) {
+            Logger::ie_field("  SDP answer: " + (sdp.empty() ? "AMR-WB/16000" : sdp));
+            Logger::pcscf("P-CSCF: → Rx AAR to PCRF — requesting QCI=1 dedicated bearer");
+            sendRxAAR("caller", call_id);
+        }
+        std::string caller;
+        {
+            std::lock_guard<std::mutex> lk(call_mtx_);
+            auto it = call_to_caller_.find(call_id);
+            if (it != call_to_caller_.end()) caller = it->second;
+        }
+        if (!caller.empty()) sendToUe(caller, payload);
+        break;
+    }
+    default: {
+        // Route to caller if we know the call_id, else broadcast
+        std::string caller;
+        {
+            std::lock_guard<std::mutex> lk(call_mtx_);
+            auto it = call_to_caller_.find(call_id);
+            if (it != call_to_caller_.end()) caller = it->second;
+        }
+        if (!caller.empty()) sendToUe(caller, payload);
+        else if (!to.empty()) sendToUe(to, payload);
+        break;
+    }
+    }
 }
 
-void PcscfNode::handle180Ringing(const std::vector<uint8_t>& payload) {
-    Logger::pcscf("P-CSCF: ← SIP 180 Ringing — forwarding to UE");
-    Logger::pcscf("P-CSCF: REAL: UE plays ringback tone. PRACK may be sent for reliability.");
-    forwardToUe(payload);
+void PcscfNode::sendToScscf(const std::vector<uint8_t>& frame) {
+    if (scscf_conn_.valid()) scscf_conn_.sendFrame(frame);
 }
 
-void PcscfNode::handleBye(const std::vector<uint8_t>& payload) {
-    Logger::pcscf("P-CSCF: ← SIP BYE — forwarding to S-CSCF");
-    Logger::pcscf("P-CSCF: After BYE completes: Diameter Rx STR to PCRF → release QCI=1 bearer");
-    forwardToSCscf(payload);
+void PcscfNode::sendToUe(const std::string& impu, const std::vector<uint8_t>& frame) {
+    std::lock_guard<std::mutex> lk(ue_mtx_);
+    auto it = ue_by_impu_.find(impu);
+    if (it != ue_by_impu_.end() && it->second->sock.valid())
+        it->second->sock.sendFrame(frame);
+    else
+        Logger::warn("P-CSCF", "no socket for IMPU=" + impu + " — UE not registered?");
 }
 
 void PcscfNode::sendRxAAR(const std::string& impu, const std::string& call_id) {
     Logger::pcscf("P-CSCF: → Diameter Rx AAR to PCRF [TS 29.214]");
     Logger::ie_field("  User: " + impu + "  Call-ID: " + call_id);
-    Logger::ie_field("  Media: audio, codec=AMR-WB, bandwidth=12.65kbps, direction=sendrecv");
-    Logger::ie_field("  Requesting: QCI=1 (Voice), ARP=2 (preemption capability)");
-    // In Phase 5: actually send to PCRF via TCP
-    Logger::pcscf("P-CSCF: REAL: PCRF matches this to existing Gx session, installs QCI=1 rule");
-    Logger::pcscf("P-CSCF: REAL: P-GW sends Create Bearer Request → S-GW → MME → eNB");
-    Logger::pcscf("P-CSCF: REAL: eNB sets up DRB (Data Radio Bearer) with QCI=1 priority");
-}
-
-void PcscfNode::forwardToSCscf(const std::vector<uint8_t>& frame) {
-    if (scscf_conn_.valid()) scscf_conn_.sendFrame(frame);
-}
-
-void PcscfNode::forwardToUe(const std::vector<uint8_t>& frame) {
-    if (ue_conn_.valid()) ue_conn_.sendFrame(frame);
+    Logger::ie_field("  Media: AMR-WB 12.65kbps, direction=sendrecv");
+    Logger::ie_field("  Result: PCRF→P-GW Gx RAR → QCI=1 dedicated bearer created");
+    Logger::ie_field("  Voice now flows on QCI=1 (priority above all data)");
+    PcapWriter::instance().writeDiameter(
+        DiameterCmd::CREDIT_CONTROL, DiameterApp::GX, true,
+        PcapWriter::IP_PCSCF, PcapWriter::PORT_DIA,
+        PcapWriter::IP_PCRF, PcapWriter::PORT_GX);
+    PcapWriter::instance().writeDiameter(
+        DiameterCmd::CREDIT_CONTROL, DiameterApp::GX, false,
+        PcapWriter::IP_PCRF, PcapWriter::PORT_GX,
+        PcapWriter::IP_PCSCF, PcapWriter::PORT_DIA);
 }

@@ -1,68 +1,78 @@
 #pragma once
+// ============================================================
+// P-CSCF — Proxy-Call Session Control Function (Multi-UE)
+//
+// REAL ROLE: First SIP contact for UE. Routes to S-CSCF.
+// Manages Rx interface to PCRF for QCI=1 bearer.
+//
+// THIS VERSION: accepts connections from ue_sim A, B, C
+// simultaneously. Routes INVITE to correct UE by IMPU.
+//
+// ROUTING LOGIC:
+//   UE→ P-CSCF: extract IMPU from From/To, register socket
+//   P-CSCF→ S-CSCF: forward all UE requests
+//   S-CSCF→ P-CSCF: if INVITE, route to callee UE socket
+//                    if response, route to caller UE socket
+//
+// THREADING:
+//   accept_th: accepts new UE TCP connections
+//   per_ue_th[N]: one receive thread per connected UE
+//   scscf_rx_th:  receives from S-CSCF, routes to UEs
+// ============================================================
 #include <atomic>
+#include <mutex>
+#include <map>
+#include <string>
+#include <thread>
+#include <vector>
 #include "common/socket_wrapper.h"
 #include "common/tlv.h"
 #include "ims/sip.h"
 
-// ============================================================
-// P-CSCF — Proxy-Call Session Control Function
-//
-// REAL ROLE (TS 23.228):
-//   - FIRST point of contact for IMS UE
-//   - UE discovers P-CSCF via PCO (Protocol Configuration Options)
-//     in PDN Connectivity Response during 4G attach
-//   - Forwards SIP REGISTER to I-CSCF (using DNS to find home network)
-//   - Forwards SIP INVITE toward S-CSCF
-//   - Maintains IPSec tunnel with UE for SIP signalling security
-//   - Interfaces with PCRF via Rx (Diameter) to:
-//     → Request QCI=1 dedicated bearer when call established
-//     → Release bearer when call ends (BYE)
-//   - In visited network (roaming): P-CSCF is in visited NW,
-//     S-CSCF is in home NW. P-CSCF connects to I-CSCF in home NW.
-//
-// ERICSSON MTAS CONTEXT:
-//   P-CSCF is NOT where MTAS lives.
-//   MTAS is invoked by S-CSCF as a 3rd-party AS.
-//   P-CSCF just proxies — it has no service logic.
-//
-// OUR SIM:
-//   TCP server on port 5060 (real SIP port)
-//   Receives from UE (simulated by main/eNB)
-//   Forwards to S-CSCF on port 5070
-//   Sends Diameter Rx to PCRF when call media confirmed
-//
-// PORTS:
-//   5060 = SIP (standard) — P-CSCF listens here
-//   5061 = SIP TLS (real networks use this, we skip)
-// ============================================================
+struct UeSession {
+    std::string impu;       // registered IMPU
+    std::string ip;         // UE's 4G IP
+    Socket      sock;       // TCP socket to this UE
+    bool        registered{false};
+};
+
 class PcscfNode {
 public:
     PcscfNode(std::atomic<bool>& stop, std::atomic<bool>& pcscf_ready);
     void run();
 
-    // Called from IMS main to inject a UE action
-    void submitUeAction(const std::string& action, const std::string& impu,
-                        const std::string& call_id = "");
-
 private:
     std::atomic<bool>& stop_;
     std::atomic<bool>& pcscf_ready_;
 
-    Socket server_socket_;
-    Socket ue_conn_;      // connection from UE (simulated)
-    Socket scscf_conn_;   // connection to S-CSCF
+    Socket              server_socket_;
+    Socket              scscf_conn_;
 
-    uint32_t next_seq_{1};
+    // UE registry — IMPU → session (protected by mtx_)
+    std::mutex                          ue_mtx_;
+    std::map<std::string, UeSession*>   ue_by_impu_;  // IMPU → session ptr
+    std::vector<std::unique_ptr<UeSession>> ue_sessions_;
+    std::vector<std::thread>            ue_threads_;
 
-    void setupServer();
-    void receiveLoop();
-    void handleRegister  (const std::vector<uint8_t>& payload);
-    void handleInvite    (const std::vector<uint8_t>& payload);
-    void handle200Ok     (const std::vector<uint8_t>& payload);
-    void handle180Ringing(const std::vector<uint8_t>& payload);
-    void handleBye       (const std::vector<uint8_t>& payload);
+    // Call routing — Call-ID → caller IMPU
+    std::mutex                          call_mtx_;
+    std::map<std::string, std::string>  call_to_caller_;  // call_id → caller impu
+    std::map<std::string, std::string>  call_to_callee_;  // call_id → callee impu
 
+    std::atomic<uint32_t> next_seq_{1};
+
+    void connectToSCscf();
+    void acceptLoop();
+    void ueReceiveLoop(UeSession* ses);
+    void scscfReceiveLoop();
+
+    // From UE → forward to S-CSCF
+    void handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload);
+
+    // From S-CSCF → route to correct UE
+    void handleFromScscf(const std::vector<uint8_t>& payload);
+
+    void sendToScscf(const std::vector<uint8_t>& frame);
+    void sendToUe(const std::string& impu, const std::vector<uint8_t>& frame);
     void sendRxAAR(const std::string& impu, const std::string& call_id);
-    void forwardToSCscf(const std::vector<uint8_t>& frame);
-    void forwardToUe   (const std::vector<uint8_t>& frame);
 };
