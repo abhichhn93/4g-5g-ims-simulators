@@ -1,5 +1,7 @@
 #include "common/pcap_writer.h"
 #include "common/logger.h"
+#include "common/tlv.h"
+#include "common/message_types.h"
 #include <cstring>
 #include <ctime>
 
@@ -92,70 +94,40 @@ void PcapWriter::ensureTcpHandshake(uint32_t src_ip, uint16_t src_port,
 }
 
 // ── Diameter ──────────────────────────────────────────────────
+// Write in our TLV format so the Lua dissector can decode and
+// label it as "Diameter AIR [TS 29.272]" etc.
+// The Lua dissector is registered for ports 3868/3869 and reads
+// our [4B-len][2B-msg_type][2B-flags][4B-seq][TLVs] format.
 void PcapWriter::writeDiameter(DiameterCmd cmd, DiameterApp app, bool is_request,
                                 uint32_t src_ip, uint16_t src_port,
                                 uint32_t dst_ip, uint16_t dst_port,
                                 const std::vector<uint8_t>& avp_data) {
-    uint32_t code  = static_cast<uint32_t>(cmd);
-    uint32_t appid = static_cast<uint32_t>(app);
-    uint32_t s     = pkt_id_.fetch_add(1);
+    // Map to our internal MessageType that Lua dissector knows
+    uint16_t mtype_val = 0xFFFF;
+    if (cmd == DiameterCmd::AUTH_INFO) {
+        mtype_val = is_request ? 0x0101 : 0x0102;  // AIR / AIA
+    } else if (cmd == DiameterCmd::UPDATE_LOCATION) {
+        mtype_val = is_request ? 0x0103 : 0x0104;  // ULR / ULA
+    } else if (app == DiameterApp::GX) {
+        mtype_val = is_request ? 0x0401 : 0x0402;  // Gx CCR / CCA
+    } else if (app == DiameterApp::CX || cmd == DiameterCmd::SERVER_ASSIGNMENT) {
+        mtype_val = is_request ? 0x0501 : 0x0502;  // Cx SAR / SAA
+    }
 
-    // Diameter header (20 bytes, RFC 6733 §3)
-    std::vector<uint8_t> dia;
-    dia.push_back(1);                         // Version = 1
-    dia.push_back(0); dia.push_back(0); dia.push_back(0); // Length placeholder
-    dia.push_back(is_request ? 0x80 : 0x00);  // Flags: R-bit
-    dia.push_back((code >> 16) & 0xFF);       // Command Code (3 bytes)
-    dia.push_back((code >>  8) & 0xFF);
-    dia.push_back( code        & 0xFF);
-    putU32(dia, appid);                        // Application-ID
-    putU32(dia, s);                            // Hop-by-Hop ID
-    putU32(dia, s + 0x1000);                   // End-to-End ID
+    // Build our TLV frame — Lua dissector reads this natively
+    MessageWriter w(static_cast<MessageType>(mtype_val), pkt_id_.fetch_add(1));
+    // Optionally embed some key IEs from avp_data
+    if (!avp_data.empty())
+        w.writeBytes(static_cast<Tag>(0x0200), avp_data.data(),
+                     uint16_t(std::min(avp_data.size(), size_t(8))));
 
-    // Origin-Host AVP (264) — makes Wireshark show NF names
-    std::string origin = is_request ? "mme.sim.local" : "hss.sim.local";
-    if (app == DiameterApp::GX)
-        origin = is_request ? "pgw.sim.local" : "pcrf.sim.local";
-    // AVP: Code(4) + Flags(1) + Length(3) + Data
-    uint32_t avp_total = 8 + uint32_t(origin.size());
-    putU32(dia, 264);                          // AVP Code: Origin-Host
-    dia.push_back(0x40);                       // Mandatory flag
-    dia.push_back((avp_total >> 16) & 0xFF);
-    dia.push_back((avp_total >>  8) & 0xFF);
-    dia.push_back( avp_total        & 0xFF);
-    for (char c : origin) dia.push_back(uint8_t(c));
-    while (dia.size() % 4) dia.push_back(0);  // 4-byte padding
-
-    // Session-Id AVP (263) — session correlation
-    std::string session = "session." + std::to_string(s);
-    uint32_t sid_len = 8 + uint32_t(session.size());
-    putU32(dia, 263);
-    dia.push_back(0x40);
-    dia.push_back((sid_len >> 16) & 0xFF);
-    dia.push_back((sid_len >>  8) & 0xFF);
-    dia.push_back( sid_len        & 0xFF);
-    for (char c : session) dia.push_back(uint8_t(c));
-    while (dia.size() % 4) dia.push_back(0);
-
-    // Auth-Application-Id AVP (258)
-    putU32(dia, 258); dia.push_back(0x40);
-    dia.push_back(0); dia.push_back(0); dia.push_back(12); // length=12
-    putU32(dia, appid);
-
-    dia.insert(dia.end(), avp_data.begin(), avp_data.end());
-
-    // Fix length
-    uint32_t total = uint32_t(dia.size());
-    dia[1] = (total >> 16) & 0xFF;
-    dia[2] = (total >>  8) & 0xFF;
-    dia[3] =  total        & 0xFF;
-
+    auto frame = w.frame();
     std::lock_guard<std::mutex> lk(mtx_);
     ensureTcpHandshake(src_ip, src_port, dst_ip, dst_port);
-    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, dia, 0x18,
+    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, frame, 0x18,
                             nextSeq(src_ip, src_port, dst_ip, dst_port),
                             peerSeq(src_ip, src_port, dst_ip, dst_port)));
-    advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(dia.size()));
+    advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(frame.size()));
 }
 
 // ── GTPv2 ─────────────────────────────────────────────────────
@@ -195,23 +167,41 @@ void PcapWriter::writeSIP(const std::string& sip_text,
     advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(payload.size()));
 }
 
-// ── S1AP (our custom TLV — Lua dissector decodes it) ──────────
+// ── S1AP — write our TLV so Lua dissector shows proper label ──
 void PcapWriter::writeS1AP(const std::string& msg_name,
                             uint32_t src_ip, uint16_t src_port,
                             uint32_t dst_ip, uint16_t dst_port,
                             const std::vector<uint8_t>& payload) {
-    // Prefix with null-terminated message name so Lua dissector can show it
-    std::vector<uint8_t> data;
-    for (char c : msg_name) data.push_back(uint8_t(c));
-    data.push_back(0);
-    data.insert(data.end(), payload.begin(), payload.end());
+    // Map message name to our MessageType value (Lua dissector knows these)
+    uint16_t mtype_val = 0xFFFF;
+    if      (msg_name.find("InitialUEMsg")       != std::string::npos) mtype_val = 0x0001;
+    else if (msg_name.find("AuthRequest")        != std::string::npos ||
+             msg_name.find("AuthReq")            != std::string::npos) mtype_val = 0x0002;
+    else if (msg_name.find("SecurityModeCmd")    != std::string::npos) mtype_val = 0x0006;
+    else if (msg_name.find("SecurityModeComp")   != std::string::npos ||
+             msg_name.find("SecurityModeComplete")!= std::string::npos) mtype_val = 0x0007;
+    else if (msg_name.find("AuthResponse")       != std::string::npos ||
+             msg_name.find("AuthRsp")            != std::string::npos) mtype_val = 0x0003;
+    else if (msg_name.find("AttachComplete")     != std::string::npos) mtype_val = 0x0003;
+    else if (msg_name.find("InitialContextSetupReq") != std::string::npos) mtype_val = 0x0004;
+    else if (msg_name.find("InitialContextSetupRsp") != std::string::npos) mtype_val = 0x0005;
+
+    // If we got the original TLV payload, use it directly (already has correct msg_type)
+    std::vector<uint8_t> frame;
+    if (!payload.empty()) {
+        frame = payload;  // already our TLV format with 4B length prefix
+    } else {
+        // Build minimal TLV frame for Lua dissector
+        MessageWriter w(static_cast<MessageType>(mtype_val), pkt_id_.fetch_add(1));
+        frame = w.frame();
+    }
 
     std::lock_guard<std::mutex> lk(mtx_);
     ensureTcpHandshake(src_ip, src_port, dst_ip, dst_port);
-    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, data, 0x18,
+    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, frame, 0x18,
                             nextSeq(src_ip, src_port, dst_ip, dst_port),
                             peerSeq(src_ip, src_port, dst_ip, dst_port)));
-    advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(data.size()));
+    advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(frame.size()));
 }
 
 // ── Per-connection seq helpers ─────────────────────────────────
