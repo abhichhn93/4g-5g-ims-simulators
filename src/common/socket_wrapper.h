@@ -72,7 +72,19 @@ public:
     }
 
     // Wire: [4B payload_len][payload]
+    // sendFrame: frame must INCLUDE the 4-byte length prefix (use MessageWriter::frame())
     bool sendFrame(const std::vector<uint8_t>& frame) const { return sendAll(frame.data(),uint32_t(frame.size())); }
+
+    // sendPayload: payload WITHOUT length prefix (e.g. received from recvFrame).
+    // Adds the 4-byte LE length prefix automatically before sending.
+    // Use this when FORWARDING a received payload to another node.
+    bool sendPayload(const std::vector<uint8_t>& payload) const {
+        uint32_t len = uint32_t(payload.size());
+        uint8_t hdr[4] = {uint8_t(len), uint8_t(len>>8), uint8_t(len>>16), uint8_t(len>>24)};
+        if (!sendAll(hdr, 4)) return false;
+        return sendAll(payload.data(), len);
+    }
+
     bool recvFrame(std::vector<uint8_t>& payload) const {
         uint32_t plen=0; if(!recvAll(&plen,4)) return false;
         if(plen==0||plen>65536) return false;

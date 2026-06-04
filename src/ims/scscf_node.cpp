@@ -207,7 +207,7 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
             inv.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID)), call_id + "-conf");
             inv.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_SDP)),
                 "audio:50000/AMR-WB/16000;conf;a=sendrecv");
-            sendToPcscf(inv.frame());
+            pcscf_conn_.sendFrame(inv.frame());  // inv.frame() already has length prefix
         }
 
         // 200 OK to caller (UE-A) — conference initiated
@@ -363,6 +363,7 @@ void ScscfNode::sendSipResponse(SipMsgType type, const std::string& call_id,
     pcscf_conn_.sendFrame(w.frame());
 }
 
-void ScscfNode::sendToPcscf(const std::vector<uint8_t>& frame) {
-    pcscf_conn_.sendFrame(frame);
+void ScscfNode::sendToPcscf(const std::vector<uint8_t>& payload) {
+    // payload came from recvFrame (NO length prefix) → add it back
+    pcscf_conn_.sendPayload(payload);
 }

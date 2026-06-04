@@ -329,25 +329,29 @@ void PcscfNode::handleFromScscf(const std::vector<uint8_t>& payload) {
     }
 }
 
-void PcscfNode::sendToScscf(const std::vector<uint8_t>& frame) {
-    if (scscf_conn_.valid()) scscf_conn_.sendFrame(frame);
+void PcscfNode::sendToScscf(const std::vector<uint8_t>& payload) {
+    // payload came from recvFrame (NO length prefix) → use sendPayload to add it back
+    if (!scscf_conn_.valid()) {
+        Logger::warn("P-CSCF", "sendToScscf: connection invalid");
+        return;
+    }
+    bool ok = scscf_conn_.sendPayload(payload);
+    if (!ok) Logger::warn("P-CSCF", "sendToScscf FAILED — connection broken");
 }
 
-void PcscfNode::sendToUe(const std::string& impu, const std::vector<uint8_t>& frame) {
+void PcscfNode::sendToUe(const std::string& impu, const std::vector<uint8_t>& payload) {
+    // payload came from recvFrame (NO length prefix) → use sendPayload to add it back
     std::lock_guard<std::mutex> lk(ue_mtx_);
     auto it = ue_by_impu_.find(impu);
     if (it != ue_by_impu_.end() && it->second->sock.valid()) {
-        bool ok = it->second->sock.sendFrame(frame);
+        bool ok = it->second->sock.sendPayload(payload);
         if (ok)
-            Logger::pcscf("P-CSCF: → delivered " + std::to_string(frame.size()) +
-                          " bytes to " + ueLabel(impu) + " ✓");
+            Logger::pcscf("P-CSCF: → delivered to " + ueLabel(impu) + " ✓");
         else
-            Logger::warn("P-CSCF", "sendFrame FAILED for " + ueLabel(impu));
+            Logger::warn("P-CSCF", "sendPayload FAILED for " + ueLabel(impu));
     } else {
         Logger::warn("P-CSCF", "NO ROUTE to " + ueLabel(impu) +
-                     " (registered UEs: " + std::to_string(ue_by_impu_.size()) + ")");
-        for (auto& [k,v] : ue_by_impu_)
-            Logger::warn("P-CSCF", "  known: " + ueLabel(k));
+                     " (known: " + std::to_string(ue_by_impu_.size()) + " UEs)");
     }
 }
 
