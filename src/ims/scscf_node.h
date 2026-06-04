@@ -60,6 +60,7 @@ private:
     void handleAck       (const std::vector<uint8_t>& payload);
     void handle200Ok     (const std::vector<uint8_t>& payload);
     void handleBye       (const std::vector<uint8_t>& payload);
+    void handleUpdate    (const std::vector<uint8_t>& payload);  // SIP UPDATE (RFC 3311)
 
     void sendCxSAR(const std::string& impu, const std::string& impi);
     bool waitCxSAA(std::string& profile);

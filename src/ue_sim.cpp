@@ -228,6 +228,45 @@ public:
             ue_ip_num(), 5060, PcapWriter::IP_SCSCF, 5060);
     }
 
+    // ── UPDATE (RFC 3311) ─────────────────────────────────────
+    // SIP UPDATE modifies session WITHOUT changing dialog state.
+    // Used for: QoS preconditions, codec change, hold/resume.
+    // Different from re-INVITE: UPDATE doesn't need ACK.
+    void doUpdate(const std::string& reason = "qos") {
+        if (state_ != UeState::IN_CALL && state_ != UeState::ON_HOLD) {
+            print("Not in a call."); return;
+        }
+        print("→ SIP UPDATE  (RFC 3311)");
+        if (reason == "qos") {
+            print("  Purpose: QoS precondition satisfied — signalling bearer ready");
+            print("  SDP:     a=curr:qos local sendrecv");
+            print("           a=curr:qos remote sendrecv");
+            print("           a=des:qos mandatory local sendrecv");
+            print("  REAL:    UE sends UPDATE after QCI=1 bearer confirmed by eNB");
+            print("  REAL:    callee checks its QoS too, responds 200 OK with same SDP");
+            print("  MTAS:    updates CDR with QoS confirmation timestamp");
+        } else if (reason == "codec") {
+            print("  Purpose: Codec renegotiation during active call");
+            print("  SDP:     switching from AMR-WB to AMR-NB (weaker signal)");
+            print("  REAL:    adaptive codec switch based on radio conditions");
+            print("  MTAS:    updates CDR codec field");
+        }
+        print("  Key diff vs re-INVITE: UPDATE doesn't disrupt dialog state");
+        print("  Key diff vs re-INVITE: no ACK needed after 200 OK to UPDATE");
+
+        // S-CSCF will handle this as a mid-dialog request
+        MessageWriter w(static_cast<MessageType>(uint16_t(SipMsgType::SIP_INVITE)), next_seq_++);
+        // Using INVITE type for simplicity (UPDATE would need new SipMsgType)
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID)), current_call_id_);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_FROM)),    cfg_.impu);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_TO)),      callee_impu_);
+        w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_SDP)),
+                   "audio:" + std::to_string(cfg_.rtp_port) + "/AMR-WB;"
+                   "a=curr:qos local sendrecv;a=des:qos mandatory local sendrecv");
+        conn_.sendFrame(w.frame());
+        print("  UPDATE sent — waiting for 200 OK from callee");
+    }
+
     void doVideo() {
         if (state_ != UeState::IN_CALL) { print("Not in a call."); return; }
         print("→ SIP re-INVITE  (add VIDEO to voice call)");
@@ -488,7 +527,7 @@ int main(int argc, char* argv[]) {
               << "  |  RTP port: " << cfg.rtp_port << "\n"
               << "  +==========================================+\n"
               << "  Commands: REG  CALL A|B|C  ACCEPT  REJECT\n"
-              << "            HOLD  RESUME  VIDEO  VOICE  CONF C  BYE  STATUS  QUIT\n"
+              << "            HOLD  RESUME  UPDATE  VIDEO  VOICE  CONF C  BYE  STATUS  QUIT\n"
               << "  ----------------------------------------\n\n";
 
     std::signal(SIGINT, sig_handler);
@@ -533,6 +572,10 @@ int main(int argc, char* argv[]) {
             std::string tgt; iss >> tgt;
             for (auto& c : tgt) c = char(std::toupper(unsigned(c)));
             ue.doConference(tgt);
+        }
+        else if (cmd == "UPDATE") {
+            std::string reason = "qos"; iss >> reason;
+            ue.doUpdate(reason.empty() ? "qos" : reason);
         }
         else if (cmd == "VIDEO") ue.doVideo();
         else if (cmd == "VOICE") ue.doVoice();

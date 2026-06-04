@@ -54,6 +54,7 @@ void ScscfNode::receiveLoop() {
             case SipMsgType::SIP_ACK:      handleAck(payload);      break;
             case SipMsgType::SIP_200_OK:   handle200Ok(payload);    break;
             case SipMsgType::SIP_BYE:      handleBye(payload);      break;
+            case SipMsgType::SIP_CANCEL:   handleUpdate(payload);   break; // UPDATE reuses CANCEL slot
             default: break;
         }
     }
@@ -143,15 +144,34 @@ void ScscfNode::handleInvite(const std::vector<uint8_t>& payload) {
 
     // Route INVITE to callee (via P-CSCF)
     Logger::scscf("S-CSCF: → routing INVITE to callee " + to);
-    Logger::ie_field("  P-CSCF will deliver to UE-B socket");
-    Logger::ie_field("  UE-B terminal will show incoming call");
+    Logger::ie_field("  P-CSCF delivers to callee UE socket");
+    Logger::ie_field("  UE-B terminal shows incoming call");
     sendToPcscf(payload);
 
-    // Simulate callee ringing (real: P-CSCF delivers, UE-B rings, sends 180)
+    // 180 Ringing with Require:100rel (reliable provisional response)
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     sendSipResponse(SipMsgType::SIP_180_RINGING, call_id, from, to, "INVITE");
     Logger::scscf("S-CSCF: → 180 Ringing  (UE-B alerting)");
+    Logger::ie_field("  RSeq: 1  (reliable sequence — RFC 3262)");
+    Logger::ie_field("  Require: 100rel  (caller MUST send PRACK)");
     Logger::ie_field("  To-tag added — SIP dialog established here");
+
+    // ── PRACK flow (RFC 3262) ─────────────────────────────────
+    // Real: UE-A sends PRACK after receiving 180 Ringing
+    // PRACK = Provisional Response ACKnowledgement
+    // Ensures 180 Ringing is reliably delivered (unlike plain TCP)
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    VLog::step(0, 0, "PRACK  (RFC 3262 — Reliable Provisional Response)",
+               "UE-A", Logger::CLR_ENB, "S-CSCF", Logger::CLR_SCSCF)
+        .ie("Method",  "PRACK — acknowledges the 180 Ringing")
+        .ie("RAck",    "1 1 INVITE  (RSeq=1, CSeq=1, method=INVITE)")
+        .ie("Why",     "Plain SIP 1xx are unreliable (UDP). 100rel makes them reliable.")
+        .ie("Real",    "Without PRACK: caller doesn't know if callee is actually ringing!")
+        .ie("VoLTE",   "3GPP mandates Require:100rel for VoLTE calls (TS 24.229)")
+        .next("S-CSCF forwards to callee → callee sends 200 OK to PRACK")
+        .flush();
+    Logger::scscf("S-CSCF: ← PRACK from caller (SIM: auto-generated)");
+    Logger::scscf("S-CSCF: → 200 OK (PRACK) to caller — provisional delivery confirmed");
 }
 
 // ── re-INVITE (hold / conference / resume) ────────────────────
@@ -306,28 +326,137 @@ void ScscfNode::handleBye(const std::vector<uint8_t>& payload) {
     sendToPcscf(payload); // forward BYE to peer
 }
 
-// ── MTAS invocation ───────────────────────────────────────────
-bool ScscfNode::invokeMtas(const std::string& caller, const std::string& callee,
-                             const std::string& call_id, const std::string& sdp) {
-    Logger::scscf("S-CSCF: → ISC: INVITE to MTAS (Ericsson Application Server)");
-    Logger::ie_field("  iFC trigger: method=INVITE → invoke MTAS");
+// ── UPDATE (RFC 3311) ─────────────────────────────────────────
+// Mid-dialog session modification. No dialog state change.
+// No ACK needed (unlike re-INVITE). Used for:
+//   - QoS precondition signalling
+//   - Codec renegotiation
+//   - Early session modification before ACK
+void ScscfNode::handleUpdate(const std::vector<uint8_t>& payload) {
+    std::string from, call_id, sdp;
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_FROM)))     from    = r.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID))) call_id = r.readStr();
+        else if (tag == static_cast<Tag>(uint16_t(SipTag::SIP_SDP))) sdp     = r.readStr();
+        else r.skip();
+    }
 
-    VLog::step(0, 0, "MTAS SERVICE LOGIC  [ISC interface]",
-               "S-CSCF", Logger::CLR_SCSCF, "MTAS", Logger::CLR_MTAS)
-        .ie("OIP",     "Caller " + caller + " — CLI presentation allowed")
-        .ie("Barring", "OIB check: callee " + callee + " — not international — PASS")
-        .ie("CW",      "Callee not in active call — no call waiting needed")
-        .ie("Fwd",     "No call forwarding active for " + callee)
-        .ie("CDR",     "Charging Data Record started  Call-ID=" + call_id)
-        .ie("MMTEL",   "MMTEL service features applied — codec policy: AMR-WB preferred")
-        .next("MTAS returns 'continue' to S-CSCF — routing proceeds")
+    VLog::step(0, 0, "SIP UPDATE  (RFC 3311 — mid-dialog modification)",
+               "UE", Logger::CLR_ENB, "S-CSCF → MTAS", Logger::CLR_SCSCF)
+        .ie("From",    from)
+        .ie("Call-ID", call_id)
+        .ie("SDP",     sdp.empty() ? "QoS precondition update" : sdp)
+        .ie("Purpose", "Modify session WITHOUT changing dialog state")
+        .ie("vs re-INVITE", "UPDATE: no ACK needed, no dialog restart")
+        .ie("vs re-INVITE", "re-INVITE: needs ACK, can change dialog")
+        .ie("MTAS",    "CDR updated with new codec/QoS parameters")
+        .ie("P-CSCF",  "Rx AAR update → PCRF updates bearer policy")
+        .next("S-CSCF forwards UPDATE to callee, responds 200 OK with SDP answer")
         .flush();
 
+    Logger::scscf("S-CSCF: → ISC: UPDATE to MTAS (update CDR + codec policy)");
+    Logger::mtas("MTAS: ← UPDATE — updating CDR and session parameters");
+    Logger::ie_field("  CDR: session modification recorded");
+    Logger::ie_field("  Codec policy: re-validated for new SDP");
+
+    // Forward UPDATE to callee
+    if (calls_.count(call_id)) sendToPcscf(payload);
+    sendSipResponse(SipMsgType::SIP_200_OK, call_id, from, "", "UPDATE");
+    Logger::scscf("S-CSCF: → 200 OK (UPDATE) — session modified ✓");
+}
+
+// ── MTAS invocation — detailed service logic ──────────────────
+// Ericsson MTAS (Multimedia Telephony Application Server)
+// Invoked by S-CSCF via ISC interface (SIP) when iFC triggers.
+// Each step below is a real MTAS service check.
+bool ScscfNode::invokeMtas(const std::string& caller, const std::string& callee,
+                             const std::string& call_id, const std::string& sdp) {
+    Logger::scscf("S-CSCF: → ISC INVITE to MTAS  [iFC trigger: method=INVITE]");
+    Logger::ie_field("  ISC interface: standard SIP between S-CSCF and MTAS");
+    Logger::ie_field("  MTAS port: 5080 (or collocated with S-CSCF in Ericsson Cloud IMS)");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // ── MTAS Step 1: iFC evaluation ───────────────────────────
+    Logger::mtas("MTAS: ← ISC INVITE from S-CSCF");
+    Logger::ie_field("  iFC match: method=INVITE, role=originating → service invoked");
+    Logger::ie_field("  iFC (Initial Filter Criteria) downloaded from HSS via Cx SAA");
+    Logger::ie_field("  iFC priority: services checked in priority order");
+
+    // ── MTAS Step 2: OIP (Originating Identity Presentation) ──
+    Logger::mtas("MTAS: [1] OIP — Originating Identity Presentation [MMTEL TS 24.173]");
+    Logger::ie_field("  Caller IMPU:    " + caller);
+    Logger::ie_field("  P-Preferred-ID: caller wants to show their number");
+    Logger::ie_field("  OIP result:     ALLOW — caller can present CLI");
+    Logger::ie_field("  P-Asserted-ID:  set to caller IMPU (network-verified CLI)");
+    Logger::ie_field("  If OIR active:  P-Asserted-ID would be Anonymous");
+
+    // ── MTAS Step 3: Call Barring check ───────────────────────
+    Logger::mtas("MTAS: [2] Barring check [MMTEL TS 24.173 §7.8]");
+    Logger::ie_field("  OIB (Outgoing International Barring): checking callee number");
+    Logger::ie_field("  Callee: " + callee + " → domestic number → NOT barred");
+    Logger::ie_field("  BAOC (Bar All Outgoing Calls): NOT active");
+    Logger::ie_field("  Result: PASS — call allowed to proceed");
+
+    // ── MTAS Step 4: TIP (Terminating Identity Presentation) ──
+    Logger::mtas("MTAS: [3] TIP — Terminating Identity Presentation");
+    Logger::ie_field("  Callee: " + callee);
+    Logger::ie_field("  TIP check: is callee identity allowed to be shown to caller?");
+    Logger::ie_field("  Result: ALLOW — callee number visible to caller");
+
+    // ── MTAS Step 5: Call Forwarding check ────────────────────
+    Logger::mtas("MTAS: [4] Call Forwarding [MMTEL TS 24.173 §7.5]");
+    Logger::ie_field("  CFU (Unconditional): NOT set for " + callee);
+    Logger::ie_field("  CFNRy (No Reply):    NOT set (would activate after 15s)");
+    Logger::ie_field("  CFB (Busy):          NOT set (call waiting applies instead)");
+    Logger::ie_field("  Result: NO forwarding — route to original callee");
+
+    // ── MTAS Step 6: Call Waiting check ───────────────────────
+    Logger::mtas("MTAS: [5] Call Waiting [MMTEL TS 24.173 §7.6]");
+    Logger::ie_field("  Checking: is " + callee + " currently in an active call?");
+    Logger::ie_field("  Result: NOT in a call — Call Waiting not needed");
+    Logger::ie_field("  (If busy: MTAS sends 180 Ringing + call-wait notification)");
+
+    // ── MTAS Step 7: Codec Policy (VoLTE) ─────────────────────
+    Logger::mtas("MTAS: [6] MMTEL Codec Policy [TS 26.114]");
+    Logger::ie_field("  SDP offer: " + (sdp.empty() ? "audio/AMR-WB + video/H264" : sdp));
+    Logger::ie_field("  VoLTE mandate: AMR-WB (wideband) preferred over AMR-NB");
+    Logger::ie_field("  Video policy:  H264 baseline allowed");
+    Logger::ie_field("  Bandwidth:     AMR-WB=12.65kbps voice, H264≤2Mbps video");
+    Logger::ie_field("  Result: SDP offer accepted — AMR-WB/H264 approved");
+
+    // ── MTAS Step 8: CDR creation ─────────────────────────────
+    Logger::mtas("MTAS: [7] CDR — Charging Data Record [TS 32.260]");
+    Logger::ie_field("  Call-ID:        " + call_id);
+    Logger::ie_field("  Caller:         " + caller);
+    Logger::ie_field("  Callee:         " + callee);
+    Logger::ie_field("  CDR type:       Originating (caller side)");
+    Logger::ie_field("  Charging:       IMS Online Charging via Ro interface");
+    Logger::ie_field("  Start time:     [timestamp]");
+    Logger::ie_field("  CDR state:      OPEN — will be closed on BYE");
+
+    // ── MTAS Step 9: UPDATE handling (QoS preconditions) ──────
+    Logger::mtas("MTAS: [8] QoS Preconditions [RFC 3312]");
+    Logger::ie_field("  Precondition:  local QoS must be met before alerting callee");
+    Logger::ie_field("  Precondition:  remote QoS must be met before alerting callee");
+    Logger::ie_field("  In VoLTE:      P-CSCF Rx AAR → PCRF → QCI=1 bearer created");
+    Logger::ie_field("  UPDATE method: UE sends UPDATE to signal QoS met (RFC 3311)");
+    Logger::ie_field("  SIM:           QoS auto-satisfied — no UPDATE needed");
+
+    // ── MTAS decision ─────────────────────────────────────────
+    Logger::mtas("MTAS: → ISC 200 OK to S-CSCF — all checks passed, continue routing");
+    Logger::ie_field("  Services applied: OIP, TIP, Barring, CW, Fwd, Codec, CDR");
+    Logger::ie_field("  Next: S-CSCF routes INVITE toward callee");
+
     PcapWriter::instance().writeSIP(
-        "INVITE sip:mtas.local SIP/2.0\r\nCall-ID: " + call_id + "\r\n\r\n",
+        "INVITE sip:mtas.local SIP/2.0\r\nCall-ID: " + call_id +
+        "\r\nX-MTAS-Service: OIP,TIP,Barring,CW,CDR\r\n\r\n",
         PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_MTAS, 5060);
+
     (void)sdp;
-    return true; // return false to simulate barring
+    return true;  // return false to simulate barring rejection
 }
 
 void ScscfNode::sendCxSAR(const std::string& impu, const std::string& impi) {
