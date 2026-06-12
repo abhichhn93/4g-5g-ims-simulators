@@ -1,0 +1,9 @@
+services:
+  mme-sim:
+    build: .
+    image: mme-sim:latest
+    container_name: mme-sim
+    ports:
+      - "8080:8080"   # browse/curl the generated mme_capture.pcap
+    volumes:
+      - ./output:/data
