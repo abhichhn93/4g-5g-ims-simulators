@@ -1,6 +1,8 @@
 #include "enb/enb_node.h"
 #include "common/logger.h"
 #include "common/pcap_writer.h"
+#include "common/nas_eps.h"
+#include "common/s1ap_codec.h"
 #include <stdexcept>
 #include <cstdio>
 #include <thread>
@@ -15,7 +17,7 @@ EnbNode::EnbNode(std::atomic<bool>& stop, std::atomic<bool>& enb_ready)
 {}
 
 void EnbNode::run() {
-    Logger::enb("thread started");
+    Logger::enb(Logger::Level::ENGINEER, "thread started");
     try {
         setupServer();
         if (stop_.load()) return;
@@ -25,25 +27,25 @@ void EnbNode::run() {
     } catch (const std::exception& e) {
         Logger::warn("eNB", e.what());
     }
-    Logger::enb("thread exiting");
+    Logger::enb(Logger::Level::ENGINEER, "thread exiting");
 }
 
 void EnbNode::setupServer() {
-    Logger::enb("TCP server on " + std::string(ENB_IP) + ":" + std::to_string(ENB_PORT));
+    Logger::enb(Logger::Level::ENGINEER, "TCP server on " + std::string(ENB_IP) + ":" + std::to_string(ENB_PORT));
     server_socket_ = Socket::createServer(ENB_IP, ENB_PORT);
     enb_ready_.store(true);
-    Logger::enb("listening — waiting for MME...");
+    Logger::enb(Logger::Level::ENGINEER, "listening — waiting for MME...");
     while (!stop_.load()) {
         if (server_socket_.hasConnection(100)) {
             mme_conn_ = server_socket_.accept();
-            Logger::enb("MME connected — S1 UP ✓");
+            Logger::enb(Logger::Level::ENGINEER, "MME connected — S1 UP ✓");
             return;
         }
     }
 }
 
 void EnbNode::receiveLoop() {
-    Logger::enb("[rx_th] started — handles DL NAS + ICSR from MME");
+    Logger::enb(Logger::Level::ENGINEER, "[rx_th] started — handles DL NAS + ICSR from MME");
     while (!stop_.load()) {
         if (!mme_conn_.hasData(100)) continue;
         std::vector<uint8_t> payload;
@@ -56,11 +58,11 @@ void EnbNode::receiveLoop() {
             default: Logger::warn("eNB","[rx_th] unknown: "+std::string(msg_type_str(r.msgType())));
         }
     }
-    Logger::enb("[rx_th] stopped");
+    Logger::enb(Logger::Level::ENGINEER, "[rx_th] stopped");
 }
 
 void EnbNode::handleDLNas(const std::vector<uint8_t>& payload) {
-    uint32_t mme_id=0, enb_id=0; uint8_t nas_type=0; (void)nas_type;
+    uint32_t mme_id=0, enb_id=0; uint8_t nas_type=0;
     std::vector<uint8_t> rand_b, autn_b;
 
     MessageReader r(payload);
@@ -76,21 +78,28 @@ void EnbNode::handleDLNas(const std::vector<uint8_t>& payload) {
         }
     }
 
-    Logger::enb("[rx_th] ← DL NAS Transport  nas_type=0x" + [&]{ char b[8]; std::snprintf(b,8,"%02X",nas_type); return std::string(b); }());
+    Logger::enb(Logger::Level::ENGINEER, "[rx_th] ← DL NAS Transport  nas_type=0x" + [&]{ char b[8]; std::snprintf(b,8,"%02X",nas_type); return std::string(b); }());
     // PCAP: S1AP DL NAS Transport (MME→eNB)
-    PcapWriter::instance().writeS1AP(
-        nas_type == 0x52 ? "NAS-AuthRequest(DL)" :
-        nas_type == 0x5D ? "NAS-SecurityModeCmd(DL)" : "NAS-DL",
-        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
-        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP);
+    if (nas_type == 0x52 && rand_b.size() >= 16 && autn_b.size() >= 16) {
+        auto nas_pdu = nas_eps::buildAuthRequest(rand_b.data(), autn_b.data());
+        PcapWriter::instance().writeS1AP("NAS-AuthRequest(DL)",
+            PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+            PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+            s1ap::buildDlNasTransport(mme_id, enb_id, nas_pdu));
+    } else if (nas_type == 0x5D) {
+        PcapWriter::instance().writeS1AP("NAS-SecurityModeCmd(DL)",
+            PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+            PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+            s1ap::buildDlNasTransport(mme_id, enb_id, nas_eps::SECURITY_MODE_COMMAND));
+    }
 
     if (nas_type == 0x5D) {
         // Security Mode Command received — UE activates algorithms, sends Complete
-        Logger::enb("[rx_th] ← NAS Security Mode Command (0x5D)");
+        Logger::enb(Logger::Level::ENGINEER, "[rx_th] ← NAS Security Mode Command (0x5D)");
         Logger::ie_field("  Cipher: EEA2 (AES-128-CTR), Integrity: EIA2 (AES-128-CMAC)");
         Logger::ie_field("  UE derives KNASenc + KNASint from KASME");
         Logger::ie_field("  REAL: all subsequent NAS messages are integrity-protected + ciphered");
-        Logger::enb("[rx_th] → NAS Security Mode Complete (0x5E)  UE activated security");
+        Logger::enb(Logger::Level::ENGINEER, "[rx_th] → NAS Security Mode Complete (0x5E)  UE activated security");
 
         std::lock_guard<std::mutex> lk(mme_send_mtx_);
         MessageWriter smc_complete(MessageType::S1AP_UL_NAS_TRANSPORT, next_seq_++);
@@ -100,13 +109,14 @@ void EnbNode::handleDLNas(const std::vector<uint8_t>& payload) {
         mme_conn_.sendFrame(smc_complete.frame());
         PcapWriter::instance().writeS1AP("NAS-SecurityModeComplete(UL)",
             PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
-            PcapWriter::IP_MME, PcapWriter::PORT_S1AP);
+            PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+            s1ap::buildUlNasTransport(mme_id, enb_id, nas_eps::SECURITY_MODE_COMPLETE));
         return;
     }
 
     if (nas_type == 0x52 && rand_b.size() >= 8) {
         uint8_t res[8]; for(int i=0;i<8;i++) res[i]=rand_b[i]^0x55;
-        Logger::enb("[rx_th] SIM: UE computes RES=RAND^0x55 — sending Auth Response");
+        Logger::enb(Logger::Level::ENGINEER, "[rx_th] SIM: UE computes RES=RAND^0x55 — sending Auth Response");
         std::lock_guard<std::mutex> lk(mme_send_mtx_);
         MessageWriter ul(MessageType::S1AP_UL_NAS_TRANSPORT, next_seq_++);
         ul.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
@@ -117,7 +127,8 @@ void EnbNode::handleDLNas(const std::vector<uint8_t>& payload) {
         // PCAP: S1AP UL NAS Transport (eNB→MME) — Auth Response
         PcapWriter::instance().writeS1AP("NAS-AuthResponse(UL)",
             PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
-            PcapWriter::IP_MME, PcapWriter::PORT_S1AP);
+            PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+            s1ap::buildUlNasTransport(mme_id, enb_id, nas_eps::buildAuthResponse(res)));
     }
 }
 
@@ -143,20 +154,27 @@ void EnbNode::handleICSR(const std::vector<uint8_t>& payload) {
     if (ue_ip_bytes.size()>=4)
         std::snprintf(ue_ip,32,"%d.%d.%d.%d",ue_ip_bytes[0],ue_ip_bytes[1],ue_ip_bytes[2],ue_ip_bytes[3]);
 
-    Logger::enb("[rx_th] ← S1AP InitialContextSetupRequest [TS 36.413 §9.1.4.1]");
+    Logger::enb(Logger::Level::ENGINEER, "[rx_th] ← S1AP InitialContextSetupRequest [TS 36.413 §9.1.4.1]");
     Logger::ie_field("  MME-id=" + std::to_string(mme_id) + "  S-GW S1U-TEID=" + std::to_string(sgw_teid));
     Logger::ie_field("  NAS: Attach Accept (0x42)  UE-IP=" + std::string(ue_ip));
-    Logger::enb("[rx_th] REAL: eNB sets up DRB (Data Radio Bearer) for UE");
-    Logger::enb("[rx_th] REAL: eNB creates GTP-U tunnel to S-GW using S-GW's S1U TEID");
-    Logger::enb("[rx_th] SIM: allocating eNB's S1-U TEID for the uplink tunnel");
+    Logger::enb(Logger::Level::ENGINEER, "[rx_th] REAL: eNB sets up DRB (Data Radio Bearer) for UE");
+    Logger::enb(Logger::Level::ENGINEER, "[rx_th] REAL: eNB creates GTP-U tunnel to S-GW using S-GW's S1U TEID");
+    Logger::enb(Logger::Level::ENGINEER, "[rx_th] SIM: allocating eNB's S1-U TEID for the uplink tunnel");
 
     uint32_t enb_teid = next_enb_teid_.fetch_add(1);
 
     // PCAP: S1AP Initial Context Setup Request (MME→eNB)
+    uint8_t ue_ip4[4] = {0, 0, 0, 0};
+    if (ue_ip_bytes.size() >= 4) for (int i = 0; i < 4; ++i) ue_ip4[i] = ue_ip_bytes[i];
+    // No real KeNB exists in the simulator (no AS security derivation) — derive a
+    // deterministic 32-byte SecurityKey per (eNB,MME) pair for cosmetic realism.
+    uint8_t kenb[32];
+    for (int i = 0; i < 32; ++i) kenb[i] = static_cast<uint8_t>((enb_id * 31 + mme_id * 17 + i * 7) & 0xFF);
     PcapWriter::instance().writeS1AP("S1AP-InitialContextSetupReq",
         PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
-        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP);
-    Logger::enb("[rx_th] → S1AP InitialContextSetupResponse  eNB S1-U TEID=" + std::to_string(enb_teid));
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildInitialContextSetupRequest(mme_id, enb_id, sgw_teid, ue_ip4, kenb));
+    Logger::enb(Logger::Level::ENGINEER, "[rx_th] → S1AP InitialContextSetupResponse  eNB S1-U TEID=" + std::to_string(enb_teid));
     { std::lock_guard<std::mutex> lk(mme_send_mtx_);
       MessageWriter rsp(MessageType::S1AP_INITIAL_CONTEXT_SETUP_RSP, next_seq_++);
       rsp.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
@@ -165,10 +183,11 @@ void EnbNode::handleICSR(const std::vector<uint8_t>& payload) {
       mme_conn_.sendFrame(rsp.frame());
       PcapWriter::instance().writeS1AP("S1AP-InitialContextSetupRsp",
           PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
-          PcapWriter::IP_MME, PcapWriter::PORT_S1AP); }
+          PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+          s1ap::buildInitialContextSetupResponse(mme_id, enb_id, enb_teid)); }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    Logger::enb("[rx_th] SIM: UE sends NAS Attach Complete (0x46)");
+    Logger::enb(Logger::Level::ENGINEER, "[rx_th] SIM: UE sends NAS Attach Complete (0x46)");
     { std::lock_guard<std::mutex> lk(mme_send_mtx_);
       MessageWriter ac(MessageType::S1AP_UL_NAS_TRANSPORT, next_seq_++);
       ac.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
@@ -177,11 +196,12 @@ void EnbNode::handleICSR(const std::vector<uint8_t>& payload) {
       mme_conn_.sendFrame(ac.frame());
       PcapWriter::instance().writeS1AP("NAS-AttachComplete(UL)",
           PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
-          PcapWriter::IP_MME, PcapWriter::PORT_S1AP); }
+          PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+          s1ap::buildUlNasTransport(mme_id, enb_id, nas_eps::ATTACH_COMPLETE)); }
 }
 
 void EnbNode::commandLoop() {
-    Logger::enb("[enb_th] command loop started");
+    Logger::enb(Logger::Level::ENGINEER, "[enb_th] command loop started");
     while (!stop_.load()) {
         std::unique_lock<std::mutex> lk(cmd_mutex_);
         cmd_cv_.wait(lk,[this]{ return !cmd_queue_.empty()||stop_.load(); });
@@ -190,7 +210,7 @@ void EnbNode::commandLoop() {
             lk.unlock(); processCommand(cmd); lk.lock();
         }
     }
-    Logger::enb("[enb_th] command loop stopped");
+    Logger::enb(Logger::Level::ENGINEER, "[enb_th] command loop stopped");
 }
 
 void EnbNode::processCommand(const std::string& cmd) {
@@ -203,7 +223,7 @@ void EnbNode::processCommand(const std::string& cmd) {
 void EnbNode::sendInitialUEMessage(uint32_t ue_index) {
     if (!mme_conn_.valid()) return;
     uint64_t imsi = BASE_IMSI + ue_index;
-    Logger::enb("[enb_th] → InitialUEMessage  eNB-id=" + std::to_string(ue_index) + " IMSI=" + std::to_string(imsi));
+    Logger::enb(Logger::Level::ENGINEER, "[enb_th] → InitialUEMessage  eNB-id=" + std::to_string(ue_index) + " IMSI=" + std::to_string(imsi));
     std::lock_guard<std::mutex> lk(mme_send_mtx_);
     MessageWriter w(MessageType::S1AP_INITIAL_UE_MSG, next_seq_++);
     w.writeU32(Tag::ENB_UE_S1AP_ID,  ue_index);
@@ -221,10 +241,11 @@ void EnbNode::sendInitialUEMessage(uint32_t ue_index) {
     w.writeU64(Tag::NAS_IMSI,         imsi);
     w.writeU8 (Tag::NAS_UE_CAP,       0xE0);
     mme_conn_.sendFrame(w.frame());
-    // PCAP: S1AP Initial UE Message = Attach Request
+    // PCAP: S1AP Initial UE Message = Attach Request + PDN Connectivity Request
     PcapWriter::instance().writeS1AP("S1AP-InitialUEMsg(AttachReq)",
         PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
-        PcapWriter::IP_MME, PcapWriter::PORT_S1AP);
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildInitialUEMessage(ue_index, imsi));
 }
 
 void EnbNode::submitCommand(const std::string& cmd) {

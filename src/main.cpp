@@ -177,5 +177,6 @@ int main() {
     Logger::sys("joining enb...");  enb_th.join();
     Logger::sys("joining mme...");  mme_th.join();
     Logger::sys("Done. Goodbye.");
+    Logger::shutdown();
     return 0;
 }

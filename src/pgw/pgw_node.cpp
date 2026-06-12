@@ -113,8 +113,8 @@ void PgwNode::handleCreateSessionReq(const std::vector<uint8_t>& payload, const 
     }
 
     Logger::sys("PGW: ← GTP-C CreateSessionReq from S-GW  IMSI=" + std::to_string(imsi) + " APN=" + apn);
-    PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_REQ, 0,
-        PcapWriter::IP_SGW, PcapWriter::PORT_PGW, PcapWriter::IP_PGW, PcapWriter::PORT_PGW);
+    // PCAP write happens at the S-GW's "→ FORWARD" point above (S5 hop) —
+    // logging it again here would duplicate the same wire packet.
 
     // ── Gx: Get policy from PCRF before creating session ─────
     // DESIGN: P-GW can't create a bearer without PCRF approval.

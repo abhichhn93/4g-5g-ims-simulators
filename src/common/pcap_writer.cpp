@@ -1,15 +1,14 @@
 #include "common/pcap_writer.h"
 #include "common/logger.h"
-#include "common/tlv.h"
-#include "common/message_types.h"
 #include <cstring>
+#include <chrono>
 #include <ctime>
 
 static constexpr uint32_t PCAP_MAGIC        = 0xa1b2c3d4;
 static constexpr uint16_t PCAP_MAJOR        = 2;
 static constexpr uint16_t PCAP_MINOR        = 4;
 static constexpr uint32_t PCAP_SNAPLEN      = 65535;
-static constexpr uint32_t PCAP_LINKTYPE_RAW = 101; // raw IPv4
+static constexpr uint32_t PCAP_LINKTYPE_ETH = 1;   // Ethernet
 
 void PcapWriter::open(const std::string& filename) {
     std::lock_guard<std::mutex> lk(mtx_);
@@ -19,18 +18,23 @@ void PcapWriter::open(const std::string& filename) {
     open_ = true;
     tcp_started_.clear();
     conn_seq_.clear();
+    sctp_seq_.clear();
     Logger::sys("PCAP: writing to " + filename);
-    Logger::sys("PCAP: Wireshark filters:");
-    Logger::sys("  diameter              → Diameter S6a (MME↔HSS) + Gx (P-GW↔PCRF)");
-    Logger::sys("  gtpv2                 → GTPv2 S11 (MME↔S-GW) + S5 (S-GW↔P-GW)");
-    Logger::sys("  sip                   → SIP IMS (UE↔P-CSCF↔S-CSCF)");
-    Logger::sys("  tcp.port==36412       → S1AP (eNB↔MME) with Lua dissector");
-    Logger::sys("  diameter || gtpv2 || sip || tcp.port==36412  → all nodes");
+    Logger::sys("PCAP: Protocol Mapping Enabled:");
+    Logger::sys("  S1AP:   SCTP port 36412, PPID 18");
+    Logger::sys("  DIA:    TCP port 3868");
+    Logger::sys("  GTPv2:  UDP port 2123");
+    Logger::sys("  SIP:    UDP port 5060");
 }
 
 void PcapWriter::close() {
     std::lock_guard<std::mutex> lk(mtx_);
-    if (open_) { file_.flush(); file_.close(); open_ = false; }
+    if (open_) { 
+        file_.flush(); 
+        file_.close(); 
+        open_ = false; 
+        Logger::sys("PCAP: Session packet capture finalized.");
+    }
 }
 
 void PcapWriter::writeGlobalHeader() {
@@ -40,7 +44,7 @@ void PcapWriter::writeGlobalHeader() {
     hdr.push_back(PCAP_MINOR & 0xFF); hdr.push_back(PCAP_MINOR >> 8);
     putU32le(hdr, 0); putU32le(hdr, 0);
     putU32le(hdr, PCAP_SNAPLEN);
-    putU32le(hdr, PCAP_LINKTYPE_RAW);
+    putU32le(hdr, PCAP_LINKTYPE_ETH);
     file_.write(reinterpret_cast<const char*>(hdr.data()), hdr.size());
 }
 
@@ -93,6 +97,46 @@ void PcapWriter::ensureTcpHandshake(uint32_t src_ip, uint16_t src_port,
     cs.server_seq += 1;  // now 2001
 }
 
+// ── Diameter AVP helpers ─────────────────────────────────────
+// Wireshark's Diameter dissector treats a 20-byte header-only message
+// (no AVPs) as incomplete and shows raw "Data"/"Continuation" instead of
+// "cmd=... flags=... appl=...". A real Diameter message always carries at
+// least Session-Id/Origin-Host/Origin-Realm/Destination-Realm, so we
+// auto-generate those when the caller doesn't supply AVPs of its own.
+namespace {
+std::string diamIdentity(uint32_t ip) {
+    switch (ip) {
+        case PcapWriter::IP_MME:   return "mme.epc.mnc001.mcc001.3gppnetwork.org";
+        case PcapWriter::IP_HSS:   return "hss.epc.mnc001.mcc001.3gppnetwork.org";
+        case PcapWriter::IP_SGW:   return "sgw.epc.mnc001.mcc001.3gppnetwork.org";
+        case PcapWriter::IP_PGW:   return "pgw.epc.mnc001.mcc001.3gppnetwork.org";
+        case PcapWriter::IP_PCRF:  return "pcrf.epc.mnc001.mcc001.3gppnetwork.org";
+        case PcapWriter::IP_PCSCF: return "pcscf.ims.mnc001.mcc001.3gppnetwork.org";
+        case PcapWriter::IP_SCSCF: return "scscf.ims.mnc001.mcc001.3gppnetwork.org";
+        case PcapWriter::IP_MTAS:  return "mtas.ims.mnc001.mcc001.3gppnetwork.org";
+        default:                   return "node.epc.mnc001.mcc001.3gppnetwork.org";
+    }
+}
+std::string diamRealm(uint32_t ip) {
+    switch (ip) {
+        case PcapWriter::IP_PCSCF:
+        case PcapWriter::IP_SCSCF:
+        case PcapWriter::IP_MTAS:  return "ims.mnc001.mcc001.3gppnetwork.org";
+        default:                   return "epc.mnc001.mcc001.3gppnetwork.org";
+    }
+}
+// AVP header (RFC 6733 §4.1): Code(4) + Flags(1) + Length(3, includes header+data, excludes padding)
+void addAvpStr(std::vector<uint8_t>& v, uint32_t code, const std::string& s) {
+    uint32_t len = 8 + uint32_t(s.size());
+    v.push_back((code >> 24) & 0xFF); v.push_back((code >> 16) & 0xFF);
+    v.push_back((code >>  8) & 0xFF); v.push_back( code        & 0xFF);
+    v.push_back(0x40); // Flags: M (mandatory)
+    v.push_back((len >> 16) & 0xFF); v.push_back((len >> 8) & 0xFF); v.push_back(len & 0xFF);
+    v.insert(v.end(), s.begin(), s.end());
+    while (v.size() % 4) v.push_back(0); // pad to 4-byte boundary
+}
+} // namespace
+
 // ── Diameter ──────────────────────────────────────────────────
 // Write in our TLV format so the Lua dissector can decode and
 // label it as "Diameter AIR [TS 29.272]" etc.
@@ -102,26 +146,39 @@ void PcapWriter::writeDiameter(DiameterCmd cmd, DiameterApp app, bool is_request
                                 uint32_t src_ip, uint16_t src_port,
                                 uint32_t dst_ip, uint16_t dst_port,
                                 const std::vector<uint8_t>& avp_data) {
-    // Map to our internal MessageType that Lua dissector knows
-    uint16_t mtype_val = 0xFFFF;
-    if (cmd == DiameterCmd::AUTH_INFO) {
-        mtype_val = is_request ? 0x0101 : 0x0102;  // AIR / AIA
-    } else if (cmd == DiameterCmd::UPDATE_LOCATION) {
-        mtype_val = is_request ? 0x0103 : 0x0104;  // ULR / ULA
-    } else if (app == DiameterApp::GX) {
-        mtype_val = is_request ? 0x0401 : 0x0402;  // Gx CCR / CCA
-    } else if (app == DiameterApp::CX || cmd == DiameterCmd::SERVER_ASSIGNMENT) {
-        mtype_val = is_request ? 0x0501 : 0x0502;  // Cx SAR / SAA
+    std::vector<uint8_t> avps = avp_data;
+    if (avps.empty()) {
+        uint32_t sid = pkt_id_.fetch_add(1);
+        addAvpStr(avps, 263, diamIdentity(src_ip) + ";" + std::to_string(sid)); // Session-Id
+        addAvpStr(avps, 264, diamIdentity(src_ip));                             // Origin-Host
+        addAvpStr(avps, 296, diamRealm(src_ip));                                // Origin-Realm
+        addAvpStr(avps, 283, diamRealm(dst_ip));                                // Destination-Realm
     }
 
-    // Build our TLV frame — Lua dissector reads this natively
-    MessageWriter w(static_cast<MessageType>(mtype_val), pkt_id_.fetch_add(1));
-    // Optionally embed some key IEs from avp_data
-    if (!avp_data.empty())
-        w.writeBytes(static_cast<Tag>(0x0200), avp_data.data(),
-                     uint16_t(std::min(avp_data.size(), size_t(8))));
+    // Standard Diameter Header (RFC 6733) — 20 bytes
+    std::vector<uint8_t> frame;
+    frame.push_back(0x01); // Version
 
-    auto frame = w.frame();
+    uint32_t msg_len = 20 + static_cast<uint32_t>(avps.size());
+    frame.push_back((msg_len >> 16) & 0xFF);
+    frame.push_back((msg_len >> 8) & 0xFF);
+    frame.push_back(msg_len & 0xFF);
+
+    frame.push_back(is_request ? 0xC0 : 0x40); // Flags: R+P for Request, P for Answer
+
+    uint32_t c = static_cast<uint32_t>(cmd);
+    frame.push_back((c >> 16) & 0xFF);
+    frame.push_back((c >> 8) & 0xFF);
+    frame.push_back(c & 0xFF);
+
+    putU32(frame, static_cast<uint32_t>(app));
+
+    uint32_t id = pkt_id_.fetch_add(1);
+    putU32(frame, id); // Hop-by-Hop Identifier
+    putU32(frame, id); // End-to-End Identifier
+
+    frame.insert(frame.end(), avps.begin(), avps.end());
+
     std::lock_guard<std::mutex> lk(mtx_);
     ensureTcpHandshake(src_ip, src_port, dst_ip, dst_port);
     writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, frame, 0x18,
@@ -136,11 +193,12 @@ void PcapWriter::writeGTPv2(GtpMsgType msg_type, uint32_t teid,
                              uint32_t dst_ip, uint16_t dst_port,
                              const std::vector<uint8_t>& ie_data) {
     uint32_t s = pkt_id_.fetch_add(1);
-    uint16_t gtp_len = uint16_t(4 + ie_data.size());
+    // Length = TEID (4) + Sequence Number + Spare (4) + IEs — excludes the first 4 header bytes
+    uint16_t gtp_len = static_cast<uint16_t>(8 + ie_data.size());
 
     std::vector<uint8_t> gtp;
     gtp.push_back(0x48);                    // Flags: version=2, T=1, seq present
-    gtp.push_back(uint8_t(msg_type));
+    gtp.push_back(static_cast<uint8_t>(msg_type));
     gtp.push_back((gtp_len >> 8) & 0xFF);
     gtp.push_back( gtp_len       & 0xFF);
     putU32(gtp, teid);
@@ -151,7 +209,7 @@ void PcapWriter::writeGTPv2(GtpMsgType msg_type, uint32_t teid,
     gtp.insert(gtp.end(), ie_data.begin(), ie_data.end());
 
     std::lock_guard<std::mutex> lk(mtx_);
-    writePacket(buildIPUDP(src_ip, src_port, dst_ip, dst_port, gtp));
+    writePacket(buildIPUDP(src_ip, PORT_SGW, dst_ip, PORT_SGW, gtp));
 }
 
 // ── SIP ───────────────────────────────────────────────────────
@@ -160,48 +218,89 @@ void PcapWriter::writeSIP(const std::string& sip_text,
                            uint32_t dst_ip, uint16_t dst_port) {
     std::vector<uint8_t> payload(sip_text.begin(), sip_text.end());
     std::lock_guard<std::mutex> lk(mtx_);
-    ensureTcpHandshake(src_ip, src_port, dst_ip, dst_port);
+    ensureTcpHandshake(src_ip, PORT_SIP, dst_ip, PORT_SIP);
     writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, payload, 0x18,
                             nextSeq(src_ip, src_port, dst_ip, dst_port),
                             peerSeq(src_ip, src_port, dst_ip, dst_port)));
     advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(payload.size()));
 }
 
-// ── S1AP — write our TLV so Lua dissector shows proper label ──
 void PcapWriter::writeS1AP(const std::string& msg_name,
                             uint32_t src_ip, uint16_t src_port,
                             uint32_t dst_ip, uint16_t dst_port,
                             const std::vector<uint8_t>& payload) {
-    // Map message name to our MessageType value (Lua dissector knows these)
-    uint16_t mtype_val = 0xFFFF;
-    if      (msg_name.find("InitialUEMsg")       != std::string::npos) mtype_val = 0x0001;
-    else if (msg_name.find("AuthRequest")        != std::string::npos ||
-             msg_name.find("AuthReq")            != std::string::npos) mtype_val = 0x0002;
-    else if (msg_name.find("SecurityModeCmd")    != std::string::npos) mtype_val = 0x0006;
-    else if (msg_name.find("SecurityModeComp")   != std::string::npos ||
-             msg_name.find("SecurityModeComplete")!= std::string::npos) mtype_val = 0x0007;
-    else if (msg_name.find("AuthResponse")       != std::string::npos ||
-             msg_name.find("AuthRsp")            != std::string::npos) mtype_val = 0x0003;
-    else if (msg_name.find("AttachComplete")     != std::string::npos) mtype_val = 0x0003;
-    else if (msg_name.find("InitialContextSetupReq") != std::string::npos) mtype_val = 0x0004;
-    else if (msg_name.find("InitialContextSetupRsp") != std::string::npos) mtype_val = 0x0005;
-
-    // If we got the original TLV payload, use it directly (already has correct msg_type)
-    std::vector<uint8_t> frame;
-    if (!payload.empty()) {
-        frame = payload;  // already our TLV format with 4B length prefix
-    } else {
-        // Build minimal TLV frame for Lua dissector
-        MessageWriter w(static_cast<MessageType>(mtype_val), pkt_id_.fetch_add(1));
-        frame = w.frame();
-    }
-
+    (void)msg_name; // kept for call-site readability; payload is real ASN.1 APER
+    (void)src_port; (void)dst_port; // S1AP always uses SCTP port 36412
     std::lock_guard<std::mutex> lk(mtx_);
-    ensureTcpHandshake(src_ip, src_port, dst_ip, dst_port);
-    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, frame, 0x18,
-                            nextSeq(src_ip, src_port, dst_ip, dst_port),
-                            peerSeq(src_ip, src_port, dst_ip, dst_port)));
-    advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(frame.size()));
+    // SCTP encapsulation with PPID 18 — Wireshark's native "s1ap" dissector
+    // decodes the APER-encoded payload directly.
+    writePacket(buildIPSCTP(src_ip, PORT_S1AP, dst_ip, PORT_S1AP, payload, 18));
+}
+
+std::vector<uint8_t> PcapWriter::buildEthernet() {
+    std::vector<uint8_t> eth(14);
+    std::memset(eth.data(), 0x02, 6);      // Dst MAC dummy
+    std::memset(eth.data() + 6, 0x01, 6);  // Src MAC dummy
+    eth[12] = 0x08; eth[13] = 0x00;        // EtherType = IPv4
+    return eth;
+}
+
+std::vector<uint8_t> PcapWriter::buildIPSCTP(uint32_t src_ip, uint16_t src_port,
+                                              uint32_t dst_ip, uint16_t dst_port,
+                                              const std::vector<uint8_t>& payload,
+                                              uint32_t ppid) {
+    // SCTP DATA chunks are padded to a 4-byte boundary, and that padding is
+    // part of the SCTP packet (hence part of the IP payload) — RFC 4960 §3.2.
+    // chunk_len itself (set below) does NOT include this padding.
+    size_t chunk_pad = (4 - ((16 + payload.size()) % 4)) % 4;
+
+    // IPv4 Header (20 bytes)
+    uint16_t ip_total = uint16_t(20 + 12 + 16 + payload.size() + chunk_pad);
+    std::vector<uint8_t> ip;
+    ip.push_back(0x45); ip.push_back(0x00);
+    putU16(ip, ip_total);
+    putU16(ip, uint16_t(pkt_id_.fetch_add(1)));
+    putU16(ip, 0x4000); // DF flag
+    ip.push_back(64); ip.push_back(132); // protocol = SCTP (132)
+    putU16(ip, 0x0000);
+    putU32(ip, src_ip); putU32(ip, dst_ip);
+    uint16_t ck = ipChecksum(ip.data(), 20);
+    ip[10] = (ck >> 8) & 0xFF; ip[11] = ck & 0xFF;
+
+    // SCTP Common Header (12 bytes)
+    std::vector<uint8_t> sctp;
+    putU16(sctp, src_port);
+    putU16(sctp, dst_port);
+    putU32(sctp, 0x12345678); // Verification Tag
+    putU32(sctp, 0x00000000); // Checksum dummy
+
+    // SCTP DATA Chunk Header (16 bytes)
+    // TSN/Stream-Seq must increment (and never repeat across either
+    // direction, since both directions share one verification tag), or
+    // Wireshark treats the packet as a "retransmission" and skips the
+    // PPID sub-dissector.
+    auto sctp_key = connKey(src_ip, src_port, dst_ip, dst_port);
+    auto& ss = sctp_seq_[sctp_key];
+    uint32_t tsn = ss.tsn++;
+    uint16_t ssn = ss.ssn++;
+
+    std::vector<uint8_t> chunk;
+    chunk.push_back(0x00); // Type = DATA
+    chunk.push_back(0x03); // Flags (E=1, B=1)
+    uint16_t chunk_len = uint16_t(16 + payload.size());
+    putU16(chunk, chunk_len);
+    putU32(chunk, tsn); // TSN
+    putU16(chunk, 0);   // Stream ID
+    putU16(chunk, ssn); // Stream Seq
+    putU32(chunk, ppid); // PPID (18 for S1AP)
+
+    std::vector<uint8_t> frame = buildEthernet();
+    frame.insert(frame.end(), ip.begin(), ip.end());
+    frame.insert(frame.end(), sctp.begin(), sctp.end());
+    frame.insert(frame.end(), chunk.begin(), chunk.end());
+    frame.insert(frame.end(), payload.begin(), payload.end());
+    frame.insert(frame.end(), chunk_pad, 0); // SCTP chunk padding
+    return frame;
 }
 
 // ── Per-connection seq helpers ─────────────────────────────────
@@ -269,7 +368,8 @@ std::vector<uint8_t> PcapWriter::buildIPTCP(uint32_t src_ip, uint16_t src_port,
     putU16(tcp, 0x0000);       // checksum (0 = disabled, Wireshark ignores)
     putU16(tcp, 0x0000);       // urgent pointer
 
-    std::vector<uint8_t> frame;
+    // Fix: Include Ethernet header for LINKTYPE_ETH compatibility
+    std::vector<uint8_t> frame = buildEthernet();
     frame.insert(frame.end(), ip.begin(),      ip.end());
     frame.insert(frame.end(), tcp.begin(),     tcp.end());
     frame.insert(frame.end(), payload.begin(), payload.end());
@@ -285,7 +385,7 @@ std::vector<uint8_t> PcapWriter::buildIPUDP(uint32_t src_ip, uint16_t src_port,
     std::vector<uint8_t> ip;
     ip.push_back(0x45); ip.push_back(0x00);
     putU16(ip, ip_total);
-    putU16(ip, uint16_t(pkt_id_.load()));
+    putU16(ip, uint16_t(pkt_id_.fetch_add(1)));
     putU16(ip, 0x4000);
     ip.push_back(64); ip.push_back(17); // UDP
     putU16(ip, 0x0000);
@@ -297,7 +397,8 @@ std::vector<uint8_t> PcapWriter::buildIPUDP(uint32_t src_ip, uint16_t src_port,
     putU16(udp, src_port); putU16(udp, dst_port);
     putU16(udp, udp_len);  putU16(udp, 0);
 
-    std::vector<uint8_t> frame;
+    // Fix: Include Ethernet header for LINKTYPE_ETH compatibility
+    std::vector<uint8_t> frame = buildEthernet();
     frame.insert(frame.end(), ip.begin(),      ip.end());
     frame.insert(frame.end(), udp.begin(),     udp.end());
     frame.insert(frame.end(), payload.begin(), payload.end());

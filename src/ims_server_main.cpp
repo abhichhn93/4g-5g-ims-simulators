@@ -89,5 +89,6 @@ int main() {
     hss_th.join(); scscf_th.join(); pcscf_th.join();
     PcapWriter::instance().close();
     Logger::sys("Done. Open ims_server_capture.pcap in Wireshark — filter: sip || diameter");
+    Logger::shutdown();
     return 0;
 }

@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <cstring>
+#include <ostream>
+#include <cstdio>
 #include "common/message_types.h"
 
 // ============================================================
@@ -30,16 +32,55 @@
 // WHY NEEDED: TCP is a byte stream — there are no message boundaries.
 // If eNB sends 200 bytes and then 150 bytes, the receiver might get
 // all 350 bytes in one recv() call, or split as 100+250, or any other way.
-// We must frame our own messages.
-//
-// SCTP (real S1AP): records are message-oriented like UDP. The OS
-// delivers one S1AP PDU per recvmsg() call — no length prefix needed.
-// TCP (our sim): we add a 4-byte length prefix before each message body.
 // ============================================================
 struct MessageHeader {
-    uint32_t msg_type;      // MessageType enum cast to uint32
+    // Domain identifies the protocol family (4G EPC, 5G Core, IMS)
+    // 0x01 = 4G, 0x02 = 5G, 0x03 = IMS
+    uint8_t  domain;
+    
+    // Version allows protocol evolution without breaking the simulator
+    uint8_t  version;
+
+    // MessageType identifies the specific message (e.g., Attach Request)
+    uint16_t msg_type;
+    
+    // Total bytes including this header
     uint32_t msg_length;    // total bytes of the message struct (including this header)
+    
+    // Monotonically increasing for correlation
     uint32_t sequence_num;  // monotonically increasing per sender, for correlation/debug
+
+    // INTERVIEW: Operator Overloading
+    // This allows us to log the header easily: std::cout << header;
+    friend std::ostream& operator<<(std::ostream& os, const MessageHeader& hdr) {
+        os << "Header[Domain: " << (int)hdr.domain 
+           << ", Type: " << hdr.msg_type 
+           << ", Len: " << hdr.msg_length << "] ";
+        
+        // ENGINEERING: Byte Pattern Visualization
+        // Shows the raw hex representation of the header for debugging.
+        char hex[32];
+        snprintf(hex, sizeof(hex), " (Hex: %02X %02X %04X)", 
+                 static_cast<int>(hdr.domain), static_cast<int>(hdr.version), 
+                 static_cast<int>(hdr.msg_type));
+        os << hex;
+        return os;
+    }
+};
+
+// INTERVIEW: Transport Layer Strategy (SCTP vs TCP)
+// Senior Question: "S1AP requires SCTP. How does your simulator handle this on macOS?"
+// Answer: "Since macOS lacks a native SCTP kernel stack, I've implemented a Transport
+// Abstraction Layer. The code uses TCP with a 4-byte length-prefix (Message Shim) 
+// to preserve SCTP's record-oriented nature. Crucially, the PcapWriter is 
+// instrumented to wrap these payloads in valid SCTP headers for Wireshark, 
+// ensuring 'Industry Standard' PCAP analysis (TS 36.413 compatibility)."
+
+// INTERVIEW: Polymorphism
+// Base class for all messages to demonstrate Virtual Functions
+struct BaseMessage {
+    virtual ~BaseMessage() = default; // Essential for correct cleanup in polymorphism
+    virtual void logInterviewContext() const = 0; // Pure virtual for learning logic
 };
 
 // ============================================================

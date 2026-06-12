@@ -587,5 +587,6 @@ int main(int argc, char* argv[]) {
     g_stop.store(true);
     ue.stopReceiveThread();
     PcapWriter::instance().close();
+    Logger::shutdown();
     return 0;
 }

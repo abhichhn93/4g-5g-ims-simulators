@@ -13,43 +13,43 @@ HssNode::HssNode(std::atomic<bool>& stop, std::atomic<bool>& hss_ready)
 {}
 
 void HssNode::run() {
-    Logger::hss("HSS: thread started");
+    Logger::hss(Logger::Level::ENGINEER, "HSS: thread started");
     try {
         setupServer();
         if (!stop_.load()) receiveLoop();
     } catch (const std::exception& e) {
         Logger::warn("HSS", e.what());
     }
-    Logger::hss("HSS: thread exiting");
+    Logger::hss(Logger::Level::ENGINEER, "HSS: thread exiting");
 }
 
 void HssNode::setupServer() {
-    Logger::hss("HSS: creating TCP server on " + std::string(HSS_IP) + ":" + std::to_string(HSS_PORT));
-    Logger::hss("HSS: REAL: Diameter S6a uses SCTP on port 3868 (TS 29.272). We use TCP.");
-    Logger::hss("HSS: REAL: Multiple MMEs connect simultaneously. We accept 1 (Phase 2).");
+    Logger::hss(Logger::Level::ENGINEER, "HSS: creating TCP server on " + std::string(HSS_IP) + ":" + std::to_string(HSS_PORT));
+    Logger::hss(Logger::Level::ENGINEER, "HSS: REAL: Diameter S6a uses SCTP on port 3868 (TS 29.272). We use TCP.");
+    Logger::hss(Logger::Level::ENGINEER, "HSS: REAL: Multiple MMEs connect simultaneously. We accept 1 (Phase 2).");
 
     server_socket_ = Socket::createServer(HSS_IP, HSS_PORT);
     hss_ready_.store(true);
 
-    Logger::hss("HSS: listening — waiting for MME to connect...");
+    Logger::hss(Logger::Level::ENGINEER, "HSS: listening — waiting for MME to connect...");
     while (!stop_.load()) {
         if (server_socket_.hasConnection(100)) {
             mme_conn_ = server_socket_.accept();
-            Logger::hss("HSS: MME connected ✓ — Diameter S6a link UP");
+            Logger::hss(Logger::Level::ENGINEER, "HSS: MME connected ✓ — Diameter S6a link UP");
             return;
         }
     }
 }
 
 void HssNode::receiveLoop() {
-    Logger::hss("HSS: entering receive loop — waiting for Diameter AIR from MME");
+    Logger::hss(Logger::Level::ENGINEER, "HSS: entering receive loop — waiting for Diameter AIR from MME");
 
     while (!stop_.load()) {
         if (!mme_conn_.hasData(100)) continue;
 
         std::vector<uint8_t> payload;
         if (!mme_conn_.recvFrame(payload)) {
-            Logger::hss("HSS: MME disconnected — exiting receive loop");
+            Logger::hss(Logger::Level::ENGINEER, "HSS: MME disconnected — exiting receive loop");
             break;
         }
 
@@ -79,13 +79,13 @@ void HssNode::handleAIR(const std::vector<uint8_t>& payload, uint32_t req_seq) {
         }
     }
 
-    Logger::hss("HSS: ← RECV Diameter AIR [TS 29.272 §5.2.3.1] seq=" + std::to_string(req_seq));
+    Logger::hss(Logger::Level::ENGINEER, "HSS: ← RECV Diameter AIR [TS 29.272 §5.2.3.1] seq=" + std::to_string(req_seq));
     Logger::ie_field("  IMSI = " + std::to_string(imsi));
     Logger::ie_field("  Visited-PLMN = " + std::to_string(plmn));
-    Logger::hss("HSS:   → Looking up subscriber record...");
-    Logger::hss("HSS:   → REAL: HSS looks up Ki for this IMSI in subscriber DB");
-    Logger::hss("HSS:   → REAL: Runs Milenage (f1/f2/f3/f4/f5) with Ki + fresh RAND");
-    Logger::hss("HSS:   → OUR SIM: Generating simplified auth vectors");
+    Logger::hss(Logger::Level::ENGINEER, "HSS:   → Looking up subscriber record...");
+    Logger::hss(Logger::Level::ENGINEER, "HSS:   → REAL: HSS looks up Ki for this IMSI in subscriber DB");
+    Logger::hss(Logger::Level::ENGINEER, "HSS:   → REAL: Runs Milenage (f1/f2/f3/f4/f5) with Ki + fresh RAND");
+    Logger::hss(Logger::Level::ENGINEER, "HSS:   → OUR SIM: Generating simplified auth vectors");
 
     // Generate auth vectors
     uint8_t rand_v[16], autn_v[16], xres_v[8], kasme_v[32];
@@ -96,7 +96,7 @@ void HssNode::handleAIR(const std::vector<uint8_t>& payload, uint32_t req_seq) {
     Logger::ie_field("  AUTN  = RAND XOR 0xAA (simplified) — UE verifies network with this");
     Logger::ie_field("  XRES  = RAND[0..7] XOR 0x55 — MME will compare UE's RES with this");
     Logger::ie_field("  Kasme = zeros (Phase 3 will use real HKDF from Ki+RAND)");
-    Logger::hss("HSS:   → Sending AIA (auth vectors) back to MME...");
+    Logger::hss(Logger::Level::ENGINEER, "HSS:   → Sending AIA (auth vectors) back to MME...");
 
     // Build and send AIA
     MessageWriter w(MessageType::DIA_AIA, next_seq_++);
@@ -107,7 +107,7 @@ void HssNode::handleAIR(const std::vector<uint8_t>& payload, uint32_t req_seq) {
     w.writeBytes(Tag::DIA_KASME, kasme_v, 32);
 
     if (mme_conn_.sendFrame(w.frame())) {
-        Logger::hss("HSS: → SEND Diameter AIA [TS 29.272 §5.2.3.2] — auth vectors delivered");
+        Logger::hss(Logger::Level::ENGINEER, "HSS: → SEND Diameter AIA [TS 29.272 §5.2.3.2] — auth vectors delivered");
         PcapWriter::instance().writeDiameter(
             DiameterCmd::AUTH_INFO, DiameterApp::S6A, false,
             PcapWriter::IP_HSS, PcapWriter::PORT_DIA,

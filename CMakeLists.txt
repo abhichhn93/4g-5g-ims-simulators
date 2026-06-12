@@ -22,6 +22,8 @@ find_package(Threads REQUIRED)
 # ── Common sources (shared by both binaries) ──────────────────
 set(COMMON_SRC
     src/common/pcap_writer.cpp
+    src/common/nas_eps.cpp
+    src/common/s1ap_codec.cpp
 )
 
 # ── 4G EPC simulator ─────────────────────────────────────────

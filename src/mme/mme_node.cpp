@@ -3,6 +3,8 @@
 #include "common/visual_logger.h"
 #include "common/pcap_writer.h"
 #include "common/subscriber_profile.h"
+#include "common/nas_eps.h"
+#include "common/s1ap_codec.h"
 #include <chrono>
 #include <thread>
 #include <cstdio>
@@ -25,8 +27,8 @@ MmeNode::MmeNode(std::atomic<bool>& stop, std::atomic<bool>& enb_ready,
 {}
 
 void MmeNode::run() {
-    Logger::mme("thread started");
-    Logger::mme("Phase 3: sharded UE store (64 buckets × shared_mutex) + GTP-C to S-GW");
+    Logger::mme(Logger::Level::ENGINEER, "thread started");
+    Logger::mme(Logger::Level::ENGINEER, "Phase 3: sharded UE store (64 buckets × shared_mutex) + GTP-C to S-GW");
     try {
         connectToNodes();
         if (stop_.load()) return;
@@ -36,39 +38,39 @@ void MmeNode::run() {
     } catch (const std::exception& e) {
         Logger::warn("MME", e.what());
     }
-    Logger::mme("thread exiting");
+    Logger::mme(Logger::Level::ENGINEER, "thread exiting");
 }
 
 void MmeNode::connectToNodes() {
     // HSS
-    Logger::mme("waiting for HSS...");
+    Logger::mme(Logger::Level::ENGINEER, "waiting for HSS...");
     while (!hss_ready_.load() && !stop_.load()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     if (stop_.load()) return;
     hss_conn_ = Socket::connectTo(HSS_IP, HSS_PORT);
-    Logger::mme("HSS Diameter link UP ✓");
+    Logger::mme(Logger::Level::ENGINEER, "HSS Diameter link UP ✓");
 
     // S-GW
-    Logger::mme("waiting for S-GW...");
+    Logger::mme(Logger::Level::ENGINEER, "waiting for S-GW...");
     while (!sgw_ready_.load() && !stop_.load()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     if (stop_.load()) return;
     sgw_udp_ = UdpSocket::bind("127.0.0.1", MME_S11_PORT);  // MME binds its S11 UDP port
-    Logger::mme("S11 UDP socket bound on port " + std::to_string(MME_S11_PORT));
-    Logger::mme("REAL: S11 is the interface between MME and S-GW (TS 23.401 §4.4.3.2)");
+    Logger::mme(Logger::Level::ENGINEER, "S11 UDP socket bound on port " + std::to_string(MME_S11_PORT));
+    Logger::mme(Logger::Level::ENGINEER, "REAL: S11 is the interface between MME and S-GW (TS 23.401 §4.4.3.2)");
 
     // eNB
-    Logger::mme("waiting for eNB...");
+    Logger::mme(Logger::Level::ENGINEER, "waiting for eNB...");
     while (!enb_ready_.load() && !stop_.load()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     if (stop_.load()) return;
     enb_conn_ = Socket::connectTo(ENB_IP, ENB_PORT);
-    Logger::mme("eNB S1 link UP ✓");
-    Logger::mme("All interfaces UP — MME ready");
+    Logger::mme(Logger::Level::ENGINEER, "eNB S1 link UP ✓");
+    Logger::mme(Logger::Level::ENGINEER, "All interfaces UP — MME ready");
 }
 
 // ─────────────────────────────────────────────────────────────
 // hssReceiveLoop (hss_rx_th): PRODUCER for pending_auth_
 // ─────────────────────────────────────────────────────────────
 void MmeNode::hssReceiveLoop() {
-    Logger::mme("[hss_rx] loop started");
+    Logger::mme(Logger::Level::ENGINEER, "[hss_rx] loop started");
     while (!stop_.load()) {
         if (!hss_conn_.hasData(100)) continue;
         std::vector<uint8_t> payload;
@@ -91,18 +93,18 @@ void MmeNode::hssReceiveLoop() {
                 default: r.skip(); break;
             }
         }
-        Logger::mme("[hss_rx] ← Diameter AIA received for IMSI=" + std::to_string(imsi));
+        Logger::mme(Logger::Level::ENGINEER, "[hss_rx] ← Diameter AIA received for IMSI=" + std::to_string(imsi));
         { std::lock_guard<std::mutex> lk(pending_auth_mutex_); pending_auth_[imsi] = av; }
         pending_auth_cv_.notify_all();
     }
-    Logger::mme("[hss_rx] loop stopped");
+    Logger::mme(Logger::Level::ENGINEER, "[hss_rx] loop stopped");
 }
 
 // ─────────────────────────────────────────────────────────────
 // enbReceiveLoop (mme_th): dispatch all eNB messages
 // ─────────────────────────────────────────────────────────────
 void MmeNode::enbReceiveLoop() {
-    Logger::mme("[mme_th] eNB receive loop started");
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] eNB receive loop started");
     while (!stop_.load()) {
         if (!enb_conn_.hasData(100)) continue;
         std::vector<uint8_t> payload;
@@ -116,7 +118,7 @@ void MmeNode::enbReceiveLoop() {
             default: Logger::warn("MME","[mme_th] unexpected: "+std::string(msg_type_str(r.msgType())));
         }
     }
-    Logger::mme("[mme_th] eNB receive loop stopped");
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] eNB receive loop stopped");
 }
 
 void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
@@ -165,9 +167,9 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
 
     uint32_t mme_id = ue_store_.insert(ctx);
 
-    Logger::mme("[mme_th] UE context created in shard[" + std::to_string(mme_id%64) +
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] UE context created in shard[" + std::to_string(mme_id%64) +
                 "]  MME-id=" + std::to_string(mme_id));
-    Logger::mme("[mme_th] SHARDING: mme_id%64=" + std::to_string(mme_id%64) +
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] SHARDING: mme_id%64=" + std::to_string(mme_id%64) +
                 " → only locks 1 of 64 buckets → 64x less contention than single global mutex");
 
     // ── STEP 2: Diameter AIR to HSS ──────────────────────────
@@ -191,7 +193,7 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
           PcapWriter::IP_MME, 3868, PcapWriter::IP_HSS, 3868); }
 
     // BLOCK on cv.wait (hss_rx_th is PRODUCER, this thread is CONSUMER)
-    Logger::mme("[mme_th] cv.wait — blocking until HSS AIA arrives [condition_variable]");
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] cv.wait — blocking until HSS AIA arrives [condition_variable]");
     AuthVectors av{};
     { std::unique_lock<std::mutex> lk(pending_auth_mutex_);
       pending_auth_cv_.wait(lk, [&]{ return pending_auth_.count(imsi)>0 || stop_.load(); });
@@ -239,7 +241,6 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
 
 void MmeNode::handleULNasTransport(const std::vector<uint8_t>& payload) {
     uint32_t mme_id=0, enb_id=0; uint8_t nas_type=0; std::vector<uint8_t> res;
-    (void)enb_id;
 
     MessageReader r(payload);
     while(r.hasMore()) {
@@ -255,7 +256,7 @@ void MmeNode::handleULNasTransport(const std::vector<uint8_t>& payload) {
 
     if (nas_type == 0x53) {
         // Auth Response
-        Logger::mme("[mme_th] ← UL NAS Transport (Auth Response 0x53)  mme_id=" + std::to_string(mme_id));
+        Logger::mme(Logger::Level::ENGINEER, "[mme_th] ← UL NAS Transport (Auth Response 0x53)  mme_id=" + std::to_string(mme_id));
         auto ctx = ue_store_.find(mme_id);
         if (!ctx) { Logger::warn("MME","no UE context for id="+std::to_string(mme_id)); return; }
         bool ok = (res.size()>=8 && std::memcmp(res.data(), ctx->auth.xres, 8)==0);
@@ -285,14 +286,13 @@ void MmeNode::handleULNasTransport(const std::vector<uint8_t>& payload) {
                 .next("UE activates selected algorithms, sends Security Mode Complete")
                 .flush();
 
+            // PCAP write happens at the eNB's handleDLNas when it receives this
+            // (nas_type==0x5D), consistent with the Auth Request DL message above.
             { MessageWriter smc(MessageType::S1AP_DL_NAS_TRANSPORT, next_seq_++);
               smc.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
               smc.writeU32(Tag::ENB_UE_S1AP_ID, ctx->enb_ue_s1ap_id);
               smc.writeU8 (Tag::NAS_MSG_TYPE,   0x5D);  // Security Mode Command
-              enb_conn_.sendFrame(smc.frame());
-              PcapWriter::instance().writeS1AP("NAS-SecurityModeCmd(DL)",
-                  PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
-                  PcapWriter::IP_ENB, PcapWriter::PORT_S1AP); }
+              enb_conn_.sendFrame(smc.frame()); }
 
             ctx->emm_state = EmmState::SESSION_PENDING;
             handleAuthSuccess(mme_id);
@@ -301,16 +301,17 @@ void MmeNode::handleULNasTransport(const std::vector<uint8_t>& payload) {
         }
     } else if (nas_type == 0x5E) {
         // Security Mode Complete — NAS security activated
-        Logger::mme("[mme_th] ← NAS Security Mode Complete (0x5E)  mme_id=" + std::to_string(mme_id));
+        Logger::mme(Logger::Level::ENGINEER, "[mme_th] ← NAS Security Mode Complete (0x5E)  mme_id=" + std::to_string(mme_id));
         Logger::ie_field("  EEA2 + EIA2 activated ✓ — all NAS now encrypted + integrity-protected");
         Logger::ie_field("  INTERVIEW: this is NAS-layer security (different from AS/radio security)");
         Logger::ie_field("  AS security activated later via KeNB in InitialContextSetupRequest");
         PcapWriter::instance().writeS1AP("NAS-SecurityModeComplete(UL-seen-by-MME)",
             PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
-            PcapWriter::IP_MME, PcapWriter::PORT_S1AP);
+            PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+            s1ap::buildUlNasTransport(mme_id, enb_id, nas_eps::SECURITY_MODE_COMPLETE));
     } else if (nas_type == 0x46) {
         // Attach Complete
-        Logger::mme("[mme_th] ← UL NAS Transport (Attach Complete 0x46)  mme_id=" + std::to_string(mme_id));
+        Logger::mme(Logger::Level::ENGINEER, "[mme_th] ← UL NAS Transport (Attach Complete 0x46)  mme_id=" + std::to_string(mme_id));
         auto ctx = ue_store_.find(mme_id);
         if (!ctx) return;
         ctx->emm_state = EmmState::REGISTERED;
@@ -349,14 +350,14 @@ void MmeNode::handleAuthSuccess(uint32_t mme_id) {
         .flush();
     PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_REQ, 0,
         PcapWriter::IP_MME, 2123, PcapWriter::IP_SGW, 2123);
-    Logger::mme("[mme_th] → Starting GTP-C session setup (Phase 3)");
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] → Starting GTP-C session setup (Phase 3)");
     if (!sendCreateSession(mme_id, ctx->imsi)) return;
 
     // Send Initial Context Setup Request to eNB
     auto* bearer = ctx->defaultBearer();
     if (!bearer) { Logger::warn("MME","no bearer after session setup"); return; }
 
-    Logger::mme("[mme_th] → S1AP InitialContextSetupRequest [TS 36.413 §9.1.4.1]");
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] → S1AP InitialContextSetupRequest [TS 36.413 §9.1.4.1]");
     Logger::ie_field("  S-GW S1-U TEID=" + std::to_string(bearer->sgw_s1u_teid) +
                      "  UE IP=" + bearer->ue_ip);
     Logger::ie_field("  NAS: Attach Accept + Activate Default EPS Bearer Context Request");
@@ -384,7 +385,7 @@ void MmeNode::handleAuthSuccess(uint32_t mme_id) {
 }
 
 bool MmeNode::sendCreateSession(uint32_t mme_id, uint64_t imsi) {
-    Logger::mme("[mme_th] → GTP-C CreateSessionReq to S-GW [TS 29.274 §7.2.1]");
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] → GTP-C CreateSessionReq to S-GW [TS 29.274 §7.2.1]");
     Logger::ie_field("  IMSI=" + std::to_string(imsi) + "  APN=internet  EBI=5  QCI=9");
 
     MessageWriter req(MessageType::GTP_CREATE_SESSION_REQ, next_seq_++);
@@ -398,7 +399,7 @@ bool MmeNode::sendCreateSession(uint32_t mme_id, uint64_t imsi) {
 
     // Blocking wait for S-GW response (synchronous for Phase 3 single-UE flow)
     // PHASE 4 TODO: make async with condition_variable like HSS pattern
-    Logger::mme("[mme_th] waiting for S-GW CreateSessionRsp (blocking UDP recv, 5s timeout)...");
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] waiting for S-GW CreateSessionRsp (blocking UDP recv, 5s timeout)...");
     std::vector<uint8_t> resp; sockaddr_in sgw_addr{};
     if (!sgw_udp_.recvWithTimeout(resp, sgw_addr, 5000)) {
         Logger::warn("MME","S-GW CreateSessionRsp timeout"); return false;
@@ -426,7 +427,7 @@ bool MmeNode::sendCreateSession(uint32_t mme_id, uint64_t imsi) {
     }
 
     char ue_ip[32]; std::snprintf(ue_ip,32,"%d.%d.%d.%d",ue_ip_bytes[0],ue_ip_bytes[1],ue_ip_bytes[2],ue_ip_bytes[3]);
-    Logger::mme("[mme_th] ← S-GW CreateSessionRsp — UE IP=" + std::string(ue_ip));
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] ← S-GW CreateSessionRsp — UE IP=" + std::string(ue_ip));
 
     // Store bearer in UE context
     Bearer b{};
@@ -450,7 +451,7 @@ void MmeNode::handleICSetupResponse(const std::vector<uint8_t>& payload) {
         }
     }
 
-    Logger::mme("[mme_th] ← S1AP InitialContextSetupResponse  eNB S1-U TEID=" + std::to_string(enb_teid));
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] ← S1AP InitialContextSetupResponse  eNB S1-U TEID=" + std::to_string(enb_teid));
     Logger::ie_field("  eNB allocated TEID=" + std::to_string(enb_teid) + " for GTP-U downlink tunnel");
 
     // Store eNB's TEID in UE context
@@ -458,7 +459,7 @@ void MmeNode::handleICSetupResponse(const std::vector<uint8_t>& payload) {
     if (ctx) { auto* b=ctx->defaultBearer(); if(b) b->enb_s1u_teid=enb_teid; }
 
     // Send Modify Bearer Request to S-GW (tell S-GW the eNB's S1-U TEID)
-    Logger::mme("[mme_th] → GTP-C ModifyBearerReq to S-GW [TS 29.274 §7.2.7]");
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] → GTP-C ModifyBearerReq to S-GW [TS 29.274 §7.2.7]");
     Logger::ie_field("  Telling S-GW: 'eNB's S1-U TEID=" + std::to_string(enb_teid) +
                      " — route downlink data there'");
 
@@ -473,8 +474,8 @@ void MmeNode::handleICSetupResponse(const std::vector<uint8_t>& payload) {
     if (!sgw_udp_.recvWithTimeout(resp, sgw_addr, 3000)) {
         Logger::warn("MME","ModifyBearerRsp timeout"); return;
     }
-    Logger::mme("[mme_th] ← S-GW ModifyBearerRsp ✓");
-    Logger::mme("[mme_th] Data path established: UE ←GTP-U→ eNB ←GTP-U→ S-GW ←GTP-U→ P-GW ←→ Internet");
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] ← S-GW ModifyBearerRsp ✓");
+    Logger::mme(Logger::Level::ENGINEER, "[mme_th] Data path established: UE ←GTP-U→ eNB ←GTP-U→ S-GW ←GTP-U→ P-GW ←→ Internet");
     Logger::sys("INTERVIEW: 'The data tunnel is now live. User plane goes eNB→S-GW→P-GW→Internet.");
     Logger::sys("           Control plane (NAS) goes eNB→MME. Completely separate paths.'");
 }

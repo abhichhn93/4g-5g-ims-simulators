@@ -148,7 +148,7 @@ public:
     // TCP payload (already stripped of 4-byte length prefix by recvFrame)
     explicit MessageReader(const std::vector<uint8_t>& buf) : buf_(buf), pos_(0) {
         if (buf_.size() >= 8) {
-            msg_type_ = MessageType(gu16()); flags_ = gu16(); seq_num_ = gu32();
+            msg_type_ = static_cast<MessageType>(gu16()); flags_ = gu16(); seq_num_ = gu32();
         }
     }
 
@@ -170,8 +170,13 @@ public:
     uint32_t readU32() { pos_+=4; uint32_t v=buf_[pos_]|(buf_[pos_+1]<<8)|(buf_[pos_+2]<<16)|(buf_[pos_+3]<<24); pos_+=4; return v; }
     uint64_t readU64() {
         pos_+=4;
-        uint64_t lo=buf_[pos_]|(buf_[pos_+1]<<8)|(buf_[pos_+2]<<16)|(buf_[pos_+3]<<24);
-        uint64_t hi=buf_[pos_+4]|(buf_[pos_+5]<<8)|(buf_[pos_+6]<<16)|(buf_[pos_+7]<<24);
+        // Each byte must be widened to uint64_t before shifting — shifting a
+        // promoted `int` by 24 sets the sign bit when the byte is >= 0x80,
+        // and assigning that negative int to uint64_t sign-extends it,
+        // corrupting the upper 32 bits (e.g. IMSI 404100000000001 became
+        // 18446744073121572865).
+        uint64_t lo=uint64_t(buf_[pos_])|(uint64_t(buf_[pos_+1])<<8)|(uint64_t(buf_[pos_+2])<<16)|(uint64_t(buf_[pos_+3])<<24);
+        uint64_t hi=uint64_t(buf_[pos_+4])|(uint64_t(buf_[pos_+5])<<8)|(uint64_t(buf_[pos_+6])<<16)|(uint64_t(buf_[pos_+7])<<24);
         pos_+=8; return lo|(hi<<32);
     }
     std::vector<uint8_t> readBytes() {

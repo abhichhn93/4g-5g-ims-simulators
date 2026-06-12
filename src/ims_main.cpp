@@ -534,5 +534,6 @@ int main() {
     hss_th.join(); scscf_th.join(); pcscf_th.join();
     PcapWriter::instance().close();
     Logger::sys("IMS simulator done. Open ims_capture.pcap in Wireshark — filter: sip");
+    Logger::shutdown();
     return 0;
 }

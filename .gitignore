@@ -6,4 +6,6 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 *.pcap
+*.log
 .DS_Store
+output/

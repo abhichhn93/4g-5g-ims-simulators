@@ -4,6 +4,7 @@
 #include <string>
 #include "common/socket_wrapper.h"
 #include "common/tlv.h"
+#include <shared_mutex>
 #include "ims/sip.h"
 
 struct ImsSubscriber {
@@ -48,6 +49,8 @@ private:
     Socket hss_conn_;
 
     std::map<std::string, ImsSubscriber> registry_;  // IMPU → subscriber
+    mutable std::shared_mutex            registry_mtx_;
+    mutable std::shared_mutex            calls_mtx_;
     std::map<std::string, CallState>     calls_;     // call_id → state
     uint32_t next_seq_{1};
 

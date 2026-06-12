@@ -10,26 +10,26 @@ ImsHssNode::ImsHssNode(std::atomic<bool>& stop, std::atomic<bool>& ims_hss_ready
 {}
 
 void ImsHssNode::run() {
-    Logger::hss("IMS-HSS: thread started — Cx interface on port " + std::to_string(HSS_CX_PORT));
-    Logger::hss("IMS-HSS: REAL: same physical HSS as EPS HSS (S6a for 4G attach, Cx for IMS)");
-    Logger::hss("IMS-HSS: Stores: IMPU↔IMPI mapping, S-CSCF assignment, IMS subscription profile");
+    Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: thread started — Cx interface on port " + std::to_string(HSS_CX_PORT));
+    Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: REAL: same physical HSS as EPS HSS (S6a for 4G attach, Cx for IMS)");
+    Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: Stores: IMPU↔IMPI mapping, S-CSCF assignment, IMS subscription profile");
     try {
         setupServer();
         if (!stop_.load()) receiveLoop();
     } catch (const std::exception& e) {
         Logger::warn("IMS-HSS", e.what());
     }
-    Logger::hss("IMS-HSS: thread exiting");
+    Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: thread exiting");
 }
 
 void ImsHssNode::setupServer() {
     server_socket_ = Socket::createServer(HSS_CX_IP, HSS_CX_PORT);
     ims_hss_ready_.store(true);
-    Logger::hss("IMS-HSS: ready — waiting for S-CSCF");
+    Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: ready — waiting for S-CSCF");
     while (!stop_.load()) {
         if (server_socket_.hasConnection(100)) {
             scscf_conn_ = server_socket_.accept();
-            Logger::hss("IMS-HSS: S-CSCF connected (Cx link UP) ✓");
+            Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: S-CSCF connected (Cx link UP) ✓");
             return;
         }
     }
@@ -59,16 +59,16 @@ void ImsHssNode::handleSAR(const std::vector<uint8_t>& payload) {
         else r.skip();
     }
 
-    Logger::hss("IMS-HSS: ← Diameter Cx SAR from S-CSCF [TS 29.229 §6.1.3]");
+    Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: ← Diameter Cx SAR from S-CSCF [TS 29.229 §6.1.3]");
     Logger::ie_field("  IMPU: " + impu);
     Logger::ie_field("  IMPI: " + impi);
-    Logger::hss("IMS-HSS: Storing: IMPU → S-CSCF assignment");
-    Logger::hss("IMS-HSS: Building subscriber profile (service profile + iFC)");
+    Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: Storing: IMPU → S-CSCF assignment");
+    Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: Building subscriber profile (service profile + iFC)");
     Logger::ie_field("  iFC (Initial Filter Criteria): defines when to invoke MTAS");
     Logger::ie_field("  iFC example: trigger MTAS on REGISTER (Third Party Reg)");
     Logger::ie_field("  iFC example: trigger MTAS on INVITE (call service logic)");
     Logger::ie_field("  MSISDN: +919...(phone number associated with IMPU)");
-    Logger::hss("IMS-HSS: → Diameter Cx SAA to S-CSCF");
+    Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: → Diameter Cx SAA to S-CSCF");
 
     // Build SAA response
     MessageWriter w(static_cast<MessageType>(static_cast<uint16_t>(SipMsgType::DIA_CX_SAA)),
@@ -76,5 +76,5 @@ void ImsHssNode::handleSAR(const std::vector<uint8_t>& payload) {
     std::string profile = "MMTEL-VoLTE; iFC=[REGISTER->MTAS,INVITE->MTAS]; MSISDN=+919000000001";
     w.writeStr(static_cast<Tag>(static_cast<uint16_t>(SipTag::CX_SCSCF_NAME)), profile);
     scscf_conn_.sendFrame(w.frame());
-    Logger::hss("IMS-HSS: SAA sent — subscriber profile delivered to S-CSCF ✓");
+    Logger::hss(Logger::Level::ENGINEER, "IMS-HSS: SAA sent — subscriber profile delivered to S-CSCF ✓");
 }

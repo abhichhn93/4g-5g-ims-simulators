@@ -119,7 +119,6 @@ void SgwNode::handleCreateSessionReq(const std::vector<uint8_t>& payload, const 
 
     // Parse P-GW's response
     uint8_t  cause = 0;
-    uint32_t pgw_s5_teid = 0; (void)pgw_s5_teid;
     std::vector<uint8_t> ue_ip_bytes;
 
     MessageReader pr(pgw_resp);
@@ -127,10 +126,9 @@ void SgwNode::handleCreateSessionReq(const std::vector<uint8_t>& payload, const 
         Tag tag; uint16_t len;
         if (!pr.peek(tag, len)) break;
         switch (tag) {
-            case Tag::GTP_CAUSE:       cause       = pr.readU8();    break;
-            case Tag::GTP_SENDER_TEID: pgw_s5_teid = pr.readU32();  break;
-            case Tag::GTP_UE_IP:       ue_ip_bytes = pr.readBytes(); break;
-            default:                   pr.skip();                    break;
+            case Tag::GTP_CAUSE: cause       = pr.readU8();    break;
+            case Tag::GTP_UE_IP: ue_ip_bytes = pr.readBytes(); break;
+            default:             pr.skip();                    break;
         }
     }
 
@@ -144,8 +142,8 @@ void SgwNode::handleCreateSessionReq(const std::vector<uint8_t>& payload, const 
                   ue_ip_bytes[0], ue_ip_bytes[1], ue_ip_bytes[2], ue_ip_bytes[3]);
 
     Logger::sys("SGW: ← RECV GTP-C CreateSessionRsp from P-GW — UE IP=" + std::string(ue_ip_str));
-    PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_RSP, pgw_s5_teid,
-        PcapWriter::IP_PGW, PcapWriter::PORT_PGW, PcapWriter::IP_SGW, PcapWriter::PORT_SGW);
+    // PCAP write for this S5 hop happens at the P-GW's send point above —
+    // logging it again here would duplicate the same wire packet.
     Logger::sys("SGW: → SEND GTP-C CreateSessionRsp to MME (with S-GW's TEIDs + UE IP)");
     PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_RSP, sgw_s11_teid,
         PcapWriter::IP_SGW, PcapWriter::PORT_SGW, PcapWriter::IP_MME, PcapWriter::PORT_SGW);

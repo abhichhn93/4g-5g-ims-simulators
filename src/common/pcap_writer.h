@@ -76,19 +76,26 @@ public:
                    uint32_t dst_ip, uint16_t dst_port,
                    const std::vector<uint8_t>& payload = {});
 
-    // Node IPs used in pcap frames (loopback range)
-    static constexpr uint32_t IP_UE    = 0x7F000001; // 127.0.0.1
-    static constexpr uint32_t IP_ENB   = 0x7F000002;
-    static constexpr uint32_t IP_MME   = 0x7F000003;
-    static constexpr uint32_t IP_HSS   = 0x7F000004;
-    static constexpr uint32_t IP_SGW   = 0x7F000005;
-    static constexpr uint32_t IP_PGW   = 0x7F000006;
-    static constexpr uint32_t IP_PCRF  = 0x7F000007;
-    static constexpr uint32_t IP_PCSCF = 0x7F000008;
-    static constexpr uint32_t IP_SCSCF = 0x7F000009;
-    static constexpr uint32_t IP_MTAS  = 0x7F00000A;
+    // Industry Standard Encapsulation Helpers
+    std::vector<uint8_t> buildEthernet();
+    std::vector<uint8_t> buildIPSCTP(uint32_t src_ip, uint16_t src_port,
+                                     uint32_t dst_ip, uint16_t dst_port,
+                                     const std::vector<uint8_t>& payload,
+                                     uint32_t ppid);
 
-    static constexpr uint16_t PORT_S1AP  = 38412;  // our simulator uses 38412 (real 3GPP S1AP = 36412 on SCTP)
+    // Node IPs used in pcap frames (loopback range)
+    static constexpr uint32_t IP_UE    = 0x0A000001; // 10.0.0.1
+    static constexpr uint32_t IP_ENB   = 0x0A000002; // 10.0.0.2
+    static constexpr uint32_t IP_MME   = 0x0A000003; // 10.0.0.3
+    static constexpr uint32_t IP_HSS   = 0x0A000004; // 10.0.0.4
+    static constexpr uint32_t IP_SGW   = 0x0A000005; // 10.0.0.5
+    static constexpr uint32_t IP_PGW   = 0x0A000006; // 10.0.0.6
+    static constexpr uint32_t IP_PCRF  = 0x0A000007; // 10.0.0.7
+    static constexpr uint32_t IP_PCSCF = 0x0A000008; // 10.0.0.8
+    static constexpr uint32_t IP_SCSCF = 0x0A000009; // 10.0.0.9
+    static constexpr uint32_t IP_MTAS  = 0x0A00000A; // 10.0.0.10
+
+    static constexpr uint16_t PORT_S1AP  = 36412;  // Industry standard (SCTP)
     static constexpr uint16_t PORT_DIA   = 3868;
     static constexpr uint16_t PORT_GX    = 3869;
     static constexpr uint16_t PORT_SGW   = 2123;
@@ -143,10 +150,19 @@ private:
     // Per-connection seq tracker: connKey → {client_seq, server_seq}
     struct ConnSeq { uint32_t client_seq{1000}; uint32_t server_seq{2000}; };
 
+    // Per-association SCTP TSN/Stream-Sequence-Number tracker.
+    // Both directions share one counter: our frames reuse the same
+    // verification tag for both directions, so Wireshark can't tell the
+    // two endpoints' TSN spaces apart and treats them as one pool — a
+    // repeated TSN (even from the opposite direction) gets flagged
+    // "(retransmission)" and skips the PPID sub-dissector.
+    struct SctpSeq { uint32_t tsn{0}; uint16_t ssn{0}; };
+
     std::ofstream             file_;
     std::mutex                mtx_;
     std::atomic<uint32_t>     pkt_id_{1};          // just for IP ID field
     std::map<uint64_t, ConnSeq> conn_seq_;          // per-connection seq numbers
+    std::map<uint64_t, SctpSeq> sctp_seq_;          // per-association TSN/SSN
     std::set<uint64_t>          tcp_started_;       // connections that have SYN written
     bool                        open_{false};
 };

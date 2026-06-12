@@ -13,42 +13,42 @@ PcrfNode::PcrfNode(std::atomic<bool>& stop, std::atomic<bool>& pcrf_ready)
 {}
 
 void PcrfNode::run() {
-    Logger::pcrf("PCRF: thread started");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: thread started");
     try {
         setupServer();
         if (!stop_.load()) receiveLoop();
     } catch (const std::exception& e) {
         Logger::warn("PCRF", e.what());
     }
-    Logger::pcrf("PCRF: thread exiting");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: thread exiting");
 }
 
 void PcrfNode::setupServer() {
-    Logger::pcrf("PCRF: TCP server on " + std::string(PCRF_IP) + ":" + std::to_string(PCRF_PORT));
-    Logger::pcrf("PCRF: REAL: Diameter Gx uses port 3868 (same as S6a) with Application-ID=16777238");
-    Logger::pcrf("PCRF: OUR SIM: separate port 3869 for Gx to keep it visually distinct from HSS");
-    Logger::pcrf("PCRF: REAL: PCRF is often co-located with HSS in small deployments");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: TCP server on " + std::string(PCRF_IP) + ":" + std::to_string(PCRF_PORT));
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: REAL: Diameter Gx uses port 3868 (same as S6a) with Application-ID=16777238");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: OUR SIM: separate port 3869 for Gx to keep it visually distinct from HSS");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: REAL: PCRF is often co-located with HSS in small deployments");
 
     server_socket_ = Socket::createServer(PCRF_IP, PCRF_PORT);
     pcrf_ready_.store(true);
-    Logger::pcrf("PCRF: ready ✓ — waiting for P-GW to connect...");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: ready ✓ — waiting for P-GW to connect...");
 
     while (!stop_.load()) {
         if (server_socket_.hasConnection(100)) {
             pgw_conn_ = server_socket_.accept();
-            Logger::pcrf("PCRF: P-GW connected — Gx link UP ✓");
+            Logger::pcrf(Logger::Level::ENGINEER, "PCRF: P-GW connected — Gx link UP ✓");
             return;
         }
     }
 }
 
 void PcrfNode::receiveLoop() {
-    Logger::pcrf("PCRF: entering receive loop");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: entering receive loop");
     while (!stop_.load()) {
         if (!pgw_conn_.hasData(100)) continue;
         std::vector<uint8_t> payload;
         if (!pgw_conn_.recvFrame(payload)) {
-            Logger::pcrf("PCRF: P-GW disconnected");
+            Logger::pcrf(Logger::Level::ENGINEER, "PCRF: P-GW disconnected");
             break;
         }
         if (payload.size() < 8) continue;
@@ -80,24 +80,24 @@ void PcrfNode::handleCCR(const std::vector<uint8_t>& payload) {
         }
     }
 
-    Logger::pcrf("PCRF: ← RECV Diameter Gx CCR-I [TS 29.212 §4.5.1]");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: ← RECV Diameter Gx CCR-I [TS 29.212 §4.5.1]");
     Logger::ie_field("  IMSI=" + std::to_string(imsi) + "  APN=" + apn);
-    Logger::pcrf("PCRF: REAL: PCRF checks subscriber policy from subscriber database:");
-    Logger::pcrf("PCRF:   Is this IMSI allowed on APN '" + apn + "'?");
-    Logger::pcrf("PCRF:   What QoS policy applies? Any special service triggers?");
-    Logger::pcrf("PCRF:   Is online charging required? (pre-paid subscribers)");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: REAL: PCRF checks subscriber policy from subscriber database:");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF:   Is this IMSI allowed on APN '" + apn + "'?");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF:   What QoS policy applies? Any special service triggers?");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF:   Is online charging required? (pre-paid subscribers)");
 
     // Look up the subscriber's profile (Flyweight — same shared object for all "internet" UEs)
     auto profile = ProfileRegistry::instance().get(apn.empty() ? "internet" : apn);
 
-    Logger::pcrf("PCRF: Flyweight: all '" + profile->apn + "' UEs share profile@" +
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: Flyweight: all '" + profile->apn + "' UEs share profile@" +
                 [&]{ char b[32]; std::snprintf(b,32,"%p",static_cast<const void*>(profile.get())); return std::string(b); }());
     Logger::ie_field("  Profile: APN=" + profile->apn +
                      "  QCI=" + std::to_string(profile->qci) +
                      "  MaxUL=" + std::to_string(profile->max_ul_bps/1000000) + "Mbps" +
                      "  MaxDL=" + std::to_string(profile->max_dl_bps/1000000) + "Mbps");
     Logger::ie_field("  Charging rule: '" + profile->charging_rule + "'");
-    Logger::pcrf("PCRF: → SEND Diameter Gx CCA-I — policy approved");
+    Logger::pcrf(Logger::Level::ENGINEER, "PCRF: → SEND Diameter Gx CCA-I — policy approved");
     // PCAP: CCR received (P-GW→PCRF) then CCA sent (PCRF→P-GW)
     PcapWriter::instance().writeDiameter(
         DiameterCmd::CREDIT_CONTROL, DiameterApp::GX, true,
