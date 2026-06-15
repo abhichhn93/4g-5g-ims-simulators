@@ -49,7 +49,7 @@ You can capture every packet in Wireshark and see the actual protocol bytes.
 ## 3. How to Build and Run
 
 ```bash
-cd mme-simulator
+cd 4g-simulator
 mkdir -p build && cd build
 cmake .. && make -j4
 ./mme_sim
@@ -628,7 +628,7 @@ Phase 5 of this simulator will add the GTP-U user plane simulation.
 ## 12. Project Structure
 
 ```
-mme-simulator/
+4g-simulator/
 ├── CMakeLists.txt
 ├── mme_sim_dissector.lua        ← copy to Wireshark plugins folder
 ├── docs/

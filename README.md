@@ -90,8 +90,8 @@ wsl --install                   # enable WSL2
 ### Build
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/mme-simulator.git
-cd mme-simulator
+git clone https://github.com/YOUR_USERNAME/4g-simulator.git
+cd 4g-simulator
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
@@ -133,7 +133,7 @@ Open `mme_capture.pcap` in Wireshark. Use the custom Lua dissector:
 
 ```
 Wireshark → Preferences → Protocols → Lua Scripts → Add:
-  mme-simulator/mme_sim_dissector.lua
+  4g-simulator/mme_sim_dissector.lua
 ```
 
 **Key Wireshark filters:**
@@ -149,7 +149,7 @@ tcp.port == 3869  and tcp.len > 0   # Diameter Gx (P-GW ↔ PCRF)
 ## Project Structure
 
 ```
-mme-simulator/
+4g-simulator/
 ├── src/
 │   ├── common/
 │   │   ├── logger.h          Color-coded thread-safe logger

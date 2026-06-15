@@ -1,6 +1,6 @@
 # Interview Q&A — 4G Attach Flow with Real Simulator Values
 
-> These are exact values from our mme-simulator codebase.
+> These are exact values from our 4g-simulator codebase.
 > Say this in the interview — confidently, with numbers.
 
 ---

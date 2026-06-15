@@ -126,7 +126,7 @@ inline void printStartupDiagram() {
     std::cout << RST << "\n"
         << BOLD << "  +============================================================+\n"
         << "  |     4G EPC + IMS/VoLTE SIMULATOR  (C++17)                |\n"
-        << "  |     github.com/YOUR_USERNAME/mme-simulator                |\n"
+        << "  |     github.com/YOUR_USERNAME/4g-simulator                |\n"
         << "  +============================================================+\n" << RST
         << "\n"
         << Logger::CLR_ENB  << "  ┌──────┐\n"

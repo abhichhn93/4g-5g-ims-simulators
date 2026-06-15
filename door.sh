@@ -8,7 +8,7 @@
 # Exit on any command failure
 set -e
 
-PROJECT_ROOT="/Users/abhichauhan/Desktop/cpp-interview-prep/mme-simulator"
+PROJECT_ROOT="/Users/abhichauhan/Desktop/cpp-interview-prep/simulators/4g-simulator"
 BUILD_DIR="$PROJECT_ROOT/build"
 
 echo -e "\033[1;35m[SYSTEM] Starting MME Build & Run Sequence...\033[0m"

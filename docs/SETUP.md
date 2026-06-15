@@ -9,8 +9,8 @@ xcode-select --install
 brew install cmake
 
 # 2. Clone and build
-git clone https://github.com/YOUR_USERNAME/mme-simulator.git
-cd mme-simulator
+git clone https://github.com/YOUR_USERNAME/4g-simulator.git
+cd 4g-simulator
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(sysctl -n hw.ncpu)
@@ -31,8 +31,8 @@ sudo apt update
 sudo apt install -y git build-essential cmake g++
 
 # 2. Clone and build
-git clone https://github.com/YOUR_USERNAME/mme-simulator.git
-cd mme-simulator
+git clone https://github.com/YOUR_USERNAME/4g-simulator.git
+cd 4g-simulator
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
@@ -56,8 +56,8 @@ wsl --install
 ```bash
 # 2. Inside Ubuntu WSL2 terminal
 sudo apt update && sudo apt install -y git build-essential cmake g++
-git clone https://github.com/YOUR_USERNAME/mme-simulator.git
-cd mme-simulator && mkdir build && cd build
+git clone https://github.com/YOUR_USERNAME/4g-simulator.git
+cd 4g-simulator && mkdir build && cd build
 cmake .. && make -j$(nproc)
 ./mme_sim
 ```
@@ -69,7 +69,7 @@ cmake .. && make -j$(nproc)
 1. Install [VS Code](https://code.visualstudio.com/)
 2. Install extension: **C/C++** (Microsoft)
 3. Install extension: **CMake Tools** (Microsoft)
-4. Open folder: `File → Open Folder → mme-simulator/`
+4. Open folder: `File → Open Folder → 4g-simulator/`
 5. CMake Tools detects `CMakeLists.txt` automatically — click **Build**
 6. Open integrated terminal: `` Ctrl+` ``
 7. Run: `./build/mme_sim`

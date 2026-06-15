@@ -124,7 +124,7 @@ open -a Docker                 # launch it, wait for the whale icon to say "runn
 
 ### Step 1 — Docker Compose (local, no K8s yet)
 ```bash
-cd mme-simulator
+cd 4g-simulator
 docker compose build
 docker compose up
 ```
@@ -255,7 +255,7 @@ self-healing — works identically on a real multi-node cloud cluster."
 ## 5. GitHub + CI
 
 This repo is pushed to a public GitHub repo:
-https://github.com/abhichhn93/mme-simulator
+https://github.com/abhichhn93/4g-simulator
 
 A GitHub Actions workflow (`.github/workflows/docker-build.yml`) runs on every
 push to `main`: it builds the Docker image and smoke-tests it by running one
