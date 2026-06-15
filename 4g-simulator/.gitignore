@@ -1,0 +1,12 @@
+build/
+*.o
+*.a
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.pcap
+*.log
+.DS_Store
+output/
+docs/LINKEDIN_POST.md

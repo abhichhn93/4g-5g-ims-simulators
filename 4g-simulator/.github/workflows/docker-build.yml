@@ -1,0 +1,21 @@
+name: Docker Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t mme-sim:ci .
+
+      - name: Smoke test — run one UE attach flow and check PCAP output
+        run: |
+          docker run --rm --entrypoint sh mme-sim:ci -c \
+            "printf 'CR 1\nQUIT\n' | ./mme_sim && ls -la mme_capture.pcap"

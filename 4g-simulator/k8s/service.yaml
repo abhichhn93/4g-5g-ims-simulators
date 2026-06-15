@@ -1,0 +1,18 @@
+# Service = a stable network identity + load balancer in front of a
+# changing set of Pods. Pods come and go (restarts, scaling, rollouts)
+# and get new IPs every time — the Service IP/DNS name never changes.
+#
+# type: NodePort exposes this on every node's IP at port 30080, which is
+# the simplest way to reach it from your laptop via minikube.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mme-sim-svc
+spec:
+  type: NodePort
+  selector:
+    app: mme-sim
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080

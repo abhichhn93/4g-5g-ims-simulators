@@ -1,0 +1,32 @@
+# Deployment = "I want N copies of this Pod running, always."
+# The ReplicaSet (created automatically by the Deployment) is the thing
+# that actually watches the replica count and recreates Pods that die.
+#
+# Note: mme_sim itself is a one-shot batch job (runs one Attach flow and
+# exits). In a "real" production setup this would be a K8s `Job`, not a
+# Deployment. We run it as a Deployment here — entrypoint.sh keeps the
+# container alive afterwards by serving the pcap on :8080 — so we can
+# demo replicas, scaling, self-healing and Services, which is the point
+# of tonight's exercise.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mme-sim
+  labels:
+    app: mme-sim
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mme-sim
+  template:
+    metadata:
+      labels:
+        app: mme-sim
+    spec:
+      containers:
+        - name: mme-sim
+          image: mme-sim:latest
+          imagePullPolicy: Never   # use the image already loaded into minikube
+          ports:
+            - containerPort: 8080
