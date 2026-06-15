@@ -1,0 +1,65 @@
+# AMF (Access & Mobility Management) -- the 5G counterpart of the 4G
+# sim's MME. replicas: 2 demonstrates "multiple AMF instances" -- each
+# gNB's N2 TCP connection to g5-amf-svc lands on ONE of these two pods
+# (kube-proxy picks per-connection, not per-message).
+#
+# On startup each replica registers itself with the NRF as
+# AMF_SELF_HOST=g5-amf-svc (the shared Service DNS name, same for both
+# replicas) and discovers UDM's address via the NRF instead of using
+# UDM_HOST directly (UDM_HOST is kept only as a fallback).
+#
+# HONEST CAVEAT (see amf_main.cpp's INTERVIEW_C comment): each AMF pod
+# keeps its per-UE ue_ctx map (SUCI/SUPI/XRES*) only in its OWN memory.
+# A real AMF stores this in a shared UDSF (TS 23.501 5.4.7.5) so ANY
+# replica can continue a UE's procedure. Here, if a gNB's connection
+# happens to move to the OTHER AMF pod mid-registration (e.g. because
+# the first pod was killed), that pod won't have the UE's XRES* and the
+# registration restarts from scratch. That's a realistic teaching point,
+# not a bug we're hiding.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: g5-amf
+  labels:
+    app: g5-amf
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: g5-amf
+  template:
+    metadata:
+      labels:
+        app: g5-amf
+    spec:
+      containers:
+        - name: amf-sim
+          image: g5-amf:latest
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: g5-plmn-config   # PLMN_MCC / PLMN_MNC, see plmn-configmap.yaml
+          env:
+            - name: NRF_HOST
+              value: g5-nrf-svc
+            - name: AMF_SELF_HOST
+              value: g5-amf-svc
+            - name: UDM_HOST   # fallback only, used if NRF discovery fails
+              value: g5-udm-svc
+          ports:
+            - containerPort: 38412
+          # tcpSocket probes need no HTTP/health endpoint in amf_sim --
+          # kubelet just checks the N2 port accepts a TCP connection.
+          # readinessProbe: don't send traffic until the N2 listener is up.
+          readinessProbe:
+            tcpSocket:
+              port: 38412
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          # livenessProbe: if amf_sim deadlocks/hangs and stops accepting
+          # on :38412, kubelet restarts the pod automatically.
+          livenessProbe:
+            tcpSocket:
+              port: 38412
+            initialDelaySeconds: 5
+            periodSeconds: 10

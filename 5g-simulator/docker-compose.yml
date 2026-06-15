@@ -1,0 +1,59 @@
+# Four services = four independent containers, one per 5G core node.
+# Docker Compose gives each service a DNS name on the default network
+# matching its service name -- that's what NRF_HOST / UDM_SELF_HOST /
+# AMF_SELF_HOST / UDM_HOST / AMF_HOST below point at (see
+# common/nrf_client.h and amf_main.cpp / gnb_main.cpp for the getenv()
+# fallback to 127.0.0.1 used for local, non-container runs).
+#
+# nrf-sim starts first: udm-sim and amf-sim each register their OWN
+# reachable address (UDM_SELF_HOST / AMF_SELF_HOST = their own service
+# name) with it on startup, and amf-sim then discovers udm-sim's
+# address via the NRF instead of using UDM_HOST directly (UDM_HOST is
+# kept only as a fallback if NRF discovery fails).
+services:
+  nrf-sim:
+    build:
+      context: .
+      target: nrf
+    image: g5-nrf:latest
+    container_name: g5-nrf
+
+  udm-sim:
+    build:
+      context: .
+      target: udm
+    image: g5-udm:latest
+    container_name: g5-udm
+    environment:
+      - NRF_HOST=nrf-sim
+      - UDM_SELF_HOST=udm-sim
+    depends_on:
+      - nrf-sim
+
+  amf-sim:
+    build:
+      context: .
+      target: amf
+    image: g5-amf:latest
+    container_name: g5-amf
+    environment:
+      - NRF_HOST=nrf-sim
+      - AMF_SELF_HOST=amf-sim
+      - UDM_HOST=udm-sim
+    ports:
+      - "38412:38412"   # N2 (NGAP port), exposed for curiosity/tools
+    depends_on:
+      - nrf-sim
+      - udm-sim
+
+  gnb-sim:
+    build:
+      context: .
+      target: gnb
+    image: g5-gnb:latest
+    container_name: g5-gnb
+    environment:
+      - AMF_HOST=amf-sim
+      - REG_UES=2
+    depends_on:
+      - amf-sim

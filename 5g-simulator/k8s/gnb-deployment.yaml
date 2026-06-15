@@ -1,0 +1,38 @@
+# gNB -- plays gNB+UE, driven non-interactively by entrypoint-gnb.sh
+# (registers REG_UES UEs, then sleeps so the pod stays Running).
+#
+# replicas: 2 = two independent gNBs, each registering its own UEs
+# against g5-amf-svc -- this is the simplest "bulk registration /
+# traffic generator" knob: `kubectl scale deployment g5-gnb --replicas=N`
+# to throw more registration traffic at the AMF replicas.
+#
+# No Service needed: gNB only makes outbound connections, nothing
+# connects TO it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: g5-gnb
+  labels:
+    app: g5-gnb
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: g5-gnb
+  template:
+    metadata:
+      labels:
+        app: g5-gnb
+    spec:
+      containers:
+        - name: gnb-sim
+          image: g5-gnb:latest
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: g5-plmn-config   # PLMN_MCC / PLMN_MNC, see plmn-configmap.yaml
+          env:
+            - name: AMF_HOST
+              value: g5-amf-svc
+            - name: REG_UES
+              value: "2"

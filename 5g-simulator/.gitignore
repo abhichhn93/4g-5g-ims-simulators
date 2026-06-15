@@ -1,0 +1,14 @@
+build/
+*.o
+*.a
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.pcap
+*.log
+.DS_Store
+output/
+__pycache__/
+.pytest_cache/
+docs/LINKEDIN_POST.md
