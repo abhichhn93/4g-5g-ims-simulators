@@ -1,0 +1,12 @@
+# Operator-configurable PLMN (Public Land Mobile Network = MCC+MNC,
+# TS 23.003 §2.2). All 3 nodes read PLMN_MCC/PLMN_MNC via envFrom below
+# (see common/ids5g.h) -- change the values here and re-apply to make
+# every SUPI/SUCI/5G-GUTI/SBI hostname use a different test network,
+# with NO recompile.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: g5-plmn-config
+data:
+  PLMN_MCC: "404"
+  PLMN_MNC: "10"

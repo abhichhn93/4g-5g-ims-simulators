@@ -1,0 +1,48 @@
+# UDM (User Data Management) -- the 5G counterpart of the 4G sim's HSS.
+# One replica is enough: AMF talks to it over SBI (HTTP) via the Service
+# below. AMF finds that address by asking the NRF (g5-nrf-svc) --
+# UDM_SELF_HOST=g5-udm-svc is the address UDM registers with the NRF on
+# startup (Nnrf_NFManagement_NFRegister), so discovery hands back the
+# right DNS name.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: g5-udm
+  labels:
+    app: g5-udm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: g5-udm
+  template:
+    metadata:
+      labels:
+        app: g5-udm
+    spec:
+      containers:
+        - name: udm-sim
+          image: g5-udm:latest
+          imagePullPolicy: Never   # use the image already loaded into minikube
+          envFrom:
+            - configMapRef:
+                name: g5-plmn-config   # PLMN_MCC / PLMN_MNC, see plmn-configmap.yaml
+          env:
+            - name: NRF_HOST
+              value: g5-nrf-svc
+            - name: UDM_SELF_HOST
+              value: g5-udm-svc
+          ports:
+            - containerPort: 29503
+          # tcpSocket probes: kubelet checks the SBI port accepts a TCP
+          # connection -- no HTTP health endpoint needed in udm_sim.
+          readinessProbe:
+            tcpSocket:
+              port: 29503
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 29503
+            initialDelaySeconds: 5
+            periodSeconds: 10

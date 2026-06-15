@@ -1,0 +1,13 @@
+# ClusterIP (the default type): only other Pods inside the cluster
+# (AMF) need to reach UDM, by the stable DNS name "g5-udm-svc" --
+# no external/laptop access needed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: g5-udm-svc
+spec:
+  selector:
+    app: g5-udm
+  ports:
+    - port: 29503
+      targetPort: 29503

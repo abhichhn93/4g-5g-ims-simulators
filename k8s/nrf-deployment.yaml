@@ -1,0 +1,40 @@
+# NRF (Network Repository Function) -- the 5G "phone book" (TS 29.510).
+# Must come up before UDM/AMF register with it, but if it's a little
+# late, nrfclient::registerSelf() retries ~10x1s -- so apply order
+# doesn't have to be perfect. One replica: this sim keeps a single
+# in-memory map (one profile per nfType), so a second NRF replica
+# would have its own separate map and break discovery.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: g5-nrf
+  labels:
+    app: g5-nrf
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: g5-nrf
+  template:
+    metadata:
+      labels:
+        app: g5-nrf
+    spec:
+      containers:
+        - name: nrf-sim
+          image: g5-nrf:latest
+          imagePullPolicy: Never   # use the image already loaded into minikube
+          ports:
+            - containerPort: 29510
+          # tcpSocket probes: kubelet checks the SBI port accepts a TCP
+          # connection -- no HTTP health endpoint needed in nrf_sim.
+          readinessProbe:
+            tcpSocket:
+              port: 29510
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 29510
+            initialDelaySeconds: 5
+            periodSeconds: 10

@@ -1,0 +1,14 @@
+# ClusterIP (the default type): only other Pods inside the cluster
+# (UDM, AMF, and future SMF/UPF) need to reach the NRF, by the stable
+# DNS name "g5-nrf-svc" -- see NRF_HOST in udm-deployment.yaml /
+# amf-deployment.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: g5-nrf-svc
+spec:
+  selector:
+    app: g5-nrf
+  ports:
+    - port: 29510
+      targetPort: 29510
