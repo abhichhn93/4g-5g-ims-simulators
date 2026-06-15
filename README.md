@@ -5,7 +5,7 @@ Diameter network that carries VoLTE voice calls — built in C++17 using raw
 TCP sockets, multithreading, and real protocol message encoding (SIP text
 messages, Diameter-style TLV).
 
-> This is the sibling project to [`../mme-simulator/`](../mme-simulator/) (4G EPC)
+> This is the sibling project to [`../4g-simulator/`](../4g-simulator/) (4G EPC)
 > and [`../5g-simulator/`](../5g-simulator/) (5G core). A UE attaches to the 4G
 > EPC first to get an IP address, then uses that IP to register with IMS here —
 > see [Connection: 4G EPC ↔ IMS](#connection-4g-epc--ims) below.
@@ -39,8 +39,8 @@ Two ways to run it:
 
 ### Prerequisites
 
-Same toolchain as `mme-simulator` — see
-[`../mme-simulator/README.md`](../mme-simulator/README.md#prerequisites)
+Same toolchain as `4g-simulator` — see
+[`../4g-simulator/README.md`](../4g-simulator/README.md#prerequisites)
 (clang/g++ + cmake, C++17).
 
 ### Build
@@ -166,7 +166,7 @@ ims-sim:  UE uses 10.0.0.1 as SIP Contact → registers with IMS
 | RFC 3261  | SIP protocol |
 
 > 4G EPC standards (TS 23.401, TS 29.274, TS 29.272, TS 29.212) are covered in
-> [`../mme-simulator/`](../mme-simulator/).
+> [`../4g-simulator/`](../4g-simulator/).
 
 ---
 
