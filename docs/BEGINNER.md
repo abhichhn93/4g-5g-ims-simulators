@@ -110,7 +110,7 @@ After Step 6, your phone is on 4G data. But phone calls?
 Old networks used a separate system for calls. 4G is smarter:
 Voice goes over the internet (SIP protocol, like Skype — but standardized).
 
-This is VoLTE. Run `./mme_ims` to see the voice part:
+This is VoLTE. Run `./mme_ims` (in the `../ims-simulator/` sibling project) to see the voice part:
 - SIP REGISTER = your phone tells the IMS network "I'm reachable for calls"
 - SIP INVITE = someone calls you
 - The network creates a special fast lane (QCI=1) just for your voice

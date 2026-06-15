@@ -17,8 +17,9 @@ make -j$(sysctl -n hw.ncpu)
 
 # 3. Run
 ./mme_sim      # 4G EPC
-./mme_ims      # IMS/VoLTE
 ```
+
+IMS/VoLTE (`mme_ims`) is a separate sibling project — see `../ims-simulator/`.
 
 ---
 
@@ -38,8 +39,9 @@ make -j$(nproc)
 
 # 3. Run
 ./mme_sim
-./mme_ims
 ```
+
+IMS/VoLTE (`mme_ims`) is a separate sibling project — see `../ims-simulator/`.
 
 ---
 

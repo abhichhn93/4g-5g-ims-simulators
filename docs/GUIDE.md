@@ -620,10 +620,8 @@ Phase 5 of this simulator will add the GTP-U user plane simulation.
 - S1 handover via MME (when eNBs can't see each other)
 - New messages: Handover Required, Handover Request, Handover Command, Path Switch Request
 
-**Adding VoLTE (Phase 5 idea):**
-- IMS registration (SIP REGISTER via P-CSCF)
-- PCRF RAR (Re-Auth-Request) triggers dedicated bearer QCI=1
-- Priority over data traffic (EBI=6, higher priority than default EBI=5)
+**VoLTE / IMS:** now implemented as the sibling project `../ims-simulator/`
+(SIP REGISTER via P-CSCF, MTAS call control, dedicated QCI=1 bearer via Rx AAR).
 
 ---
 

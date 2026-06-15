@@ -17,7 +17,7 @@ echo -e "\033[1;35m[SYSTEM] Starting MME Build & Run Sequence...\033[0m"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-echo -e "\033[1;34m[SYSTEM] Configuring and Compiling All Targets (MME + IMS)...\033[0m"
+echo -e "\033[1;34m[SYSTEM] Configuring and Compiling All Targets (MME)...\033[0m"
 cmake .. -DCMAKE_BUILD_TYPE=Debug
 make -j$(sysctl -n hw.ncpu || nproc || echo 2)
 

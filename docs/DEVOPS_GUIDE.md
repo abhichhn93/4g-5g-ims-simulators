@@ -153,6 +153,14 @@ kubectl get svc                      # see mme-sim-svc, NodePort 30080
 minikube service mme-sim-svc --url   # prints a URL, open it in browser
 ```
 
+### Step 3b — See it in a GUI
+```bash
+minikube dashboard                   # opens a browser tab — Deployments, Pods, Logs
+```
+Keep this terminal open (it runs `kubectl proxy` in the foreground). In the
+browser: Workloads → Deployments → `mme-sim` (2/2), Workloads → Pods → click
+a pod → Logs tab.
+
 ### Step 4 — Scaling demo
 ```bash
 kubectl scale deployment mme-sim --replicas=4
@@ -244,10 +252,133 @@ self-healing — works identically on a real multi-node cloud cluster."
 
 ---
 
-## 5. Optional next step (not tonight): GitHub
+## 5. GitHub + CI
 
-This repo is already a local git repo with `gh` (GitHub CLI) available but no
-remote configured. Pushing it to a public GitHub repo is straightforward
-later (`gh repo create` + `git push`) and rounds out the "wholesome project"
-story for LinkedIn — but it's separate from tonight's Docker/K8s work and not
-required for the interview.
+This repo is pushed to a public GitHub repo:
+https://github.com/abhichhn93/mme-simulator
+
+A GitHub Actions workflow (`.github/workflows/docker-build.yml`) runs on every
+push to `main`: it builds the Docker image and smoke-tests it by running one
+UE attach flow (`CR 1`) and checking that `mme_capture.pcap` was produced.
+This is independent proof — beyond "it worked on my laptop" — that the
+Dockerfile and build actually work.
+
+**Interview line:** "The repo has CI — every push builds the Docker image and
+runs a smoke test of the attach flow, so I'd catch a broken Dockerfile or
+build before it ever reaches Kubernetes."
+
+---
+
+## 6. Local vs Docker vs Kubernetes — Side by Side, and How to "See" What's Running
+
+Same `mme_sim` binary, same `CR 1` attach flow, three different ways to run it.
+
+| | **Local (bare binary)** | **Docker (1 container)** | **Kubernetes (2+ pods)** |
+|---|---|---|---|
+| **Start it** | `printf 'CR 1\nQUIT\n' \| ./build/mme_sim` | `docker compose up -d --build` | `kubectl apply -f k8s/` |
+| **Where the pcap lands** | `mme_capture.pcap` right in the project folder | inside container at `/data`; volume-mounted to `./output/mme_capture.pcap` on your Mac; also `curl localhost:8080/mme_capture.pcap` | **inside each pod's own filesystem** at `/data` — no shared host folder. Each pod writes its *own* pcap |
+| **See "what's running"** | `ps aux \| grep mme_sim` — just an OS process | `docker ps` — shows container, image, ports | `kubectl get pods` / `kubectl get deployments`, or the **Dashboard GUI** |
+| **See logs** | printed straight to your terminal | `docker logs mme-sim` (`-f` to follow) | `kubectl logs <pod-name>` (`-f` to follow), or Dashboard → pod → Logs tab |
+| **If it "crashes"** | process exits, nothing restarts it — you re-run it | container exits and stays stopped (unless you set a restart policy) | **ReplicaSet notices and creates a replacement pod automatically** — this is "self-healing" |
+
+### 6.1 The GUI: Kubernetes Dashboard
+
+`minikube dashboard` opens a browser tab — this is the visual "what's going
+on" tool you asked for. It needs `kubectl proxy` running in the background
+(that's what the command starts), so keep that terminal open.
+
+What to look at:
+- **Workloads → Deployments** — `mme-sim`, shows `2/2` ready
+- **Workloads → Pods** — each pod, its status, age, restart count
+- Click a pod → **Logs** tab — exactly the same output as `kubectl logs`
+- **Service** — `mme-sim-svc`, its ClusterIP and NodePort
+
+Think of it as Docker Desktop's container list, but one level up — it shows
+the *desired state* (Deployments/ReplicaSets) and how Kubernetes is
+reconciling actual Pods to match it, not just "what processes are running."
+
+### 6.2 Watching things happen live (commands to try yourself)
+
+- `kubectl get pods -w` — "watch" mode: prints a new line every time a pod's
+  status changes. Leave it running in one terminal while you scale/delete
+  pods in another.
+- `kubectl describe pod <name>` — full detail incl. an **Events** section at
+  the bottom (Scheduled, Pulled, Created, Started...) — first place to look
+  when a pod won't start.
+- `kubectl logs -f <name>` — follow logs live, like `tail -f`.
+- `kubectl top pods` — CPU/memory per pod (needs
+  `minikube addons enable metrics-server`).
+
+### 6.3 What we just demonstrated, live, end to end
+
+1. Ran the bare binary locally → `mme_capture.pcap` appeared in the project
+   folder (3404 bytes) — the "before Docker" baseline.
+2. `docker compose up -d --build` → `docker ps` showed the `mme-sim`
+   container; `curl localhost:8080/mme_capture.pcap` → HTTP 200; the same
+   pcap also appeared on the host at `output/mme_capture.pcap` via the
+   volume mount.
+3. `minikube start` + `minikube image load mme-sim:latest` +
+   `kubectl apply -f k8s/` → 2/2 pods Running; `mme-sim-svc` reachable via
+   `minikube service mme-sim-svc --url` → same pcap, served by a pod instead
+   of a plain container.
+4. `minikube dashboard` → opened the GUI showing the Deployment and Pods.
+5. `kubectl scale deployment mme-sim --replicas=4` → 2 new pods appeared
+   (4/4); scaled back to 2 → the 2 extra pods Terminated cleanly.
+6. `kubectl delete pod <name>` on a healthy, Running pod (simulating a
+   crash) → within ~5 seconds a brand-new pod with a different name appeared,
+   and `kubectl get pods` stayed at `2/2` the whole time. `kubectl logs` on
+   the new pod showed it independently ran its own full attach flow (STEP 8/9
+   ATTACH COMPLETE, UE IP=10.0.0.1) and started serving its own pcap — proof
+   the replacement pod is a fully working instance, not a stub.
+
+---
+
+## 7. More Interview Q&A — Files, Debugging, Git vs GitLab
+
+**Q: "If you were running this locally vs in Docker vs in Kubernetes, what actually changes?"**
+
+"The binary itself doesn't change — same `mme_sim`, same code. What changes is
+the environment around it: locally it's just a process on my Mac writing a
+file to my project folder. In Docker it's isolated in a container with its
+own filesystem, and I use a volume mount to get the pcap back out to my host.
+In Kubernetes there are *multiple* copies of that container running as Pods,
+each with its own isolated filesystem — so each Pod produces its own pcap,
+and a Service load-balances across whichever Pods are healthy."
+
+**Q: "Each pod has its own pcap — how would you actually retrieve it?"**
+
+"Two ways: `kubectl cp <pod-name>:/data/mme_capture.pcap ./out.pcap` copies a
+file directly out of a specific pod's filesystem. Or, since my entrypoint
+serves `/data` over HTTP on port 8080, I can `curl` through the Service — but
+the Service load-balances, so that hits *one* of the pods, not a specific one.
+In a real system you'd ship pcaps/logs to shared storage or a log aggregator
+instead of pulling them off individual pods."
+
+**Q: "A pod is stuck in CrashLoopBackOff — how do you debug it?"**
+
+"`kubectl get pods` shows the status and restart count. `kubectl describe pod
+<name>` shows the Events section — image pull errors, failed health checks,
+OOMKills, etc. show up there. `kubectl logs <name>` shows the current
+container's output, and `kubectl logs <name> --previous` shows the logs from
+the *crashed* container before it restarted, which is usually what you
+actually need."
+
+**Q: "What's the difference between Git, GitHub, and GitLab?"**
+
+"Git is the version control tool itself — works fully offline, tracks commits
+locally. GitHub and GitLab are hosted platforms *built around* Git — they add
+a remote place to push/pull, plus pull requests/merge requests, issue
+tracking, and CI/CD. GitHub calls its CI 'Actions' (YAML workflows in
+`.github/workflows/`); GitLab calls it 'CI/CD pipelines' (`.gitlab-ci.yml`).
+Functionally very similar — same idea, different YAML file and UI. My repo
+uses GitHub + GitHub Actions; the CI concept translates almost directly to a
+GitLab pipeline."
+
+**Q: "Could this same Docker image run on GitLab / a real cluster, not just minikube?"**
+
+"Yes — that's the point of containerizing it. The image doesn't know or care
+that it's running in minikube. To move to a real cluster I'd need a container
+*registry* (push the image somewhere reachable — GitHub Container Registry,
+GitLab Container Registry, or Docker Hub) and change `imagePullPolicy: Never`
+to `Always` plus point `image:` at that registry — everything else
+(Deployment, Service, scaling, self-healing) is identical."

@@ -65,8 +65,8 @@ To satisfy a 7-year experience interview, the codebase implements:
 - `CR [N]`: Create N UEs and perform 4G Attach.
 - `BULK [N]`: Test thread-pool concurrency.
 
-### IMS Commands (`mme_ims`)
-- `REGISTER`: SIP registration flow.
+### IMS Commands (`mme_ims`, now in `../ims-simulator/`)
+- `REG`: SIP registration flow.
 - `CALL`: 2-party VoLTE call with QCI=1 setup.
 - `CONF`: 3-party audio bridge setup.
 

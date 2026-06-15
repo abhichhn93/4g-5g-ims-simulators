@@ -140,7 +140,10 @@ UE ──radio──► eNB ──GTP-U:UDP:2152──► S-GW ──GTP-U:UDP:2
                     TEID=eNB's TEID        TEID=S-GW's TEID
 ```
 
-The UE can now send and receive IP data. If you run `./mme_ims` next, the UE registers with IMS using `10.0.0.1` as the SIP Contact address, and when a VoLTE call is made, the PCRF creates a dedicated QCI=`1` bearer on top of this default bearer."
+The UE can now send and receive IP data. If you run `./mme_ims` next (in the
+`../ims-simulator/` sibling project), the UE registers with IMS using
+`10.0.0.1` as the SIP Contact address, and when a VoLTE call is made, the
+PCRF creates a dedicated QCI=`1` bearer on top of this default bearer."
 
 ---
 
@@ -166,7 +169,10 @@ Third — message boundaries. SCTP is message-oriented like UDP, unlike TCP whic
 "QCI — QoS Class Indicator — defines the scheduling priority, latency budget, and loss tolerance for a bearer.
 QCI=9 is the default bearer — internet data. Best-effort, 300ms latency budget. Your YouTube, WhatsApp, everything goes here.
 QCI=1 is for VoLTE voice. Strictly prioritized scheduling in the eNB, 100ms latency budget, 10^-2 packet loss rate. The eNB always sends QCI=1 packets first.
-In our simulator, the default bearer (EBI=5) is QCI=9. When you run `./mme_ims` and make a VoLTE CALL, the P-CSCF sends a Diameter Rx AAR to the PCRF, which triggers a new Create Bearer Request for a dedicated QCI=1 bearer — EBI=6."
+In our simulator, the default bearer (EBI=5) is QCI=9. When you run `./mme_ims`
+(in `../ims-simulator/`) and make a VoLTE CALL, the P-CSCF sends a Diameter Rx
+AAR to the PCRF, which triggers a new Create Bearer Request for a dedicated
+QCI=1 bearer — EBI=6."
 
 ---
 

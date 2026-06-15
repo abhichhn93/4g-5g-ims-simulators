@@ -180,4 +180,5 @@ UE ──SIP REGISTER──► P-CSCF ──► S-CSCF ──Cx SAR──► HSS
 When VoLTE call made → MTAS invokes MRFC for conference/services.
 P-CSCF sends Diameter Rx AAR to PCRF → PCRF creates QCI=1 bearer.
 
-See `mme_ims` binary and `IMS_COMPLETE_GUIDE.md` for full IMS flows.
+See the `../ims-simulator/` sibling project (`mme_ims` binary and
+`IMS_COMPLETE_GUIDE.md`) for full IMS flows.

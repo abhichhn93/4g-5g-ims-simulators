@@ -1,8 +1,13 @@
-# 4G EPC + IMS/VoLTE Simulator in C++17
+# 4G EPC Simulator in C++17
 
-A production-grade simulation of a complete **4G LTE Core Network** and **IMS/VoLTE** stack,
+A production-grade simulation of a complete **4G LTE Core Network**,
 built entirely from scratch in C++17 using raw TCP/UDP sockets, multithreading, and real
 protocol message encoding.
+
+> The companion **IMS/VoLTE** stack (P-CSCF/S-CSCF/MTAS/IMS-HSS, SIP REGISTER/INVITE/BYE)
+> now lives in the sibling project [`../ims-simulator/`](../ims-simulator/) — kept
+> separate so someone studying IMS isn't wading through 4G EPC code, and vice versa.
+> A 5G core (gNB/AMF/UDM) lives in [`../5g-simulator/`](../5g-simulator/).
 
 > **Why this exists:** The team of 10 engineers I worked with at Samsung R&D built similar
 > systems. This simulator proves the same architecture can be understood, designed, and
@@ -12,7 +17,7 @@ protocol message encoding.
 
 ## What It Implements
 
-### Binary 1: `mme_sim` — 4G EPC (Evolved Packet Core)
+### `mme_sim` — 4G EPC (Evolved Packet Core)
 
 ```
 [UE] ──S1AP──► [eNB] ──S1AP──► [MME] ──S6a──► [HSS]
@@ -43,19 +48,6 @@ Step 7  Attach Complete        UE → eNB → MME
 Step 8  UE gets IP address     10.0.0.x (assigned by P-GW)
 ```
 
-### Binary 2: `mme_ims` — IMS / VoLTE
-
-```
-[UE] ──SIP:5060──► [P-CSCF] ──SIP:5070──► [S-CSCF+MTAS] ──Cx:3870──► [IMS-HSS]
-```
-
-| Node | Port | What it does |
-|------|------|-------------|
-| P-CSCF | 5060 | First SIP contact, Rx→PCRF for QCI=1 bearer |
-| S-CSCF | 5070 | SIP registrar, invokes MTAS via ISC |
-| MTAS   | 5070 | Service logic: call waiting, barring, conference |
-| IMS-HSS| 3870 | Cx interface — subscriber profile + iFC |
-
 ---
 
 ## Color-Coded Live Output
@@ -70,8 +62,6 @@ Every node prints in its own color — watch packets flow in real time:
 | 🩵 Bold Cyan | PCRF |
 | 🟣 Bold Magenta | S-GW |
 | 🟠 Orange | P-GW |
-| 💠 Bright Cyan | P-CSCF |
-| 🔷 Bright Blue | S-CSCF/MTAS |
 
 ---
 
@@ -107,9 +97,7 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 ```
 
-Two binaries are produced:
-- `build/mme_sim` — 4G EPC simulator
-- `build/mme_ims` — IMS/VoLTE simulator
+This produces `build/mme_sim` — the 4G EPC simulator.
 
 ### Run 4G EPC Simulator
 
@@ -127,24 +115,6 @@ DELETE 1    → Detach UE-1 (release bearer)
 QUIT        → Shutdown all nodes
 ```
 
-### Run IMS/VoLTE Simulator
-
-```bash
-cd build
-./mme_ims
-```
-
-**Commands:**
-```
-REGISTER    → IMS Registration (SIP REGISTER → Cx SAR/SAA → 200 OK)
-CALL        → VoLTE call (INVITE → MTAS → 200 OK → Rx AAR → QCI=1 bearer)
-CONF        → Conference call (MRFC/MRFP invocation)
-WAIT        → Call waiting scenario
-BARR        → Call barring (603 Decline)
-BYE         → End call (release QCI=1 bearer)
-QUIT        → Shutdown
-```
-
 ---
 
 ## Capture Packets in Wireshark
@@ -152,7 +122,7 @@ QUIT        → Shutdown
 ```bash
 # Terminal 1 — capture all simulator traffic
 sudo tcpdump -i lo0 \
-  'port 36412 or port 3868 or port 2123 or port 2124 or port 3869 or port 5060 or port 5070 or port 3870' \
+  'port 36412 or port 3868 or port 2123 or port 2124 or port 3869' \
   -w ~/Desktop/mme_capture.pcap
 
 # Terminal 2 — run simulator
@@ -172,7 +142,6 @@ tcp.port == 36412 and tcp.len > 0   # S1AP (eNB ↔ MME)
 tcp.port == 3868  and tcp.len > 0   # Diameter S6a (MME ↔ HSS)
 tcp.port == 2123  and tcp.len > 0   # GTP-C S11 (MME ↔ S-GW)
 tcp.port == 3869  and tcp.len > 0   # Diameter Gx (P-GW ↔ PCRF)
-tcp.port == 5060  and tcp.len > 0   # SIP (UE ↔ P-CSCF ↔ S-CSCF)
 ```
 
 ---
@@ -195,21 +164,13 @@ mme-simulator/
 │   ├── sgw/                  S-GW: GTP-C S11/S5 bearer
 │   ├── pgw/                  P-GW: IP allocation, Gx to PCRF
 │   ├── pcrf/                 PCRF: QCI policy, Gx Diameter
-│   ├── ims/
-│   │   ├── sip.h             SIP message types + TLV encoding
-│   │   ├── pcscf_node.*      P-CSCF: SIP proxy + Rx interface
-│   │   ├── scscf_node.*      S-CSCF: Registrar + MTAS invocation
-│   │   └── ims_hss.*         IMS-HSS: Diameter Cx (SAR/SAA)
-│   ├── main.cpp              4G EPC main + UE CLI
-│   └── ims_main.cpp          IMS main + UE CLI
+│   └── main.cpp              4G EPC main + UE CLI
 ├── docs/
 │   ├── ARCHITECTURE.md       Detailed code walkthrough
 │   ├── CALL_FLOWS.md         Step-by-step 3GPP call flows
 │   ├── INTERVIEW_GUIDE.md    C++17, multithreading, design patterns Q&A
 │   ├── SETUP.md              Platform-specific setup guide
-│   ├── WIRESHARK.md          Packet capture + analysis guide
-│   ├── IMS_COMPLETE_GUIDE.md Full IMS/VoLTE reference
-│   └── VOLTE_IMS_INTERVIEW.md Ericsson MTAS interview prep
+│   └── WIRESHARK.md          Packet capture + analysis guide
 ├── mme_sim_dissector.lua     Wireshark Lua dissector
 └── CMakeLists.txt
 ```
@@ -240,21 +201,6 @@ Run `CR 1` and you'll see annotated logs for:
 - **GTP-C** — tunnel creation, TEID allocation
 - **Diameter** — S6a AIR/AIA, Gx CCR/CCA
 - **QCI** — policy assignment, dedicated bearer for VoLTE
-- **SIP** — REGISTER, INVITE, 200 OK, ACK, BYE
-- **IMS** — Cx SAR/SAA, iFC, MTAS invocation
-
----
-
-## Connection: 4G EPC ↔ IMS
-
-```
-mme_sim:  UE attaches → gets IP 10.0.0.1 (from P-GW)
-                                    │
-mme_ims:  UE uses 10.0.0.1 as SIP Contact → registers with IMS
-          VoLTE INVITE → 200 OK → P-CSCF sends Rx to PCRF
-          PCRF (same as mme_sim Phase 4!) creates QCI=1 bearer
-          Voice flows on QCI=1, data on QCI=9 simultaneously
-```
 
 ---
 
@@ -266,10 +212,9 @@ mme_ims:  UE uses 10.0.0.1 as SIP Contact → registers with IMS
 | TS 29.274 | GTP-C (MME ↔ S-GW ↔ P-GW) |
 | TS 29.272 | Diameter S6a (MME ↔ HSS) |
 | TS 29.212 | Diameter Gx (P-GW ↔ PCRF) |
-| TS 23.228 | IMS architecture |
-| TS 29.229 | Diameter Cx (S-CSCF ↔ HSS) |
-| TS 29.214 | Diameter Rx (P-CSCF ↔ PCRF) |
-| RFC 3261  | SIP protocol |
+
+> IMS standards (TS 23.228, TS 29.229, TS 29.214, RFC 3261) are covered in
+> [`../ims-simulator/`](../ims-simulator/).
 
 ---
 
