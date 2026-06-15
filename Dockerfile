@@ -1,5 +1,5 @@
 # ── Stage 1: build all four 5G-core binaries ─────────────────
-# Same pattern as mme-simulator/Dockerfile: a full Debian image with
+# Same pattern as 4g-simulator/Dockerfile: a full Debian image with
 # a compiler + cmake builds everything once; none of this stage is
 # shipped in the final images.
 FROM debian:bookworm AS builder
@@ -37,7 +37,7 @@ ENTRYPOINT ["./entrypoint.sh"]
 
 # ── Stage 4: AMF (N2 server, port 38412 + SBI client to UDM) ──
 # Only node that writes 5g_capture.pcap (retrieve with `kubectl cp`
-# or `docker cp`, same as mme-simulator).
+# or `docker cp`, same as 4g-simulator).
 FROM python:3.12-slim-bookworm AS amf
 WORKDIR /app
 COPY --from=builder /src/build/amf_sim ./amf_sim

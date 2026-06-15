@@ -1,5 +1,5 @@
 # NodePort so the N2 port (:38412) is also reachable from your laptop
-# via minikube (same pattern as mme-simulator's service.yaml), while
+# via minikube (same pattern as 4g-simulator's service.yaml), while
 # gNB pods inside the cluster reach it via the ClusterIP/DNS name
 # "g5-amf-svc" (see AMF_HOST in gnb-deployment.yaml).
 apiVersion: v1

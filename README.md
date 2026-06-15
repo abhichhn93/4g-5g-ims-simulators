@@ -4,7 +4,7 @@ A from-scratch simulation of a **5G Core (5GC) Service-Based Architecture**
 — gNB, AMF, UDM, and NRF talking real HTTP/1.1 + JSON over the Service-Based
 Interface (SBI), built in C++17 using raw TCP sockets and multithreading.
 
-> Sibling project to [`../mme-simulator/`](../mme-simulator/) (4G EPC) and
+> Sibling project to [`../4g-simulator/`](../4g-simulator/) (4G EPC) and
 > [`../ims-simulator/`](../ims-simulator/) (IMS/VoLTE). Subscriber numbering
 > matches the 4G sim — UE #1 is `imsi-404100000000001` on both sides.
 
@@ -40,7 +40,7 @@ the NRF (`Nnrf_NFDiscovery_Search`) instead of a hardcoded address — the
 ## Build & Run
 
 ### Prerequisites
-Same toolchain as `mme-simulator` — clang/g++ + cmake, C++17.
+Same toolchain as `4g-simulator` — clang/g++ + cmake, C++17.
 
 ### Build
 ```bash
@@ -157,7 +157,7 @@ guessed values).
 | TS 29.503 | Nudm — Unified Data Management |
 | TS 33.501 | 5G-AKA security (simplified here as byteXor) |
 
-> 4G EPC standards are covered in [`../mme-simulator/`](../mme-simulator/),
+> 4G EPC standards are covered in [`../4g-simulator/`](../4g-simulator/),
 > IMS/VoLTE in [`../ims-simulator/`](../ims-simulator/).
 
 ---
