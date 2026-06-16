@@ -1,0 +1,241 @@
+- id: q131
+  domain: 5g
+  subdomain: architecture
+  tags:
+  - 5g-sba
+  - sbi
+  - http2
+  - nf-services
+  level: engineer
+  question: What is the Service-Based Architecture (SBA) in 5G Core, and how does
+    it differ from 4G EPC?
+  answer: In 4G EPC, NFs communicate over fixed bilateral reference points (S11, S6a,
+    Gx) where each pair has a dedicated bespoke interface. In 5G SBA, every NF exposes
+    RESTful services over HTTP/2 (the SBI), so any authorized NF can discover and
+    consume any other NF's service via the NRF without bilateral configuration. This
+    makes the 5GC modular and loosely coupled — NFs can scale independently, deploy
+    as containers, and upgrade without re-wiring every peer. The SBI uses JSON-encoded
+    OpenAPI 3.0 specifications from the TS 29.5xx series.
+  spec: TS 23.501 §4.2, TS 29.500
+  simulator_trigger: 5G REG command — AMF calls AUSF over HTTP/2 SBI instead of Diameter
+    used in 4G ATTACH
+  interview_context: Foundational 5G architecture question expected at beginner-to-engineer
+    level in any 5GC role
+- id: q132
+  domain: 5g
+  subdomain: architecture
+  tags:
+  - 5g-sba
+  - nf-services
+  - sbi
+  - http2
+  - amf
+  - smf
+  - upf
+  - udm
+  - nrf
+  level: beginner
+  question: List the core Network Functions in the 5G Core and briefly describe each.
+  answer: 'Key 5GC NFs include: AMF (Access and Mobility Management — NAS termination,
+    registration, SEAF), SMF (Session Management — PDU session lifecycle, UPF control
+    via PFCP), UPF (User Plane — packet forwarding, GTP-U, N3/N4/N6), UDM (Subscriber
+    data, AKA credentials, SUCI de-concealment), AUSF (Authentication Server — 5G-AKA
+    in HPLMN), PCF (Policy — PCC rules, replaces PCRF), NRF (NF registry and discovery),
+    NSSF (Slice Selection), NEF (Network Exposure), UDR (Structured data store for
+    UDM/PCF/NEF), and SEPP (Inter-PLMN roaming security proxy).'
+  spec: TS 23.501 §6
+  simulator_trigger: 5G REG command — simulator instantiates AMF, SMF, UPF, UDM, AUSF,
+    NRF nodes for 5G standalone flow
+  interview_context: Entry-level 5GC NF survey question — every candidate at any level
+    should know this list
+- id: q133
+  domain: 5g
+  subdomain: architecture
+  tags:
+  - 5g-sba
+  - sbi
+  - http2
+  level: engineer
+  question: What is the SBI (Service-Based Interface)? What protocols does it use?
+  answer: 'The SBI is the common communication bus used by all 5GC NFs for control-plane
+    interactions, using HTTP/2 as transport (replacing Diameter and GTP-C from 4G),
+    TLS 1.2/1.3 for security, and JSON encoding. API definitions follow OpenAPI 3.0,
+    published by 3GPP in the TS 29.5xx series. Operations follow REST semantics: GET
+    for retrieval (NF discovery), POST for create/invoke (session creation), PUT/PATCH
+    for update, DELETE for removal.'
+  spec: TS 29.500, TS 29.501
+  simulator_trigger: 5G REG command — HTTP/2 POST to AMF, GET to NRF for NF discovery,
+    visible in http2_trace.log
+  interview_context: Tests SBI protocol knowledge needed for 5GC NF interface development
+    and debugging
+- id: q134
+  domain: 5g
+  subdomain: architecture
+  tags:
+  - 5g-sba
+  - sbi
+  - http2
+  - amf
+  - smf
+  - upf
+  - n2
+  - ngap
+  - pfcp
+  - pdu-session
+  level: engineer
+  question: What are the 5G NR interfaces between gNB and 5GC? Describe N1, N2, N3,
+    N4, N6, and N9.
+  answer: N1 (UE ↔ AMF, NAS-5G) carries NAS signaling; N2 (gNB ↔ AMF, NGAP/SCTP) handles
+    RAN-CN control (context setup, handover, paging); N3 (gNB ↔ UPF, GTP-U/UDP/IP)
+    is the user-plane data path; N4 (SMF ↔ UPF, PFCP/UDP) is the UPF programming interface
+    for PDRs, FARs, QERs; N6 (UPF ↔ Data Network, plain IP) connects to the internet
+    or IMS; N9 (UPF ↔ UPF, GTP-U) is the inter-UPF tunnel used in home-routed roaming
+    or distributed UPF deployments.
+  spec: TS 23.501 §4.3
+  simulator_trigger: 5G REG + PDU session commands — all six interfaces active in
+    the full 5G standalone simulator topology
+  interview_context: Tests 5G interface vocabulary and protocol stack knowledge at
+    the engineer level
+- id: q135
+  domain: 5g
+  subdomain: architecture
+  tags:
+  - smf
+  - upf
+  - pfcp
+  - n4
+  - pdu-session
+  level: senior
+  question: What is CP-UP separation (CUPS) in 4G and how does 5G extend this concept?
+  answer: '4G introduced CUPS in Release 14 by splitting SGW and PGW into control-plane
+    (SGW-C/PGW-C) and user-plane (SGW-U/PGW-U) nodes communicating via Sxb/Sxa (PFCP
+    precursor) — it was an optional extension. 5G makes CP-UP separation mandatory:
+    SMF is always the pure control plane and UPF is always the pure user plane, communicating
+    via the standardized N4/PFCP interface (TS 29.244). This allows UPFs to be deployed
+    at the network edge (MEC) without SMF co-location, enabling ultra-low latency
+    while the SMF remains centralized.'
+  spec: TS 23.501 §5.7, TS 29.244
+  simulator_trigger: 5G PDU session command — SMF controls UPF via PFCP Session Establishment
+    over N4 interface
+  interview_context: Tests 4G-to-5G architectural evolution understanding relevant
+    to PGW migration projects
+- id: q136
+  domain: 5g
+  subdomain: architecture
+  tags:
+  - amf
+  - 5g-registration
+  - n2
+  - ngap
+  - 5g-sba
+  level: engineer
+  question: What is the AMF, and what are its primary responsibilities in 5G?
+  answer: The AMF (Access and Mobility Management Function) is the primary NAS termination
+    point for the UE, handling all control-plane signaling from UE and gNB. Its responsibilities
+    include UE registration and deregistration, NAS security (ciphering and integrity),
+    mobility management (handover, tracking area updates, paging), SMF selection for
+    PDU session setup, acting as SEAF for UE authentication, and relaying N2 (NGAP)
+    messages between gNB and other NFs. The AMF maintains UE context including the
+    GUAMI and 5G-GUTI.
+  spec: TS 23.501 §6.2.1
+  simulator_trigger: 5G REG command — amf_node.cpp is the primary 5G control-plane
+    orchestrator
+  interview_context: Foundational 5G AMF role question expected at beginner-to-engineer
+    level
+- id: q137
+  domain: 5g
+  subdomain: architecture
+  tags:
+  - amf
+  - 5g-registration
+  - n2
+  - ngap
+  - 5g-auth
+  - udm
+  - nrf
+  - suci
+  level: engineer
+  question: Describe the 5G Registration procedure step-by-step.
+  answer: The UE sends a Registration Request (with SUCI or 5G-GUTI) to the gNB, which
+    forwards an Initial UE Message to the AMF over N2/NGAP. The AMF initiates authentication
+    via AUSF over N12 (SBI); AUSF contacts UDM over N13 for authentication vectors;
+    5G-AKA challenge-response completes over N1 (NAS). The AMF performs NAS Security
+    Mode Command activating NAS ciphering, fetches subscriber data from UDM (Nudm_SDM_Get
+    over N8), optionally contacts NSSF for slice selection, and returns Registration
+    Accept (with 5G-GUTI, Allowed NSSAI, TAI list); the UE confirms with Registration
+    Complete.
+  spec: TS 23.502 §4.2.3, TS 24.501
+  simulator_trigger: 5G REG command — full 10-step flow in 5g_registration_handler.cpp
+    from NGAP Initial UE to Registration Accept
+  interview_context: 5G equivalent of the LTE attach walkthrough — expected at engineer
+    level
+- id: q138
+  domain: 5g
+  subdomain: architecture
+  tags:
+  - amf
+  - 5g-auth
+  - 5g-registration
+  - suci
+  - supi
+  level: engineer
+  question: What is the difference between SUPI, SUCI, 5G-GUTI, and 5G-S-TMSI?
+  answer: SUPI (Subscription Permanent Identifier) is the permanent subscriber ID
+    (equivalent to IMSI for 3GPP access) — never sent over the air. SUCI (Subscription
+    Concealed Identifier) is an ECIES-encrypted version of the MSIN sent in initial
+    registration before a 5G-GUTI is assigned. 5G-GUTI (Globally Unique Temporary
+    Identifier) is a temporary ID assigned by AMF post-registration, used for all
+    subsequent NAS signaling. 5G-S-TMSI is a shortened form of the 5G-GUTI used for
+    paging over the radio interface to reduce air-interface overhead.
+  spec: TS 23.003 §2.10, TS 33.501 §6.12
+  simulator_trigger: 5G REG command — SUCI sent in first Registration Request; 5G-GUTI
+    assigned in Registration Accept
+  interview_context: Tests 5G identity vocabulary expected at engineer level; contrasts
+    with 4G IMSI/GUTI
+- id: q139
+  domain: 5g
+  subdomain: architecture
+  tags:
+  - amf
+  - 5g-registration
+  - tracking-area
+  - mobility
+  - udm
+  level: senior
+  question: What is the 5G Registration Update procedure (the 5G equivalent of TAU)?
+  answer: In 5G, the TAU equivalent is the Registration Update (Mobility Registration
+    Update). When a UE moves to a cell not in its registered TA list, it sends Registration
+    Request with type Mobility Registration Update. The AMF verifies the new TAI,
+    may invoke NSSF for slice availability, and if the AMF changes, contacts the old
+    AMF via N14 for UE context transfer (Namf_Communication_UEContextTransfer). Unlike
+    4G TAU, 5G does not need a separate session update — the AMF notifies SMF via
+    SBI messaging if the UPF anchor needs to change.
+  spec: TS 23.502 §4.2.4
+  simulator_trigger: 5G TAU equivalent command — AMF inter-instance context transfer
+    in 5g_registration_update.cpp
+  interview_context: Tests 5G mobility management knowledge including the 4G-to-5G
+    TAU procedure mapping
+- id: q140
+  domain: 5g
+  subdomain: architecture
+  tags:
+  - udm
+  - ausf
+  - 5g-auth
+  - suci
+  - supi
+  - 5g-sba
+  level: engineer
+  question: What is the UDM in 5G, and how does it differ from the 4G HSS?
+  answer: The UDM (Unified Data Management) is the 5GC equivalent of the 4G HSS but
+    architecturally separated. The UDM exposes SBI-based services (Nudm_*) whereas
+    the HSS used Diameter (S6a). UDM provides AKA credential generation (via co-located
+    ARPF), SUCI de-concealment (via co-located SIDF), subscriber data management,
+    and serving NF registration tracking. Unlike the monolithic HSS, UDM reads/writes
+    its data from a separate UDR (Unified Data Repository), making the data layer
+    independently scalable.
+  spec: TS 23.502 §5.2.3, TS 29.503
+  simulator_trigger: 5G REG command — AMF calls Nudm_SDM_Get to UDM after authentication
+    to fetch subscriber profile
+  interview_context: Tests HSS-to-UDM evolution knowledge essential for 5G core network
+    migration roles

@@ -1,0 +1,226 @@
+- id: q051
+  domain: 4g
+  subdomain: attach
+  tags:
+  - 4g-attach
+  - s1ap
+  - nas
+  - emm
+  - mme
+  - sgw
+  - pgw
+  - hss
+  - diameter
+  level: engineer
+  question: Walk me through the LTE Initial Attach procedure step by step, naming
+    every interface and message.
+  answer: The UE sends an Attach Request (containing IMSI or GUTI) inside an S1AP
+    Initial UE Message to the MME over S1-MME. The MME fetches subscriber data from
+    the HSS over S6a (Diameter AIR/AIA, then ULR/ULA), performs EPS-AKA authentication,
+    and establishes NAS security. The MME then sends Create Session Request to SGW
+    over S11 (GTPv2-C); the SGW relays it to the PGW over S5/S8, which allocates an
+    IP address, applies PCRF policy via Gx, and returns Create Session Response back
+    through SGW to MME. Finally the MME sends Initial Context Setup Request (S1AP)
+    to the eNodeB to set up the radio bearer, and the UE receives an Attach Accept
+    with GUTI, TAI list, and PDN address.
+  spec: TS 23.401 §5.3.2
+  simulator_trigger: 4G ATTACH command — full flow from S1AP InitialUEMessage through
+    Diameter AIR to GTPv2 Create Session
+  interview_context: Fundamental end-to-end 4G knowledge check; expected at mid-level
+    and above
+- id: q052
+  domain: 4g
+  subdomain: attach
+  tags:
+  - 4g-attach
+  - s1ap
+  - nas
+  - mme
+  - emm
+  level: engineer
+  question: What is the role of S1AP in the LTE attach procedure, and what message
+    type carries the NAS PDU?
+  answer: S1AP (S1 Application Protocol) is the control-plane protocol on the S1-MME
+    interface between eNodeB and MME, running over SCTP/IP. NAS messages (Attach Request,
+    Authentication Request) are carried transparently as the NAS-PDU IE inside S1AP
+    messages such as Initial UE Message, Downlink NAS Transport, and Uplink NAS Transport.
+    The eNodeB does not parse NAS content — only the MME terminates NAS. This separation
+    of RAN and CN signaling is a key EPS design principle.
+  spec: TS 36.413, TS 24.301
+  simulator_trigger: 4G ATTACH command step 1 — S1AP InitialUEMessage carrying NAS
+    Attach Request to MME
+  interview_context: Tests understanding of the S1AP/NAS layering principle, commonly
+    confused by junior engineers
+- id: q053
+  domain: 4g
+  subdomain: attach
+  tags:
+  - 4g-attach
+  - pgw
+  - gtpv2
+  level: engineer
+  question: During LTE attach, at what step does the UE get an IP address, and which
+    node assigns it?
+  answer: The UE receives an IP address at the end of the default bearer establishment
+    phase, not at the beginning of attach. The PGW is responsible for IP address allocation
+    — it maintains an IP address pool per APN and assigns one during the Create Session
+    procedure. The IP address is returned in the Create Session Response, propagated
+    through SGW → MME → eNodeB, and delivered to the UE in the Attach Accept / PDN
+    Connectivity Accept message.
+  spec: TS 23.401 §5.3.2, TS 29.274
+  simulator_trigger: 4G ATTACH command step 6 — PGW returns Create Session Response
+    with UE IP address to SGW
+  interview_context: Tests precise knowledge of which node allocates the IP address
+    and at which step
+- id: q054
+  domain: 4g
+  subdomain: attach
+  tags:
+  - 4g-attach
+  - mme
+  - nas
+  - emm
+  level: engineer
+  question: What is a GUTI, and why is it used instead of the IMSI after the first
+    attach?
+  answer: The GUTI (Globally Unique Temporary Identity) is a temporary identifier
+    assigned by the MME to the UE after successful attach, replacing the permanent
+    IMSI in subsequent signaling. It is composed of PLMN ID + MME Group ID + MME Code
+    + M-TMSI. The primary reason is IMSI confidentiality — sending IMSI over the air
+    exposes the subscriber to IMSI-catcher attacks. The GUTI also enables fast context
+    retrieval at a new MME via the encoded old MME address, potentially avoiding full
+    re-authentication.
+  spec: TS 23.003, TS 23.401
+  simulator_trigger: 4G ATTACH command completion — MME assigns GUTI in Attach Accept,
+    stored in ue_context.guti
+  interview_context: Tests subscriber identity and privacy knowledge fundamental to
+    4G/5G engineering roles
+- id: q055
+  domain: 4g
+  subdomain: attach
+  tags:
+  - 4g-attach
+  - mme
+  - nas
+  - emm
+  level: engineer
+  question: Explain the difference between Combined Attach and EPS-only Attach in
+    LTE.
+  answer: An EPS-only Attach registers the UE for LTE data services only. A Combined
+    EPS/IMSI Attach additionally registers the UE in a legacy CS core (MSC/VLR) for
+    circuit-switched voice and SMS via the SGs interface between MME and MSC/VLR,
+    supporting Circuit-Switched Fallback (CSFB). The MME forwards the location update
+    to MSC/VLR; if that SGs connection fails, the attach still succeeds as EPS-only.
+    With VoLTE deployments, operators typically provision EPS-only attach.
+  spec: TS 23.401 §5.3.2, TS 29.118
+  simulator_trigger: 4G ATTACH command with combined_attach=true flag in simulator
+    config
+  interview_context: Tests knowledge of 4G/2G/3G interworking relevant in networks
+    still supporting CSFB
+- id: q056
+  domain: 4g
+  subdomain: attach
+  tags:
+  - 4g-auth
+  - aka
+  - diameter
+  - s6a
+  - hss
+  - kasme
+  level: senior
+  question: Describe the EPS-AKA procedure. What vectors does the HSS generate, and
+    what does each field represent?
+  answer: 'The HSS generates an EPS Authentication Vector containing four values:
+    RAND (128-bit random challenge), AUTN (Authentication Token enabling mutual authentication),
+    XRES (Expected Response used by the MME to verify the UE), and K_ASME (the top-level
+    session key derived from CK, IK, SQN, and serving network ID). The MME sends RAND
+    and AUTN to the UE; the UE verifies AUTN, computes RES, and returns it. The MME
+    validates RES == XRES, and both sides independently derive K_ASME which is never
+    transmitted over the air.'
+  spec: TS 33.401, TS 33.102
+  simulator_trigger: 4G ATTACH command step 4 — Diameter AIR sent by MME to HSS; AIA
+    returns EPS-AV
+  interview_context: Core security knowledge expected at senior level in any 4G/5G
+    network function role
+- id: q057
+  domain: 4g
+  subdomain: attach
+  tags:
+  - 4g-auth
+  - kasme
+  - s6a
+  - hss
+  level: senior
+  question: What is K_ASME and what keys are derived from it in LTE?
+  answer: 'K_ASME (Access Security Management Entity Key) is the master key for EPS
+    security, derived jointly by the UE and HSS from CK, IK, SQN, and the Serving
+    Network Identity — never transmitted over the air. From K_ASME, three second-level
+    keys are derived: K_NASenc (NAS encryption), K_NASint (NAS integrity), and K_eNB
+    (forwarded to the eNodeB). From K_eNB, the eNodeB further derives K_RRCenc, K_RRCint,
+    and K_UPenc.'
+  spec: TS 33.401 §6.2
+  simulator_trigger: 4G ATTACH command security phase — NAS Security Mode Command
+    sent after EPS-AKA completes
+  interview_context: Tests the 4G key hierarchy — important for security-focused roles
+    and VoLTE NAS security debugging
+- id: q058
+  domain: 4g
+  subdomain: attach
+  tags:
+  - 4g-auth
+  - nas
+  - mme
+  level: engineer
+  question: What is the NAS Security Mode Command in LTE, and when is it triggered?
+  answer: The NAS Security Mode Command (SMC) is sent by the MME to the UE after successful
+    EPS-AKA to activate NAS-layer encryption and integrity protection. It carries
+    the selected encryption algorithm (EEA), integrity algorithm (EIA), eKSI, and
+    a NAS-MAC. The UE verifies the NAS-MAC, derives K_NASenc and K_NASint, and responds
+    with NAS Security Mode Complete. Crucially, the SMC itself is integrity-protected
+    but not ciphered — ciphering is activated for all subsequent NAS messages.
+  spec: TS 24.301 §5.4.2, TS 33.401
+  simulator_trigger: 4G ATTACH command — NAS SMC sent by MME after Diameter AIA returns
+    authentication vectors
+  interview_context: Tests understanding of the NAS security activation sequence and
+    its ordering invariant
+- id: q059
+  domain: 4g
+  subdomain: attach
+  tags:
+  - 4g-auth
+  - s1ap
+  - mme
+  level: senior
+  question: What is the AS Security Mode Command in LTE and which layer executes it?
+  answer: The AS (Access Stratum) Security Mode Command is an RRC-layer message (not
+    NAS) sent by the eNodeB to the UE to activate RRC and user-plane security using
+    K_eNB received from the MME in the Initial Context Setup Request. It activates
+    integrity and ciphering for RRC signaling and ciphering for user-plane data at
+    the PDCP layer. AS integrity protection is mandatory for RRC; ciphering is configurable
+    per operator policy.
+  spec: TS 33.401 §7.2, TS 36.331
+  simulator_trigger: 4G ATTACH command — eNodeB sends RRC Security Mode Command after
+    receiving K_eNB in S1AP Initial Context Setup
+  interview_context: Tests ability to distinguish NAS-layer and RRC-layer security
+    activation procedures
+- id: q060
+  domain: 4g
+  subdomain: attach
+  tags:
+  - 4g-auth
+  - mme
+  - nas
+  level: senior
+  question: What ciphering and integrity algorithms are supported for NAS and AS in
+    LTE?
+  answer: 'LTE defines Evolved Encryption Algorithms (EEA): EEA0=null, EEA1=SNOW 3G,
+    EEA2=AES-CTR, EEA3=ZUC. Evolved Integrity Algorithms (EIA): EIA0=null (only for
+    emergency calls), EIA1=SNOW 3G, EIA2=AES-CMAC, EIA3=ZUC. The MME selects algorithms
+    based on the UE''s capability list and the operator''s priority list; NAS integrity
+    is mandatory (EIA0 only allowed for unauthenticated emergency sessions). EIA2/EEA2
+    (AES) is the most commonly deployed in commercial networks.'
+  spec: TS 33.401 §5.1, Annex B
+  simulator_trigger: 4G ATTACH command security negotiation — algorithm selection
+    logged in mme_security.cpp
+  interview_context: Tests cryptographic algorithm knowledge expected at senior level
+    in security-sensitive core network roles

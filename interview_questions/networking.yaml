@@ -1,0 +1,339 @@
+- id: q205
+  domain: networking
+  subdomain: tcp_ip
+  tags:
+  - tcp
+  level: engineer
+  question: Describe the TCP 3-way handshake and 4-way teardown.
+  answer: '3-Way Handshake: (1) SYN — client sends SYN with its ISN; (2) SYN-ACK —
+    server acknowledges client''s SYN and sends its own SYN with its ISN; (3) ACK
+    — client acknowledges server''s SYN. Connection is ESTABLISHED. 4-Way Teardown:
+    (1) FIN — initiating side has no more data; (2) ACK — other side acknowledges;
+    (3) FIN — other side sends its own FIN when done; (4) ACK — original initiator
+    acknowledges. The final ACK sender enters TIME_WAIT for 2×MSL (typically 2 min).
+    Two sides independently close their half, hence 4 steps vs 3 for setup.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — TCP connection establishment in simulator
+  interview_context: TCP connections underlie all 5G SBI HTTP/2 traffic; handshake
+    knowledge is a standard warm-up question
+- id: q206
+  domain: networking
+  subdomain: tcp_ip
+  tags:
+  - tcp
+  level: engineer
+  question: What is the TCP TIME_WAIT state and why does it exist? What problems can
+    it cause?
+  answer: 'TIME_WAIT is the state entered by the TCP endpoint that sends the final
+    ACK in a 4-way teardown. It lasts for 2×MSL (typically 60 s to 4 min). Purpose:
+    (1) ensures the final ACK reaches the remote end; (2) prevents ghost segments
+    from a closed connection being misinterpreted by a new connection on the same
+    4-tuple. Problems: on servers handling thousands of short-lived connections, TIME_WAIT
+    sockets accumulate and can exhaust ephemeral ports (default 32768–60999). Mitigations:
+    net.ipv4.tcp_tw_reuse=1, widen ip_local_port_range, or use HTTP persistent connections/HTTP2
+    multiplexing.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — SO_REUSEADDR for TIME_WAIT port reuse
+  interview_context: High-volume NRF discovery traffic generates many short-lived
+    connections; TIME_WAIT exhaustion is a real operational issue
+- id: q207
+  domain: networking
+  subdomain: tcp_ip
+  tags:
+  - tcp
+  level: engineer
+  question: What is TCP flow control vs congestion control? How do they differ?
+  answer: Flow control prevents the sender from overwhelming the receiver's buffer
+    using the receive window (rwnd) advertised by the receiver in every ACK — the
+    sender can only have rwnd bytes unacknowledged at any time. Congestion control
+    prevents the sender from overwhelming the network itself. The sender maintains
+    a congestion window (cwnd) and the actual sending rate is min(rwnd, cwnd)/RTT.
+    Congestion control algorithms include Slow Start (cwnd doubles per RTT until ssthresh),
+    Congestion Avoidance (cwnd grows by 1 MSS per RTT), Fast Retransmit/Recovery,
+    CUBIC (Linux default), and BBR (bandwidth-based, not loss-based).
+  spec: null
+  simulator_trigger: socket_wrapper.h — GTP-U tunneling interaction with TCP congestion
+    control
+  interview_context: GTP-U tunneling over lossy backhaul triggers spurious TCP retransmissions;
+    understanding congestion control helps debug N3 throughput
+- id: q208
+  domain: networking
+  subdomain: udp
+  tags:
+  - udp
+  level: engineer
+  question: Why is UDP used for RTP/media traffic? How is reliability achieved at
+    the application layer?
+  answer: 'UDP is used for real-time media (RTP) because: latency matters more than
+    reliability (a retransmitted packet arriving 200ms late is useless); no head-of-line
+    blocking (UDP delivers each packet independently); no connection overhead; and
+    multicast support. Application-layer reliability for RTP: RTCP carries sender/receiver
+    reports and packet loss statistics enabling adaptive bitrate; Forward Error Correction
+    (FEC) sends redundant parity packets; packet loss concealment in codecs (Opus,
+    G.711); jitter buffer absorbs network jitter; RTP sequence numbers detect reordering
+    and loss without TCP retransmit.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — UDP socket for RTP in IMS media plane simulation
+  interview_context: IMS voice-over-5G (VoNR) uses RTP over UDP; understanding UDP/RTP
+    is foundational for 5G core engineers
+- id: q209
+  domain: networking
+  subdomain: tls
+  tags:
+  - tls
+  level: senior
+  question: Describe the TLS 1.3 handshake. How does it differ from TLS 1.2?
+  answer: 'TLS 1.3 Handshake (1-RTT): (1) ClientHello — supported versions, key share
+    (ephemeral ECDHE), cipher suites, SNI; (2) ServerHello + Encrypted Extensions
+    + Certificate + CertificateVerify + Finished — all encrypted under handshake key;
+    (3) Client Finished — client verifies certificate chain and CertificateVerify.
+    Key improvements over TLS 1.2: certificates are encrypted in transit; RSA key
+    exchange removed (forward secrecy mandatory via ECDHE); legacy cipher suites removed;
+    0-RTT resumption possible; handshake authenticated end-to-end via transcript hash
+    preventing downgrade attacks.'
+  spec: 3GPP TS 33.210
+  simulator_trigger: socket_wrapper.h — TLS 1.3 in 5G SBI HTTP/2 connections
+  interview_context: 5G SBI mandates TLS 1.3 for all inter-NF communication; diagnosis
+    of SBI connectivity failures requires handshake knowledge
+- id: q210
+  domain: networking
+  subdomain: tls
+  tags:
+  - tls
+  level: senior
+  question: What is mutual TLS (mTLS) and how does it differ from standard TLS? Where
+    is it used in 5G?
+  answer: 'In standard TLS, only the server presents a certificate — the client authenticates
+    the server but the server does not authenticate the client. In mTLS, both client
+    and server present certificates. The mTLS handshake adds: the server sends a CertificateRequest
+    after its own certificate; the client sends its Certificate and CertificateVerify.
+    Both certificates are issued by a common CA. 5G SBI usage (TS 33.501 Section 13.1):
+    mTLS is mandatory for all HTTP/2 SBI interfaces between 5G core NFs. In Kubernetes,
+    cert-manager automates certificate issuance; Istio service mesh enforces mTLS
+    via Envoy sidecars without modifying NF application code.'
+  spec: 3GPP TS 33.501
+  simulator_trigger: socket_wrapper.h — mTLS certificates in 5G SBI simulator connections
+  interview_context: mTLS is the primary security mechanism for the 5G SBI — guaranteed
+    interview topic at Nokia, Ericsson, Mavenir
+- id: q211
+  domain: networking
+  subdomain: http2
+  tags:
+  - http2
+  level: engineer
+  question: How does HTTP/2 multiplexing work? What problem does it solve over HTTP/1.1?
+  answer: 'HTTP/1.1 suffers from head-of-line blocking — requests on a persistent
+    connection are processed in order; a slow response blocks all subsequent requests.
+    HTTP/2 introduces multiplexing: multiple independent streams are interleaved over
+    a single TCP connection, each with a unique stream ID. Frames from different streams
+    can be freely interleaved — a slow response on stream 7 does not block stream
+    9. Binary framing enables efficient parsing. HPACK header compression reduces
+    header overhead 80–90% by referencing common headers from static and dynamic tables.
+    Limitation: HTTP/2 still runs over TCP — a lost TCP segment stalls all streams
+    (solved in HTTP/3/QUIC).'
+  spec: 3GPP TS 29.500
+  simulator_trigger: socket_wrapper.h — HTTP/2 in 5G SBI inter-NF communication
+  interview_context: All 5G SBI interfaces use HTTP/2 — mandatory per TS 29.500; NF
+    making 1000 requests/sec benefits enormously from multiplexing
+- id: q212
+  domain: networking
+  subdomain: ip
+  tags:
+  - ip
+  level: engineer
+  question: What is IP fragmentation, MTU, and PMTUD? When does fragmentation cause
+    problems?
+  answer: 'MTU is the largest IP packet a network link can carry (Ethernet standard:
+    1500 bytes). IP fragmentation splits packets larger than path MTU into multiple
+    fragments at routers (IPv4) or source (IPv6 — routers never fragment). PMTUD avoids
+    fragmentation by discovering the smallest MTU along the path: IPv4 packets sent
+    with DF bit set; if a router needs to fragment, it drops and returns ICMP Type
+    3 Code 4 ''Fragmentation Needed''. Problems: ICMP black-holes (firewalls blocking
+    ICMP cause PMTUD failures); GRE/IPsec tunnel overhead reduces effective MTU; Kubernetes
+    VXLAN adds 50 bytes of overhead (pod-to-pod effective MTU ~1450 bytes).'
+  spec: null
+  simulator_trigger: socket_wrapper.h — GTP-U overhead and MTU considerations in user
+    plane
+  interview_context: GTP-U encapsulation in 5G adds ~36 bytes overhead; MTU misconfigurations
+    cause silent packet drops on N3 interface
+- id: q213
+  domain: networking
+  subdomain: wireshark
+  tags:
+  - wireshark
+  level: engineer
+  question: What is the difference between a capture filter and a display filter in
+    Wireshark?
+  answer: 'A capture filter (BPF syntax) is applied before packet collection — it
+    instructs the capture engine to only record matching packets. Examples: ''tcp
+    port 443'', ''host 192.168.1.1''. A display filter (Wireshark''s DSL) is applied
+    after capture to already-recorded packets without discarding data. Examples: ''ip.addr
+    == 192.168.1.1'', ''tcp.flags.syn == 1 && tcp.flags.ack == 0'', ''dns.qry.name
+    contains "nrf"'', ''frame.len > 1400''. Display filters are more expressive; capture
+    filters are essential for reducing storage at high packet rates.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — packet capture and analysis in simulator debug
+    mode
+  interview_context: Wireshark is a mandatory tool for 5G protocol debugging — senior
+    engineers are expected to write display filters fluently
+- id: q214
+  domain: networking
+  subdomain: wireshark
+  tags:
+  - wireshark
+  level: engineer
+  question: How do you follow a TCP stream in Wireshark? What are the differences
+    between pcap and pcapng formats?
+  answer: 'Follow a TCP stream: right-click any packet in the target stream → Follow
+    → TCP Stream. Wireshark reassembles all TCP segments in both directions, color-coded
+    by direction. This applies a display filter like ''tcp.stream eq 3''. pcap vs
+    pcapng: pcap is the legacy single-interface format with microsecond timestamps;
+    pcapng is modern (IETF RFC) supporting multiple interfaces per file, nanosecond
+    timestamps, per-packet comments, interface metadata, and zstd compression. For
+    new captures, always use pcapng. pcap remains universal and safe for sharing with
+    older tools.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — pcapng capture in simulator protocol tracing
+  interview_context: Protocol traces for 5G incident analysis are captured in pcapng
+    with multiple interfaces
+- id: q215
+  domain: networking
+  subdomain: wireshark
+  tags:
+  - wireshark
+  - tls
+  - http2
+  level: senior
+  question: 'Write display filters to isolate: (a) TLS ClientHello, (b) HTTP/2 traffic,
+    (c) DNS SRV queries.'
+  answer: 'TLS 1.3 ClientHello: ''tls.handshake.type == 1''. ClientHello with specific
+    SNI: ''tls.handshake.extensions_server_name == "amf.5gc.example.com"''. All HTTP/2:
+    ''http2''. HTTP/2 HEADERS frames: ''http2.type == 1''. DNS SRV queries: ''dns.qry.type
+    == 33''. DNS SRV responses: ''dns.resp.type == 33''. SCTP N2 traffic: ''sctp''.
+    GTP-U user plane: ''gtp && gtp.flags.version == 1 && gtp.message_type == 255''.
+    TCP retransmissions: ''tcp.analysis.retransmission''. Zero-window probes: ''tcp.analysis.zero_window_probe''.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — Wireshark filters for 5G protocol analysis
+    in simulator captures
+  interview_context: 5G field engineers must quickly isolate relevant protocol messages
+    from mixed captures
+- id: q216
+  domain: networking
+  subdomain: load_balancing
+  tags:
+  - load-balancing
+  level: engineer
+  question: What is the difference between L4 and L7 load balancing?
+  answer: 'L4 LB operates at Transport layer (TCP/UDP): routes based on IP + port
+    (connection-level), no content awareness, TLS pass-through or termination, lower
+    overhead. Examples: AWS NLB, HAProxy TCP mode, IPVS. L7 LB operates at Application
+    layer (HTTP/gRPC): routing based on HTTP host, path, header, cookie; full HTTP
+    inspection; TLS offload; higher overhead. Examples: NGINX, Envoy, Istio, AWS ALB.
+    In 5G: the SBI uses L7 LB (Envoy via Istio) for NF-to-NF HTTP/2 traffic; the N2
+    interface (NGAP/SCTP) uses L4 LB since SCTP is not HTTP.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — L4 vs L7 balancing for different 5G interfaces
+  interview_context: Understanding which load balancing layer is appropriate for each
+    5G interface is tested at Nokia and Ericsson
+- id: q217
+  domain: networking
+  subdomain: load_balancing
+  tags:
+  - load-balancing
+  level: engineer
+  question: Compare round-robin, least-connections, and IP-hash load balancing algorithms.
+  answer: 'Round Robin: requests distributed sequentially — good for stateless services
+    with uniform request cost. Weighted Round Robin: backends get proportional share
+    based on capacity. Least Connections: route to backend with fewest active connections
+    — best for long-lived connections or variable-cost requests. Least Response Time:
+    route to backend with lowest latency + fewest connections — latency-sensitive
+    services. IP Hash: hash src IP to select backend deterministically for session
+    stickiness — poor distribution behind NAT; consistent hashing mitigates backend
+    add/remove issues. In 5G, NRF discovery uses priority + capacity-based selection;
+    the SCP uses weighted round-robin adjusted by real-time load notifications.'
+  spec: 3GPP TS 29.510
+  simulator_trigger: socket_wrapper.h — load balancing strategy in NRF discovery simulation
+  interview_context: NRF response includes priority and capacity attributes per NF
+    instance — understanding these algorithms is tested in 5G architect interviews
+- id: q218
+  domain: networking
+  subdomain: dns
+  tags:
+  - dns
+  level: engineer
+  question: What are A, AAAA, and SRV DNS record types? How are SRV records used in
+    5G NRF discovery?
+  answer: 'A: maps hostname to IPv4 address. AAAA: maps hostname to IPv6 address.
+    CNAME: alias. SRV: maps service name to host + port + priority + weight (format:
+    ''_service._proto.name TTL class SRV priority weight port target''). PTR: reverse
+    DNS. TXT: arbitrary metadata. 5G NRF discovery via DNS (TS 29.510 + RFC 2782):
+    NF consumers query ''_nfregistration._tcp.<FQDN>'' to find NRF endpoint. Multiple
+    SRV records enable load balancing (weight) and failover (priority). This provides
+    a DNS-based bootstrap mechanism before the NRF is fully operational.'
+  spec: 3GPP TS 29.510
+  simulator_trigger: socket_wrapper.h — DNS SRV lookup for NRF bootstrap in simulator
+    startup
+  interview_context: SRV records are a key mechanism for stateless NF bootstrap in
+    5G — troubleshooting NF registration failures often starts with verifying SRV
+    records
+- id: q219
+  domain: networking
+  subdomain: dns
+  tags:
+  - dns
+  level: senior
+  question: How does Kubernetes CoreDNS provide DNS for cluster services? How does
+    it relate to 5G NF discovery?
+  answer: 'CoreDNS runs as a Deployment in kube-system and serves as the cluster DNS
+    resolver via resolv.conf. It provides: Service A/AAAA records (<service>.<ns>.svc.cluster.local
+    → ClusterIP); headless service SRV records for StatefulSets (critical for peer-aware
+    NF clusters); Pod A records; external name forwarding. For 5G NF discovery: NRF
+    is accessed via its ClusterIP service DNS name; CoreDNS supplements but does not
+    replace 3GPP NRF-based discovery — the NRF provides 5G-aware, capacity-weighted,
+    slice-filtered NF selection (TS 29.510) that Kubernetes DNS cannot express.'
+  spec: 3GPP TS 29.510
+  simulator_trigger: socket_wrapper.h — CoreDNS vs NRF discovery in K8s-based simulator
+  interview_context: Understanding the difference between CoreDNS and NRF discovery
+    separates K8s generalists from 5G-specialist DevOps engineers
+- id: q220
+  domain: networking
+  subdomain: tcp_ip
+  tags:
+  - tcp
+  - ip
+  level: senior
+  question: What is IPv4/IPv6 dual-stack in Kubernetes and why is it relevant to 5G?
+  answer: 'IPv4/IPv6 dual-stack in Kubernetes allows Pods and Services to simultaneously
+    use both IPv4 and IPv6. When enabled, each Pod gets both an IPv4 and an IPv6 address;
+    Services can be configured as IPv4, IPv6, or PreferDualStack via ipFamilyPolicy.
+    5G relevance: 3GPP 5G specifies IPv6 support as mandatory for the N6 interface
+    and the SBA. Many MNOs are deploying IPv6-only or dual-stack 5G cores to address
+    IPv4 exhaustion. The NRF stores both IPv4 and IPv6 addresses in NF profiles. Understanding
+    dual-stack is increasingly tested in Jio and Rakuten interviews as their networks
+    are IPv6-forward.'
+  spec: 3GPP TS 23.501
+  simulator_trigger: socket_wrapper.h — dual-stack socket binding in simulator NF
+    nodes
+  interview_context: 5G mandates IPv6 for N6 and SBA; dual-stack Kubernetes is required
+    for modern 5G core deployments
+- id: q221
+  domain: networking
+  subdomain: load_balancing
+  tags:
+  - load-balancing
+  level: engineer
+  question: How do health checks work in load balancers and what happens to an unhealthy
+    backend?
+  answer: 'A load balancer probes backend health using TCP health checks (establish
+    TCP connection), HTTP health checks (GET to /health endpoint, fail if non-2xx),
+    HTTPS checks, or custom scripted checks. Thresholds: unhealthy after N consecutive
+    failures, restored after M consecutive successes. During DOWN period, traffic
+    routes only to healthy backends. In Kubernetes, readiness probe failures cause
+    the Pod IP to be removed from the Service endpoint list. In 5G, NRF heartbeat
+    (periodic PUT to /nf-instances/{nfInstanceID}) serves as the equivalent — if the
+    NRF doesn''t receive a heartbeat within heartBeatTimer seconds, it marks the NF
+    as SUSPENDED.'
+  spec: 3GPP TS 29.510
+  simulator_trigger: socket_wrapper.h — NRF heartbeat simulation in simulator NF registration
+  interview_context: NRF heartbeat is the 5G health-check equivalent — understanding
+    this mechanism is relevant to 5G core operations

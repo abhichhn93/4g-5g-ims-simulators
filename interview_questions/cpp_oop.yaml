@@ -1,0 +1,182 @@
+- id: q001
+  domain: cpp
+  subdomain: oop
+  tags:
+  - cpp-oop
+  - virtual
+  - polymorphism
+  level: engineer
+  question: What is the difference between virtual functions and pure virtual functions?
+  answer: A virtual function has a definition in the base class and can be overridden
+    in derived classes; derived classes are not required to override it. A pure virtual
+    function is declared with = 0, has no base-class body, and must be overridden
+    by any concrete derived class. A class with at least one pure virtual function
+    is abstract and cannot be instantiated directly.
+  spec: null
+  simulator_trigger: Any simulator node base class with virtual dispatch (e.g., NodeBase
+    in simulator node hierarchy)
+  interview_context: Baseline OOP check — every C++ engineer must know this cleanly
+- id: q002
+  domain: cpp
+  subdomain: oop
+  tags:
+  - cpp-oop
+  - virtual
+  - polymorphism
+  level: senior
+  question: Explain how the vtable (virtual table) mechanism works in C++.
+  answer: When a class declares at least one virtual function, the compiler generates
+    a per-class vtable — a static array of function pointers, one per virtual function.
+    Each object carries a hidden vptr pointing to its class's vtable. When a virtual
+    function is called through a base-class pointer, the runtime follows object →
+    vptr → vtable → function pointer. This is dynamic dispatch and enables runtime
+    polymorphism.
+  spec: null
+  simulator_trigger: Simulator node polymorphism — e.g., MmeNode and AmfNode both
+    derive from a common ProtocolNode base
+  interview_context: Tests understanding of the internals behind runtime polymorphism
+- id: q003
+  domain: cpp
+  subdomain: oop
+  tags:
+  - cpp-oop
+  - virtual
+  - polymorphism
+  level: senior
+  question: Why can't constructors be virtual? Why should destructors in polymorphic
+    base classes be virtual?
+  answer: Constructors cannot be virtual because virtual dispatch requires a fully
+    constructed object with a valid vptr, which does not yet exist during construction.
+    Destructors in a polymorphic base class must be virtual so that deleting a derived
+    object via a base-class pointer calls the derived destructor first, preventing
+    resource leaks in the derived part.
+  spec: null
+  simulator_trigger: Resource cleanup in simulator node teardown — NodeBase destructor
+    must be virtual
+  interview_context: Detects knowledge of a common real-world bug in polymorphic hierarchies
+- id: q004
+  domain: cpp
+  subdomain: oop
+  tags:
+  - cpp-oop
+  - virtual
+  - polymorphism
+  level: senior
+  question: What is the diamond problem in multiple inheritance, and how does virtual
+    inheritance solve it?
+  answer: 'The diamond problem arises when class D inherits from both B and C, which
+    both inherit from a common base A, resulting in two copies of A''s members in
+    D — causing ambiguity and extra memory. Virtual inheritance (class B : virtual
+    public A) tells the compiler to create only one shared subobject of A regardless
+    of how many paths lead to it.'
+  spec: null
+  simulator_trigger: Multiple-inheritance patterns in simulator base classes (e.g.,
+    TimerBase + EventBase)
+  interview_context: Tests awareness of multiple-inheritance pitfalls relevant to
+    framework design
+- id: q005
+  domain: cpp
+  subdomain: oop
+  tags:
+  - cpp-oop
+  - virtual
+  - polymorphism
+  level: engineer
+  question: What are the different types of polymorphism in C++?
+  answer: 'C++ has two categories: compile-time polymorphism via function overloading
+    and operator overloading, where the compiler resolves the call; and runtime polymorphism
+    via virtual functions and overriding, where the vtable resolves the call at runtime.
+    Static binding is faster; dynamic binding is more flexible and extensible.'
+  spec: null
+  simulator_trigger: Simulator message dispatch — template-based compile-time dispatch
+    vs virtual-function runtime dispatch
+  interview_context: Confirms candidate can distinguish static vs dynamic dispatch
+    and choose appropriately
+- id: q006
+  domain: cpp
+  subdomain: oop
+  tags:
+  - cpp-oop
+  level: engineer
+  question: What is a friend class and a friend function? When would you use them?
+  answer: A friend function is a non-member function granted access to private and
+    protected members via a friend declaration inside the class. A friend class similarly
+    grants all its member functions that access. Both are used sparingly — typical
+    uses include operator overloading (operator<<) and tightly coupled helper classes
+    where encapsulation would otherwise force unnecessary public exposure.
+  spec: null
+  simulator_trigger: Simulator stats collector classes that need internal-state access
+    without making all fields public
+  interview_context: Tests understanding of encapsulation boundaries and when to deliberately
+    break them
+- id: q007
+  domain: cpp
+  subdomain: oop
+  tags:
+  - cpp-oop
+  level: engineer
+  question: What is operator overloading, and what are its restrictions?
+  answer: Operator overloading lets you redefine the behavior of built-in operators
+    for user-defined types by defining operator@ as a member or friend function. You
+    cannot create new operators, cannot change arity or precedence, and certain operators
+    (::, ., .*, ?:, sizeof) cannot be overloaded. The overloaded operator should semantically
+    match its mathematical or linguistic meaning.
+  spec: null
+  simulator_trigger: Simulator message comparison operators — operator== for matching
+    PDU types in test assertions
+  interview_context: Tests knowledge of overloading rules often violated in telecom
+    message model classes
+- id: q008
+  domain: cpp
+  subdomain: oop
+  tags:
+  - cpp-oop
+  - virtual
+  - polymorphism
+  level: engineer
+  question: What is an abstract class, and when should you use it?
+  answer: An abstract class has at least one pure virtual function and cannot be instantiated
+    directly; it defines a contract that all concrete derived classes must fulfill.
+    Use abstract classes to enforce a specific interface across a hierarchy, enable
+    polymorphism through base-class pointers, and share common data or partial implementations.
+  spec: null
+  simulator_trigger: Abstract ProtocolHandler base class with pure virtual handle_message()
+    in simulator
+  interview_context: Confirms candidate can design extensible simulator node hierarchies
+    correctly
+- id: q009
+  domain: cpp
+  subdomain: oop
+  tags:
+  - cpp-oop
+  - virtual
+  - polymorphism
+  level: beginner
+  question: What is the difference between function overriding and function overloading?
+  answer: Overloading defines multiple functions with the same name but different
+    parameter lists in the same scope; the compiler selects the correct version at
+    compile time. Overriding redefines a base-class virtual function in a derived
+    class with the same signature; the correct version is selected at runtime. Use
+    the override specifier in C++11 to let the compiler catch signature mismatches.
+  spec: null
+  simulator_trigger: Simulator event handler methods — distinguishing overloaded event
+    constructors from overridden handlers
+  interview_context: Entry-level check to distinguish compile-time from runtime polymorphism
+- id: q010
+  domain: cpp
+  subdomain: oop
+  tags:
+  - cpp-oop
+  - virtual
+  - polymorphism
+  level: engineer
+  question: What is the override and final specifier in C++?
+  answer: override on a derived-class function signals intent to override a base virtual;
+    the compiler emits an error if no matching virtual exists in the base class. final
+    on a virtual function prevents further overriding; final on a class prevents subclassing.
+    Both improve clarity and catch signature-mismatch bugs at compile time.
+  spec: null
+  simulator_trigger: Simulator node message handler classes using override on handle_s1ap(),
+    handle_ngap() methods
+  interview_context: Tests knowledge of modern C++ specifiers that prevent subtle
+    override bugs

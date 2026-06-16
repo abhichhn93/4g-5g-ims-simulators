@@ -1,0 +1,168 @@
+- id: q313
+  domain: 4g
+  subdomain: srvcc
+  tags:
+  - srvcc
+  level: senior
+  question: 'Explain SRVCC end-to-end: when is it triggered, what signaling interfaces
+    are involved, and what improvements did eSRVCC bring with ATCF/ATGW?'
+  answer: 'SRVCC (Single Radio Voice Call Continuity, TS 23.216) hands over an active
+    VoLTE call from LTE to 2G/3G CS when LTE coverage degrades. Trigger: UE measurement
+    event (RSRP/RSRQ below threshold with no suitable LTE neighbor) → eNB sends S1AP
+    Handover Required to MME with SRVCC indication → MME invokes Sv interface (GTPv2)
+    to send SRVCC PS to CS Request to target MSC Server → MSC establishes CS radio
+    channel and communicates with IMS SCC-AS to transfer the IMS session anchor. Release
+    8 SRVCC had ~400-1500 ms voice interruption. eSRVCC (Release 10) introduces ATCF/ATGW
+    co-located with P-CSCF/SBC that pre-anchor the SIP dialog at call establishment;
+    during SRVCC, ATCF executes session transfer locally without signaling the home
+    SCC-AS, reducing interruption to < 300 ms.'
+  spec: 3GPP TS 23.216
+  simulator_trigger: future HO command — SRVCC handover simulation in coverage edge
+    scenario
+  interview_context: Tests deep understanding of IMS-to-CS voice call continuity handover
+    mechanism and eSRVCC latency improvement
+- id: q314
+  domain: 4g
+  subdomain: embms
+  tags:
+  - embms
+  level: senior
+  question: 'Explain the eMBMS architecture: MBSFN areas, MCCH/MTCH channels, and
+    the role of the BM-SC.'
+  answer: 'eMBMS (TS 23.246) enables a single transmission to be received simultaneously
+    by all UEs in a coverage area. Key mechanism: MBSFN (Multicast-Broadcast Single
+    Frequency Network) area — geographically adjacent eNBs synchronize transmissions
+    on the same carrier frequency and MBSFN subframes. UEs at cell edge receive a
+    combined signal eliminating inter-cell interference. Channels: MCCH (Multicast
+    Control Channel) broadcasts MBMS service schedule and PMCH resource allocation;
+    MTCH (Multicast Traffic Channel) carries actual MBMS data. BM-SC (Broadcast-Multicast
+    Service Centre): authenticates MBMS service providers, schedules content, generates
+    SYNC PDUs for timing synchronization, and interfaces with MCE (Multicell Coordination
+    Entity) which coordinates eNB synchronization over M2. The BM-SC receives unicast
+    IP and converts it to point-to-multipoint GTP tunnels toward the MBMS-GW, which
+    replicates to all participating eNBs via M1.'
+  spec: 3GPP TS 23.246
+  simulator_trigger: future HO command — eMBMS service simulation for broadcast content
+    delivery
+  interview_context: Tests understanding of LTE broadcast architecture for efficient
+    group content delivery — asked at Samsung/LG for VoLTE roles
+- id: q315
+  domain: 4g
+  subdomain: s1_flex
+  tags:
+  - s1-flex
+  level: senior
+  question: What is S1-Flex in LTE? How does a UE's GUMMEI help an eNB route NAS signaling
+    to the correct MME, and how does the MME pool handle overload?
+  answer: 'S1-Flex (TS 36.401) lets each eNB establish S1-MME connections to all MMEs
+    within a defined pool — a many-to-many model providing redundancy and load distribution.
+    When a UE first attaches, the eNB selects an MME using weighted round-robin based
+    on the Relative MME Capacity IE. Once the UE has a GUTI, the embedded GUMMEI (PLMN-ID
+    + MME Group ID + MME Code) allows the eNB to route subsequent NAS messages directly
+    to the serving MME. Load rebalancing: overloaded MME sends ''Overload Start''
+    to connected eNBs (which stop routing new UEs to it) and optionally triggers ''load
+    balancing TAU'' — sending S1AP UE Context Release (cause: load balancing TAU required)
+    to specific UEs, which re-attach to a less-loaded MME; the old MME provides UE
+    context to the new MME over S10.'
+  spec: 3GPP TS 36.413
+  simulator_trigger: BULK command — MME pool load balancing simulation with overload
+    scenarios
+  interview_context: Tests S1-Flex MME pool load balancing and GUMMEI-based routing
+    — critical for large-scale LTE deployment design
+- id: q316
+  domain: 4g
+  subdomain: emm_state_machine
+  tags:
+  - emm-state
+  level: senior
+  question: Describe the complete NAS EMM state machine for an LTE UE. What are the
+    states, what transitions exist, and what is the difference between EMM and ECM
+    states?
+  answer: 'The NAS EMM state machine (TS 24.301) has two primary states: EMM-DEREGISTERED
+    (no valid security context, no GUTI — initial state or after detach) and EMM-REGISTERED
+    (completed attach, valid security context, MME has UE context). EMM-REGISTERED
+    subdivides by ECM state: ECM-CONNECTED (active S1 signaling connection) and ECM-IDLE
+    (no active S1 connection — UE is paged for MT events). Key transitions: (1) Attach
+    Request → Attach Accept = DEREGISTERED to REGISTERED; (2) Service Request → Service
+    Accept = IDLE to CONNECTED; (3) S1 release after inactivity = CONNECTED to IDLE
+    (context remains at MME and S-GW); (4) Detach = REGISTERED to DEREGISTERED; (5)
+    TAU = stays REGISTERED, refreshes TAI list. The NAS security context (K_ASME,
+    algorithms, counters) persists across ECM-IDLE/CONNECTED transitions but is destroyed
+    on detach.'
+  spec: 3GPP TS 24.301
+  simulator_trigger: BULK command — EMM state machine simulation in UE attach/detach
+    scenarios
+  interview_context: Tests complete understanding of the EMM state machine and ECM
+    state transitions essential for LTE protocol stack implementation
+- id: q317
+  domain: 4g
+  subdomain: esm_bearer_states
+  tags:
+  - emm-state
+  level: senior
+  question: Describe the ESM state machine. What are the bearer states, and what messages
+    trigger transitions? What is the difference between a default and dedicated EPS
+    bearer?
+  answer: 'The NAS ESM state machine (TS 24.301) has three bearer states: INACTIVE
+    (no EPS bearer context — initial or after deactivation), ACTIVE PENDING (Activate
+    EPS Bearer Context Request sent but UE has not responded), and ACTIVE (UE confirmed
+    activation — data can flow). Default EPS bearer: established at PDN attach using
+    non-GBR QCI (QCI-9 for internet, QCI-5 for IMS) — remains up for the lifetime
+    of the PDN connection. Dedicated EPS bearer: established on demand (e.g., QCI-1/GBR
+    for VoLTE) — references the linked default bearer''s EBI. Bearer deactivation:
+    triggered by Deactivate EPS Bearer Context Request from network (PCRF policy change,
+    QCI=1 timeout after call ends) or from UE. The EPS Bearer Context stores: EBI,
+    QCI/ARP/GBR/MBR, TFT (Traffic Flow Template for uplink filtering), and TEID for
+    the GTP-U tunnel.'
+  spec: 3GPP TS 24.301
+  simulator_trigger: BULK command — dedicated bearer activation simulation for VoLTE
+    calls
+  interview_context: Tests ESM bearer state machine understanding essential for VoLTE
+    QCI-1 bearer lifecycle management
+- id: q318
+  domain: 4g
+  subdomain: carrier_aggregation
+  tags:
+  - carrier-aggregation
+  level: senior
+  question: 'Explain LTE-A Carrier Aggregation architecture: PCell/SCell, component
+    carriers, and X2 for CA.'
+  answer: 'Carrier Aggregation (CA, Release 10, TS 36.300) allows a single UE to use
+    up to 5 component carriers (CCs) simultaneously for up to 100 MHz aggregated bandwidth.
+    The UE has exactly one Primary Cell (PCell): handles RRC connection, NAS signaling,
+    security, and PUCCH transmission — changed only via handover. Secondary Cells
+    (SCells) are additional carriers configured via RRC (RRCConnectionReconfiguration
+    with sCellToAddModList) and can be dynamically activated/deactivated by MAC Control
+    Elements based on traffic demand. Protocol impact: confined to PHY and MAC layers
+    — each CC has independent HARQ; one RLC/PDCP/RRC per bearer above MAC. For inter-eNB
+    CA over X2: PCell eNB is Master eNB (MeNB), SCell eNB is Secondary eNB (SeNB);
+    X2AP carries RRC configuration for the SCell as an opaque container from MeNB
+    to SeNB.'
+  spec: 3GPP TS 36.300
+  simulator_trigger: BULK command — carrier aggregation simulation with PCell/SCell
+    configuration
+  interview_context: Tests LTE-A Carrier Aggregation architecture for RAN engineers
+    — protocol layer impact and inter-eNB CA are key interview topics
+- id: q319
+  domain: 4g
+  subdomain: iot_power
+  tags:
+  - edrx
+  - psm
+  level: senior
+  question: Explain PSM and eDRX for LTE IoT devices. How do they interact with the
+    TAU timer, and when would you choose one over the other?
+  answer: 'PSM (Power Saving Mode, Release 12): after a TAU or Attach, the UE negotiates
+    an Active Timer (T3324) and a Periodic TAU Timer (T3412 extended). When T3324
+    expires after the last data exchange, the UE enters deep-sleep — unreachable by
+    the network (no paging) — only waking for the next TAU when T3412 expires (hours
+    or days). eDRX (Extended Discontinuous Reception, Release 13): the UE negotiates
+    a Paging Time Window (PTW) and an eDRX cycle (5.12s to ~2.9 hours for LTE-M);
+    the network buffers MT data and pages the UE only during its PTW. Design choice:
+    use PSM for devices that only originate data (smart meters, environmental sensors)
+    — battery life can extend to 10+ years; use eDRX for devices needing periodic
+    MT reachability (asset trackers). The two modes are compatible and can be combined.'
+  spec: 3GPP TS 23.682
+  simulator_trigger: BULK command — IoT device PSM/eDRX power state simulation
+  interview_context: Tests understanding of LTE IoT power-saving modes — critical
+    for NB-IoT and LTE-M deployment design

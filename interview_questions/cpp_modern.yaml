@@ -1,0 +1,189 @@
+- id: q034
+  domain: cpp
+  subdomain: modern_cpp17
+  tags:
+  - cpp17
+  - structured-bindings
+  level: engineer
+  question: What are structured bindings in C++17?
+  answer: 'Structured bindings allow you to unpack tuple-like objects (tuples, pairs,
+    aggregates, arrays) into named variables in a single declaration: auto [key, value]
+    = myMap.begin(). The bindings can be const, auto&, or auto&& to control copy vs
+    reference. They are especially useful in range-for loops over maps: for (auto&
+    [k, v] : myMap) instead of accessing .first/.second.'
+  spec: null
+  simulator_trigger: 'Simulator map iteration — for (auto& [imsi, ue_ctx] : ue_store_)
+    pattern in mme_node.cpp'
+  interview_context: Tests awareness of modern C++17 ergonomics commonly used in telecom
+    code bases post-2019
+- id: q035
+  domain: cpp
+  subdomain: modern_cpp17
+  tags:
+  - cpp17
+  - optional
+  level: senior
+  question: What is std::optional, and when should you use it?
+  answer: std::optional<T> represents a value that may or may not be present, without
+    heap allocation — it avoids the magic-sentinel anti-pattern (returning -1 or nullptr
+    to mean no value). Typical uses include returning from a function that may fail
+    (optional<UeContext> find_ue(imsi)), optional parameters, and lazy initialization.
+    Access with *opt or opt.value() (throws if empty), or opt.value_or(default); check
+    with if (opt) or opt.has_value().
+  spec: null
+  simulator_trigger: Simulator UE lookup — find_ue_context() returns optional<UeContext>
+    rather than raw pointer to model absence cleanly
+  interview_context: Tests modern C++17 patterns for safe nullable-value handling
+    in simulator APIs
+- id: q036
+  domain: cpp
+  subdomain: modern_cpp17
+  tags:
+  - cpp17
+  - variant
+  level: senior
+  question: What is std::variant, and how does it compare to inheritance for sum types?
+  answer: std::variant<T1, T2, ...> is a type-safe discriminated union holding exactly
+    one value from a fixed set of types without heap allocation or vtable overhead.
+    Unlike inheritance, it captures a closed one-of relationship, enables exhaustive
+    pattern matching via std::visit, and avoids base-class slicing. The trade-off
+    is the type set is closed — adding a new type requires changing the variant declaration.
+  spec: null
+  simulator_trigger: Simulator NAS message variant — std::variant<AttachRequest, TauRequest,
+    DetachRequest> for type-safe NAS PDU dispatch
+  interview_context: Tests whether the candidate knows when sum types are more appropriate
+    than open polymorphic hierarchies
+- id: q037
+  domain: cpp
+  subdomain: modern_cpp17
+  tags:
+  - cpp17
+  level: senior
+  question: What is if constexpr, and why is it superior to SFINAE for compile-time
+    branching?
+  answer: 'if constexpr(condition) evaluates the condition at compile time and only
+    instantiates the taken branch — the non-taken branch is not compiled and can be
+    semantically incorrect for the current template argument without causing an error.
+    This replaces complex SFINAE (std::enable_if) patterns with readable, linear code
+    inside a single function template. Example: if constexpr (std::is_integral_v<T>)
+    { return x * x; } else { return x.size(); }.'
+  spec: null
+  simulator_trigger: Simulator template serializer — if constexpr to branch between
+    fixed-length and variable-length field encodings
+  interview_context: Tests modern C++17 template programming that simplifies simulator
+    codec implementations
+- id: q038
+  domain: cpp
+  subdomain: modern_cpp17
+  tags:
+  - cpp17
+  level: senior
+  question: What are fold expressions in C++17?
+  answer: 'Fold expressions allow variadic template parameter packs to be folded over
+    a binary operator. A unary right-fold (args + ...) expands to (a0 + (a1 + (a2
+    + ...))). They replace recursive template metaprogramming for tasks like summing
+    variadic arguments: template<typename... Ts> auto sum(Ts... args) { return (args
+    + ...); }. They also work with && and || for logical conjunction/disjunction over
+    parameter packs.'
+  spec: null
+  simulator_trigger: Simulator variadic message builder — fold expression to concatenate
+    multiple AVP fields into a Diameter message
+  interview_context: Tests advanced C++17 template features used in generic simulator
+    protocol encoders
+- id: q039
+  domain: cpp
+  subdomain: modern_cpp17
+  tags:
+  - cpp17
+  level: senior
+  question: What is Class Template Argument Deduction (CTAD) in C++17?
+  answer: CTAD allows the compiler to infer template parameters from constructor arguments,
+    so you can write std::pair p(1, 3.14) instead of std::pair<int, double>(1, 3.14),
+    and std::vector v{1, 2, 3} instead of std::vector<int>{1, 2, 3}. When default
+    deduction guides fail you can provide explicit deduction guides. CTAD reduces
+    boilerplate and improves readability with zero runtime cost.
+  spec: null
+  simulator_trigger: Simulator template wrapper types using CTAD for cleaner construction
+    in test harnesses
+  interview_context: Tests awareness of C++17 ergonomic improvements in the simulator's
+    utility and test layers
+- id: q040
+  domain: cpp
+  subdomain: modern_cpp17
+  tags:
+  - design-pattern
+  - singleton
+  - cpp-concurrency
+  level: senior
+  question: How do you implement a thread-safe Singleton in modern C++?
+  answer: 'The simplest C++11 approach exploits the guaranteed thread-safe initialization
+    of function-local static variables: static Singleton& getInstance() { static Singleton
+    instance; return instance; }. The runtime ensures exactly one construction even
+    under concurrent calls. Mark copy constructor and assignment operator = delete
+    to prevent duplication; avoid the pre-C++11 Double-Checked Locking Pattern which
+    was broken without the C++11 memory model.'
+  spec: null
+  simulator_trigger: Simulator global config and logger singletons accessed concurrently
+    from all node threads
+  interview_context: Tests knowledge of the correct modern C++ singleton pattern vs
+    the broken pre-C++11 versions
+- id: q041
+  domain: cpp
+  subdomain: modern_cpp17
+  tags:
+  - design-pattern
+  - factory
+  level: senior
+  question: Explain the Factory Method and Abstract Factory patterns. When do you
+    use each?
+  answer: Factory Method defines a virtual method in a base creator class that subclasses
+    override to produce a specific product — the base controls the workflow but delegates
+    instantiation. Abstract Factory provides an interface for creating families of
+    related objects (e.g., WindowsWidgetFactory vs MacWidgetFactory) without specifying
+    concrete classes, allowing the entire product family to be swapped. Use Factory
+    Method when a class cannot anticipate its product type; use Abstract Factory when
+    products from a family must be used together.
+  spec: null
+  simulator_trigger: Simulator node factory — NodeFactory::create() using Factory
+    Method to instantiate MmeNode, AmfNode, SmfNode by type
+  interview_context: Tests creational pattern selection relevant to simulator node
+    instantiation and test scenario setup
+- id: q042
+  domain: cpp
+  subdomain: modern_cpp17
+  tags:
+  - design-pattern
+  - observer
+  level: senior
+  question: Explain the Observer pattern and its typical C++ implementation.
+  answer: 'The Observer pattern defines a one-to-many dependency: when a Subject changes
+    state, all registered Observers are notified automatically. In C++, the Subject
+    holds a vector<Observer*> (or smart pointers) and a notify() method that calls
+    update() on each. Use weak_ptr for observers to prevent the Subject from extending
+    their lifetimes. Modern C++ can use std::function callbacks registered in a map
+    for more flexible subscriptions without a virtual Observer interface.'
+  spec: null
+  simulator_trigger: Simulator event notification system — UE state machine notifying
+    registered observers (logger, stats collector, test verifier)
+  interview_context: Tests observer pattern knowledge needed for simulator inter-component
+    notification design
+- id: q043
+  domain: cpp
+  subdomain: modern_cpp17
+  tags:
+  - design-pattern
+  level: senior
+  question: Explain the Strategy pattern. How does it differ from using virtual functions
+    directly?
+  answer: The Strategy pattern encapsulates a family of interchangeable algorithms
+    behind a common interface, allowing the algorithm to be swapped at runtime by
+    setting a different strategy object on a Context class. Unlike direct virtual
+    override, Strategy makes variation explicit and composable — you can swap algorithms
+    at runtime without changing the Context class, and algorithms can be shared across
+    multiple contexts. In modern C++ it is often implemented with std::function instead
+    of a virtual class.
+  spec: null
+  simulator_trigger: Simulator routing strategy — pluggable RouteSelector strategy
+    object in PGW node for different bearer selection algorithms
+  interview_context: Tests behavioral pattern knowledge needed for designing configurable
+    simulator policies

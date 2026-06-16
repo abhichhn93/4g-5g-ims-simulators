@@ -1,0 +1,359 @@
+- id: q110
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - call-barring
+  - mtas
+  - s-cscf
+  - sip
+  level: senior
+  question: How does call barring work in IMS/VoLTE?
+  answer: Call barring in IMS is implemented by the MTAS as a MMTel service (TS 24.611).
+    Barring programs (OCB, BAIC, etc.) are stored in the HSS and downloaded to the
+    MTAS via the Sh interface. When a call is initiated, the S-CSCF routes the INVITE
+    to the MTAS via iFC; the MTAS checks caller/callee barring programs against call
+    direction and type. If barred, the MTAS rejects the INVITE with 403 Forbidden;
+    users can manage barring via the Ut interface (XCAP over HTTP) modifying XML documents
+    in an XDMS.
+  spec: TS 24.611, TS 24.623
+  simulator_trigger: CALL command with barring test — MTAS returns 403 Forbidden when
+    barring subscription active
+  interview_context: Tests supplementary service implementation knowledge across IMS,
+    MTAS, HSS, and Sh interface
+- id: q111
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - call-waiting
+  - mtas
+  - sip
+  level: senior
+  question: How is call waiting implemented in IMS/VoLTE?
+  answer: When a UE is in an active call, an incoming INVITE is routed to the MTAS
+    via iFC; the MTAS checks the called subscriber's call waiting status from HSS
+    via Sh. If active, the MTAS forwards the INVITE to the UE, which plays a waiting
+    tone locally. The UE may accept the new call (200 OK, holding the active call
+    via SIP re-INVITE with a=sendonly) or reject it (486 Busy Here); if call waiting
+    is inactive, the MTAS returns 486 Busy Here for the waiting call.
+  spec: TS 24.615
+  simulator_trigger: CALL command to busy UE — MTAS CW logic in mtas_cw_handler.cpp
+    determines hold vs reject
+  interview_context: Tests supplementary service SIP signaling flow involving hold/resume
+    and MTAS state management
+- id: q112
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - conferencing
+  - mrfc
+  - mtas
+  - sip
+  level: senior
+  question: How is 3-party conferencing established in IMS/VoLTE?
+  answer: Party-A calls Party-B normally, then calls Party-C in a new SIP dialog;
+    Party-A's MTAS detects the conference request and involves the MRFC by sending
+    a SIP INVITE to it. The MRFC instructs the MRFP (via H.248) to create a mixing
+    conference bridge; both Party-B and Party-C's media streams are directed to the
+    MRFP, which mixes them and sends the combined stream back to each party. SIP signaling
+    follows the conference factory URI model (RFC 4579) triggered via MTAS based on
+    iFC.
+  spec: TS 24.605, TS 23.228, RFC 4579
+  simulator_trigger: CALL command with add_party — MTAS invokes MRFC conference bridge
+    in mrfc_conference_handler.cpp
+  interview_context: Tests 3-party conference architecture combining MTAS, MRFC, MRFP,
+    and SIP dialog forking
+- id: q113
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - volte-call
+  - qci1
+  - volte-bearer
+  - sip
+  level: senior
+  question: What is GSMA IR.92 and what are its key mandatory requirements for VoLTE?
+  answer: 'GSMA IR.92 (IMS Profile for Voice and SMS) defines the minimum mandatory
+    feature set for interoperable VoLTE deployment. Key requirements: QCI=5 default
+    bearer for IMS signaling, QCI=1 GBR dedicated bearer for voice, QCI=9 for internet
+    data; AMR-WB (HD Voice) and AMR-NB codecs; SIP extensions PRACK (100rel), preconditions
+    (RFC 3312), UPDATE, and session timers; PCO-based P-CSCF discovery; SMS over IMS
+    (IP-SM-GW); SRVCC; and 20ms packetization time for AMR-WB. Late ringing (precondition
+    mode) is recommended with ≤4 second call setup target.'
+  spec: GSMA IR.92 v20.0 (2024), TS 26.114
+  simulator_trigger: CALL command — simulator validates IR.92 compliance including
+    codec negotiation, PRACK, and preconditions
+  interview_context: Tests IR.92 profile knowledge required for VoLTE interoperability
+    and commercial deployment roles
+- id: q114
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - volte-call
+  - sdp
+  level: engineer
+  question: What codecs are mandatory in IR.92 and why is AMR-WB significant for VoLTE?
+  answer: IR.92 mandates AMR-WB (Adaptive Multi-Rate Wideband, G.722.2) as the primary
+    codec for VoLTE and AMR-NB as fallback for 2G/3G interoperability. AMR-WB operates
+    at 16kHz sampling rate delivering HD Voice quality; it supports multiple bitrate
+    modes (6.60–23.85kbps) with 12.65kbps most commonly deployed, and uses DTX with
+    Comfort Noise Generation during silence. Later IR.92 versions also mandate EVS
+    (Enhanced Voice Services) supporting 32kHz super-wideband and 48kHz fullband.
+    Codec negotiation occurs in SDP offer/answer during call setup.
+  spec: TS 26.114, TS 26.445, GSMA IR.92
+  simulator_trigger: CALL command — SDP offer from UE simulator lists AMR-WB/EVS codecs;
+    answer selects AMR-WB 12.65kbps
+  interview_context: Tests codec knowledge relevant to VoLTE audio quality analysis
+    and IR.92 certification
+- id: q115
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - sip
+  - sip-invite
+  - sip-register
+  - prack
+  level: engineer
+  question: 'What is the purpose of each key SIP method in VoLTE: INVITE, REGISTER,
+    BYE, CANCEL, OPTIONS, PRACK, UPDATE?'
+  answer: REGISTER registers the UE's IMPU-to-IP binding and initiates IMS-AKA; INVITE
+    initiates a call with an SDP offer and can re-INVITE for hold or codec change;
+    BYE terminates an established call and triggers QCI=1 bearer teardown; CANCEL
+    cancels a pending unanswered INVITE. OPTIONS queries SIP entity capabilities and
+    is used for P-CSCF keep-alive in LTE; PRACK (provisional ACK per 100rel) acknowledges
+    1xx provisional responses like 183 Session Progress — mandatory per IR.92; UPDATE
+    modifies session parameters mid-call (e.g., precondition status) without changing
+    dialog state.
+  spec: RFC 3261, RFC 3262, RFC 3311, TS 24.229
+  simulator_trigger: CALL command — INVITE/PRACK/UPDATE/BYE sequence visible in sip_call_flow_tracer.cpp
+  interview_context: Tests comprehensive SIP method knowledge across the full VoLTE
+    call lifecycle
+- id: q116
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - sip
+  - sip-invite
+  - prack
+  - sdp
+  level: engineer
+  question: What is the difference between SIP 180 Ringing and 183 Session Progress
+    in VoLTE?
+  answer: Both are 1xx provisional responses from the terminating side. 180 Ringing
+    indicates the remote UA is alerting the called party but carries no SDP — in early
+    ringing mode it is sent before bearers are established. 183 Session Progress carries
+    an SDP answer with media parameters and is used when early media or precondition
+    status updates are needed; in VoLTE with preconditions, the 183 triggers bearer
+    establishment on both sides before 180 Ringing is sent. PRACK (if 100rel is required)
+    acknowledges the 183.
+  spec: RFC 3261, TS 24.229, GSMA IR.92
+  simulator_trigger: CALL command — 183 Session Progress triggers Rx AAR in p_cscf_node.cpp
+    for QCI=1 bearer setup
+  interview_context: Tests understanding of the SIP provisional response role in VoLTE
+    bearer establishment ordering
+- id: q117
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - sip
+  - subscribe
+  - notify
+  - ims-register
+  level: senior
+  question: Explain SIP SUBSCRIBE/NOTIFY and their role in IMS/VoLTE.
+  answer: SIP SUBSCRIBE allows a UA to subscribe to event notifications from another
+    entity; SIP NOTIFY is the server-sent event notification. In IMS, key uses include
+    the reg event package (UE subscribes to own registration status; S-CSCF sends
+    NOTIFY with registration state for all IMPUs in the implicit set), presence (UE
+    subscribes to contact presence; AS sends NOTIFY with presence documents), and
+    MWI (voicemail Message Waiting Indicator). SUBSCRIBEs establish SIP dialogs; NOTIFYs
+    are sent within those dialogs.
+  spec: RFC 3265, TS 24.229, TS 24.615
+  simulator_trigger: REGISTER command — UE sends SUBSCRIBE to reg event package after
+    200 OK; S-CSCF sends NOTIFY
+  interview_context: Tests event notification mechanism knowledge needed for IMS presence
+    and voicemail integration
+- id: q118
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - cx
+  - diameter
+  - s-cscf
+  - i-cscf
+  - hss
+  - ims-register
+  level: senior
+  question: List and describe the Diameter Cx interface commands between CSCF and
+    HSS.
+  answer: 'The Cx interface (App-ID 16777216) uses: UAR/UAA (User-Authorization-Request/Answer)
+    — I-CSCF queries HSS for S-CSCF address or capabilities; SAR/SAA (Server-Assignment-Request/Answer)
+    — S-CSCF registers S-CSCF assignment and downloads user profile (iFC); LIR/LIA
+    (Location-Info-Request/Answer) — I-CSCF finds assigned S-CSCF for routing incoming
+    SIP; MAR/MAA (Multimedia-Auth-Request/Answer) — S-CSCF fetches IMS authentication
+    vectors; RTR/RTA (Registration-Termination) — HSS-initiated deregistration; PPR/PPA
+    (Push-Profile) — HSS pushes updated user profile to S-CSCF.'
+  spec: TS 29.228, TS 29.229
+  simulator_trigger: REGISTER command — Cx MAR/MAA for auth vectors; SAR/SAA for profile
+    download in cx_client.cpp
+  interview_context: Tests detailed Cx interface knowledge needed for HSS/S-CSCF integration
+    debugging
+- id: q119
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - rx-interface
+  - diameter
+  - p-cscf
+  - pcrf
+  - qci1
+  - volte-bearer
+  level: senior
+  question: What Diameter commands are used on the Rx interface and for what purpose?
+  answer: 'The Rx interface (App-ID 16777236) uses: AAR/AAA (AA-Request/Answer) —
+    P-CSCF provides SDP-derived media information and requests QoS authorization,
+    sent at call setup on both MO and MT sides; RAR/RAA (Re-Auth) — PCRF triggers
+    media/flow updates mid-session; STR/STA (Session-Termination) — P-CSCF terminates
+    the Rx session on SIP BYE, triggering bearer teardown; ASR/ASA (Abort-Session)
+    — PCRF-initiated session abort (e.g., policy violation). The AAR carries Media-Component-Description
+    AVPs with SDP-derived flow info.'
+  spec: TS 29.214, TS 23.203
+  simulator_trigger: CALL command — Rx AAR from p_cscf_node.cpp to PCRF; Rx STR on
+    SIP BYE to release QCI=1 bearer
+  interview_context: Tests Rx interface command knowledge critical for VoLTE bearer
+    lifecycle debugging
+- id: q120
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - sip
+  - p-cscf
+  - s-cscf
+  - ims-epc
+  level: senior
+  question: Describe the IMS emergency call architecture. What are the E-CSCF and
+    LRF?
+  answer: IMS emergency calls use two additional elements beyond normal IMS. The E-CSCF
+    (Emergency CSCF) routes emergency SIP sessions to the correct PSAP (Public Safety
+    Answering Point) — when P-CSCF detects an emergency URN (urn:service:sos), it
+    routes the INVITE to the E-CSCF, which retrieves UE location from the LRF and
+    forwards to the correct PSAP. The LRF (Location Retrieval Function) retrieves
+    UE location (GPS, Cell-ID) and uses the RDF (Routing Determination Function) to
+    map location to the correct PSAP, providing an ESQK in North America.
+  spec: TS 23.167, TS 24.229
+  simulator_trigger: CALL command with emergency=true — P-CSCF routes to E-CSCF simulator
+    for PSAP lookup
+  interview_context: Tests emergency IMS architecture knowledge required for regulatory
+    compliance testing
+- id: q121
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - sip
+  - ims-register
+  - p-cscf
+  - ims-epc
+  level: senior
+  question: What are the procedures for a UE initiating a VoLTE emergency call when
+    not IMS-registered?
+  answer: An unregistered UE performs emergency attach (even without a valid SIM in
+    some regions), then IMS APN PDN connection for emergency. If the UE has credentials
+    it performs emergency IMS registration with an sos indication in the Contact header;
+    if not, it sends an anonymous SIP INVITE directly to P-CSCF with the sos URN —
+    no registration required, as P-CSCF routes directly to E-CSCF. The QCI=1 emergency
+    bearer uses ARP priority 1 with preemption capability to guarantee resources under
+    congestion; if IMS emergency fails, the UE must retry via CS domain (CSFB).
+  spec: TS 23.167 §7.1, TS 24.229
+  simulator_trigger: CALL command with emergency=true and unregistered UE — anonymous
+    SIP INVITE to E-CSCF path
+  interview_context: Tests IMS emergency call edge cases required for regional regulatory
+    compliance (e.g., FCC, OFCOM)
+- id: q122
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - sip
+  - p-cscf
+  - s-cscf
+  level: senior
+  question: What SIP headers carry location information in an IMS emergency call?
+  answer: The Geolocation header (RFC 6442) contains a URI pointing to a PIDF-LO (Presence
+    Information Data Format — Location Object) XML body attached to the SIP message
+    or a dereferenceable HTTP URL; the PIDF-LO carries geodetic or civic location.
+    The P-Access-Network-Info (PANI) header is inserted by the P-CSCF with access-network-specific
+    location (e.g., 3GPP-E-UTRAN-FDD; utran-cell-id=<PLMN><TAC><CellID>); this is
+    lower accuracy but always available. The E-CSCF provides the Geolocation reference
+    to the LRF for precise PSAP routing.
+  spec: TS 23.167, TS 24.229, RFC 6442, RFC 4119
+  simulator_trigger: CALL command emergency path — PANI header inserted by p_cscf_node.cpp;
+    Geolocation header in SIP INVITE body
+  interview_context: Tests SIP emergency location header knowledge required for E911/emergency
+    service implementation
+- id: q123
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - ims-epc
+  - ims-register
+  - p-cscf
+  - s-cscf
+  level: senior
+  question: What is SGW relocation during a VoLTE call and how does it affect IMS?
+  answer: 'SGW relocation occurs during handover when the UE moves to a cell served
+    by a different SGW; the PGW remains as the IP anchor so the UE''s IP address and
+    QCI=1 bearer are preserved and from the IMS perspective the SIP session is completely
+    unaffected (P-CSCF sees the same UE IP throughout). The relocation involves a
+    Create Session Request cycle establishing new S5/S8 tunnels between the new SGW
+    and PGW. The critical point for VoLTE: the GBR QCI=1 bearer must be re-established
+    on the new SGW with the same QoS parameters — if that fails, SRVCC may trigger.'
+  spec: TS 23.401 §5.3.3.1, TS 23.216
+  simulator_trigger: TAU with SGW relocation during active CALL — simulator verifies
+    QCI=1 bearer is re-established on new SGW
+  interview_context: Tests understanding of IMS-EPC interaction under mobility — a
+    real-world VoLTE drop root-cause scenario
+- id: q124
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - volte-call
+  - sip
+  - ims-register
+  - sip-register
+  level: engineer
+  question: What is the re-registration requirement in IR.92, and why must the UE
+    re-register before expiry?
+  answer: IR.92 requires the UE to re-register before the SIP registration expiry
+    timer to maintain continuous IMS registration. If the UE fails to re-register
+    before expiry, the S-CSCF removes the IMPU binding and the UE becomes unreachable
+    for incoming calls — all incoming SIP INVITEs will return 480 Temporarily Unavailable.
+    The UE typically re-registers at 50%–60% of the expiry time. Network restarts
+    (e.g., S-CSCF failover) also require immediate re-registration since S-CSCF state
+    is lost.
+  spec: GSMA IR.92, TS 24.229
+  simulator_trigger: REGISTER command — simulator times re-registration at 60% of
+    Expires value via registration_timer.cpp
+  interview_context: Tests IMS registration maintenance knowledge needed for UE registration
+    robustness testing
+- id: q125
+  domain: ims
+  subdomain: supplementary
+  tags:
+  - cx
+  - s-cscf
+  - hss
+  - ims-register
+  level: senior
+  question: What is the RTR (Registration-Termination-Request) in the Cx interface
+    and when is it sent?
+  answer: 'The RTR (Registration-Termination-Request) is an HSS-initiated Diameter
+    Cx command sent to the S-CSCF to force deregistration of an IMS subscriber. It
+    is sent when: the subscriber''s service is removed or suspended by the operator;
+    the HSS is migrated; or the subscription expires. The S-CSCF responds with RTA,
+    deregisters the UE, sends a SIP NOTIFY to the UE (reg event package) informing
+    it of deregistration, and sends SAR with assignment type TIMEOUT or USER_DEREGISTRATION
+    to clean up the HSS binding. The UE will attempt re-registration after receiving
+    the NOTIFY.'
+  spec: TS 29.228, TS 29.229
+  simulator_trigger: REGISTER command — HSS simulator sends RTR to S-CSCF when operator
+    disables subscription during session
+  interview_context: Tests knowledge of HSS-initiated IMS deregistration flows important
+    for subscriber lifecycle management

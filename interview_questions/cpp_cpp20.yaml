@@ -1,0 +1,104 @@
+- id: q335
+  domain: cpp
+  subdomain: cpp20
+  tags:
+  - cpp20
+  - concepts
+  level: senior
+  question: What are C++20 Concepts and how do they improve templates?
+  answer: A Concept is a named compile-time predicate that constrains template parameters,
+    expressed as a boolean expression evaluated at compile time. You define them with
+    'concept' and use them in requires clauses or directly as type constraints. Unlike
+    SFINAE, Concepts check constraints before the template body is instantiated, producing
+    clear targeted error messages. Concepts participate in partial ordering during
+    overload resolution — a more constrained template is preferred over a less constrained
+    one, cleanly replacing tag dispatch. Standard library concepts include std::integral,
+    std::floating_point, std::ranges::range, std::invocable.
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — Concepts
+    in generic protocol handler type constraints
+  interview_context: Concepts enforce compile-time contracts on message type parameters,
+    replacing error-prone documentation-only conventions
+- id: q336
+  domain: cpp
+  subdomain: cpp20
+  tags:
+  - cpp20
+  level: senior
+  question: What is the C++20 Ranges library and how does pipe syntax work?
+  answer: 'The Ranges library introduces views — lazy, composable transformations
+    over sequences that do not materialise intermediate containers. Views are applied
+    via range adaptors such as std::views::filter and std::views::transform, chained
+    with the pipe operator (|). The evaluation is lazy: no iteration happens until
+    the result is consumed (e.g., by a range-for or std::ranges::to). Unlike manual
+    iterator loops, ranges compose cleanly: auto result = data | std::views::filter(pred)
+    | std::views::transform(fn). This replaces verbose iterator pairs and eliminates
+    temporary containers, reducing allocations in protocol message processing pipelines.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — Ranges pipeline
+    for message filtering in simulator
+  interview_context: Ranges replace manual loop-plus-copy patterns in 5G NF message
+    parsing, reducing both code size and allocations
+- id: q337
+  domain: cpp
+  subdomain: cpp20
+  tags:
+  - cpp20
+  - coroutines
+  level: senior
+  question: How do C++20 coroutines work and what are co_await, co_yield, and co_return?
+  answer: A C++20 coroutine is a function that can suspend and resume without blocking
+    a thread. co_await suspends execution until the awaitable completes (useful for
+    async I/O). co_yield suspends and produces a value (used to implement lazy generators).
+    co_return finalises the coroutine and optionally returns a value. The compiler
+    transforms the coroutine body into a state machine and allocates a coroutine frame
+    on the heap unless the Heap Allocation eLision Optimisation (HALO) applies. The
+    return type must be a promise type (e.g., std::generator<T> or a custom Task<T>)
+    that defines promise_type methods. Coroutines enable async I/O handlers without
+    callback spaghetti in 5G NF implementations.
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — coroutine-based
+    async I/O in simulator node event loops
+  interview_context: C++20 coroutines are used in modern 5G NF frameworks (e.g., Seastar,
+    Boost.Asio) for async NGAP/HTTP2 message processing
+- id: q338
+  domain: cpp
+  subdomain: cpp20
+  tags:
+  - cpp20
+  level: engineer
+  question: What is std::span and when should you use it instead of passing a pointer+size
+    pair?
+  answer: std::span<T> is a non-owning, lightweight view over a contiguous sequence
+    (array, vector, C array) described by a pointer and a length. It carries both
+    pointer and size without any ownership or allocation, eliminating the error-prone
+    pointer+size convention. Unlike vector<T>&, span works on any contiguous storage
+    and avoids inadvertent copies. It is bounds-checkable in debug builds. Use std::span
+    whenever a function needs read or write access to a contiguous range but must
+    not own or extend it — common in serialisation/deserialisation of protocol buffers
+    and NAS message encoding in 4G/5G stacks.
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — std::span
+    for zero-copy buffer passing in NAS encoder
+  interview_context: Replacing raw pointer+length APIs with span improves safety and
+    self-documents size contracts in message buffer APIs
+- id: q339
+  domain: cpp
+  subdomain: cpp20
+  tags:
+  - cpp20
+  level: senior
+  question: What is std::jthread and stop_token in C++20?
+  answer: std::jthread is an improved thread class that automatically joins on destruction
+    (unlike std::thread which calls std::terminate if joinable on destruction), solving
+    the most common std::thread resource leak. It also carries a std::stop_source
+    internally; call jthread::request_stop() to set the stop token. Thread functions
+    accept std::stop_token as a first parameter and poll token.stop_requested() to
+    cooperatively exit. This enables clean cancellation without shared flags or condition
+    variables. In telecom NF worker threads, jthread simplifies graceful shutdown
+    during rolling upgrades or SIGTERM handling.
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — jthread worker
+    lifecycle in 5G NF simulator graceful shutdown
+  interview_context: std::jthread is the standard replacement for the hand-rolled
+    join-on-exit pattern in every long-running telecom daemon

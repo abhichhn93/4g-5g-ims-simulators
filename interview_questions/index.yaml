@@ -1,0 +1,227 @@
+version: '2.0'
+total_questions: 352
+last_updated: '2026-06-17'
+files:
+- file: cpp_oop.yaml
+  domain: cpp
+  subdomain: oop
+  description: 'Object-Oriented Programming: virtual dispatch, inheritance, RTTI'
+  id_range: q001-q010
+  count: 10
+- file: cpp_memory.yaml
+  domain: cpp
+  subdomain: memory
+  description: 'Memory management: smart pointers, RAII, heap/stack'
+  id_range: q011-q020
+  count: 10
+- file: cpp_multithreading.yaml
+  domain: cpp
+  subdomain: multithreading
+  description: 'Concurrency: mutex, condition_variable, atomic, thread_pool'
+  id_range: q021-q030
+  count: 10
+- file: cpp_stl.yaml
+  domain: cpp
+  subdomain: stl
+  description: 'Standard Template Library: containers, iterators, algorithms'
+  id_range: q027-q037
+  count: 11
+- file: cpp_modern.yaml
+  domain: cpp
+  subdomain: modern_cpp17
+  description: 'C++17 features: structured bindings, if constexpr, std::optional'
+  id_range: q034-q043
+  count: 10
+- file: cpp_patterns.yaml
+  domain: cpp
+  subdomain: design_patterns
+  description: 'Design patterns: CRTP, RAII, factory, observer, singleton'
+  id_range: q040-q049
+  count: 10
+- file: cpp_system_design.yaml
+  domain: cpp
+  subdomain: system_design
+  description: 'Systems: LRU cache, thread-safe data structures'
+  id_range: q050
+  count: 1
+- file: 4g_attach.yaml
+  domain: 4g
+  subdomain: attach
+  description: 'LTE attach: attach procedure, TAU, EMM/ESM state'
+  id_range: q051-q060
+  count: 10
+- file: 4g_auth.yaml
+  domain: 4g
+  subdomain: authentication
+  description: 'LTE authentication: AKA, KASME, NAS security'
+  id_range: q056-q068
+  count: 13
+- file: 4g_bearer.yaml
+  domain: 4g
+  subdomain: bearer
+  description: 'Bearer management: default/dedicated bearer, GTPv2, TAU'
+  id_range: q061-q075
+  count: 15
+- file: 4g_handover.yaml
+  domain: 4g
+  subdomain: handover
+  description: 'LTE handover: X2/S1, RACH, path switch'
+  id_range: q066-q081
+  count: 16
+- file: 4g_interfaces.yaml
+  domain: 4g
+  subdomain: interfaces
+  description: 'EPC interfaces: S1, S6a, S11, Gx, Rx, Diameter'
+  id_range: q073-q090
+  count: 18
+- file: 4g_nodes.yaml
+  domain: 4g
+  subdomain: nodes
+  description: 'EPC nodes: MME, SGW, PGW, HSS, PCRF roles'
+  id_range: q078-q095
+  count: 18
+- file: ims_registration.yaml
+  domain: ims
+  subdomain: registration
+  description: 'IMS registration: P-CSCF/I-CSCF/S-CSCF, SIP REGISTER, third-party
+    reg'
+  id_range: q096-q109
+  count: 14
+- file: ims_call.yaml
+  domain: ims
+  subdomain: call_setup
+  description: 'VoLTE call setup: INVITE flow, codec negotiation, IMS-EPC interaction'
+  id_range: q100-q115
+  count: 16
+- file: ims_supplementary.yaml
+  domain: ims
+  subdomain: supplementary
+  description: 'Supplementary services: HOLD, REFER, IR.92, emergency calls'
+  id_range: q110-q125
+  count: 16
+- file: ims_sip.yaml
+  domain: ims
+  subdomain: sip
+  description: SIP methods, headers, Cx/Dx/Rx interfaces
+  id_range: q115-q130
+  count: 16
+- file: 5g_architecture.yaml
+  domain: 5g
+  subdomain: architecture
+  description: '5G SBA: NF services, SBI/HTTP2, roaming, NGAP'
+  id_range: q131-q165
+  count: 35
+- file: 5g_auth_security.yaml
+  domain: 5g
+  subdomain: auth_security
+  description: '5G security: 5G-AKA, SUCI, AUSF, UDM, NRF'
+  id_range: q140-q155
+  count: 16
+- file: 5g_session.yaml
+  domain: 5g
+  subdomain: session
+  description: '5G session: AMF, SMF, UPF, PDU session establishment'
+  id_range: q136-q160
+  count: 25
+- file: 5g_slicing.yaml
+  domain: 5g
+  subdomain: slicing
+  description: 'Network slicing: NSSAI, NSSF, S-NSSAI allocation'
+  id_range: q147-q165
+  count: 19
+- file: 5g_oran.yaml
+  domain: 5g
+  subdomain: oran
+  description: 'O-RAN: O-DU/O-RU, split 7.2x, RIC, xApp'
+  id_range: q166-q170
+  count: 5
+- file: linux_systems.yaml
+  domain: linux
+  subdomain: systems
+  description: 'Linux systems: sockets, epoll, SCTP, IPC, signals, processes, memory'
+  id_range: q171-q204
+  count: 34
+- file: networking.yaml
+  domain: networking
+  subdomain: fundamentals
+  description: 'Networking fundamentals: TCP/IP, TLS, HTTP/2, DNS, load balancing'
+  id_range: q205-q221
+  count: 17
+- file: kubernetes_devops.yaml
+  domain: kubernetes
+  subdomain: devops
+  description: 'Kubernetes: pods, services, helm, CNF deployment, CI/CD'
+  id_range: q222-q250
+  count: 29
+- file: python.yaml
+  domain: python
+  subdomain: backend
+  description: 'Python: asyncio, pytest, subprocess, data processing, networking'
+  id_range: q251-q279
+  count: 29
+- file: golang.yaml
+  domain: golang
+  subdomain: backend
+  description: 'Go: goroutines, channels, interfaces, HTTP servers, testing'
+  id_range: q280-q302
+  count: 23
+- file: telecom_sysdesign.yaml
+  domain: telecom
+  subdomain: system_design
+  description: 'Telecom system design: MME/AMF scale, NRF, PCRF, observability'
+  id_range: q303-q312
+  count: 10
+- file: 4g_advanced.yaml
+  domain: 4g
+  subdomain: advanced
+  description: 'Advanced 4G: SRVCC, eMBMS, S1-Flex, carrier aggregation, eDRX/PSM'
+  id_range: q313-q319
+  count: 7
+- file: 5g_advanced.yaml
+  domain: 5g
+  subdomain: advanced
+  description: 'Advanced 5G: URLLC/eMBB/mMTC, MEC, TSN, NTN, NWDAF, URSP'
+  id_range: q320-q326
+  count: 7
+- file: cpp_templates.yaml
+  domain: cpp
+  subdomain: templates
+  description: 'C++ templates: SFINAE, type_traits, constexpr if, variadic, fold'
+  id_range: q327-q331
+  count: 5
+- file: cpp_lambdas.yaml
+  domain: cpp
+  subdomain: lambdas
+  description: 'C++ callables: std::function, lambda capture, callable type selection'
+  id_range: q332-q334
+  count: 3
+- file: cpp_cpp20.yaml
+  domain: cpp
+  subdomain: cpp20
+  description: 'C++20: Concepts, Ranges, Coroutines, std::span, jthread'
+  id_range: q335-q339
+  count: 5
+- file: cpp_exceptions.yaml
+  domain: cpp
+  subdomain: exceptions
+  description: 'Exception safety: basic/strong/nothrow guarantees, noexcept'
+  id_range: q340-q342
+  count: 3
+- file: cpp_abi.yaml
+  domain: cpp
+  subdomain: abi
+  description: 'ABI: name mangling, extern C, static/dynamic linking, PIMPL'
+  id_range: q343-q346
+  count: 4
+- file: cpp_allocators.yaml
+  domain: cpp
+  subdomain: allocators
+  description: 'Allocators: custom allocators, std::allocator, std::pmr'
+  id_range: q347-q349
+  count: 3
+- file: cpp_ub.yaml
+  domain: cpp
+  subdomain: undefined_behavior
+  description: 'Undefined behaviour: UB forms, UBSan/ASan/Valgrind, strict aliasing'
+  id_range: q350-q352
+  count: 3

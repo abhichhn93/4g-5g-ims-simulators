@@ -1,0 +1,208 @@
+- id: q027
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp-stl
+  - vector
+  level: engineer
+  question: Compare std::vector, std::list, and std::deque. When do you use each?
+  answer: std::vector is a contiguous dynamic array with O(1) random access and amortized
+    O(1) push_back; it is cache-friendly and the default choice. std::list is a doubly-linked
+    list with O(1) insertion/deletion anywhere but O(n) index access and poor cache
+    behavior — use it for stable iterators and frequent mid-list modifications. std::deque
+    is a segmented buffer with O(1) push/pop at both ends and O(1) random access —
+    use it for queue-like structures with indexing.
+  spec: null
+  simulator_trigger: Simulator UE neighbor list storage — vector for static APN lists,
+    deque for FIFO event queues
+  interview_context: Tests data structure selection for different simulator access
+    patterns
+- id: q028
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp-stl
+  - map
+  level: senior
+  question: Compare std::map and std::unordered_map. When do you prefer each?
+  answer: std::map is a Red-Black Tree with sorted keys and O(log n) lookup; use it
+    when you need sorted iteration, range queries (lower_bound/upper_bound), or non-hashable
+    keys. std::unordered_map is a hash table with average O(1) and worst-case O(n)
+    operations — use it as the default when order does not matter and keys are hashable.
+    For very small sizes a flat sorted vector<pair<K,V>> may outperform both due to
+    cache locality.
+  spec: null
+  simulator_trigger: Simulator TEID-to-bearer map — unordered_map for O(1) lookup
+    during packet forwarding in gtp_handler.cpp
+  interview_context: Tests ability to choose the right container for telecom lookup
+    tables with large UE populations
+- id: q029
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp-stl
+  - iterator
+  level: engineer
+  question: What are the five iterator categories in C++, and why do they matter?
+  answer: 'C++ iterators are classified by capability: Input (single-pass read), Output
+    (single-pass write), Forward (multi-pass read/write), Bidirectional (supports
+    --), and Random Access (supports +=, -, [] in O(1)). Algorithms declare requirements
+    in these categories, enabling generic implementations that work with any conforming
+    container. C++20 adds Contiguous iterators for guaranteed contiguous memory (e.g.,
+    std::span).'
+  spec: null
+  simulator_trigger: STL algorithm usage on simulator container types — std::sort
+    requires random access iterators, std::find works on any input iterator
+  interview_context: Tests STL fundamentals that affect algorithm selection in simulator
+    utility code
+- id: q030
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp-stl
+  - iterator
+  - vector
+  level: senior
+  question: What is iterator invalidation, and how do you safely erase elements from
+    a container while iterating?
+  answer: 'Iterator invalidation occurs when a container modification causes existing
+    iterators to become dangling or point to wrong elements. For std::vector, erasing
+    an element invalidates all iterators at or after the erased position; for std::map
+    and std::set, only the erased element''s iterator is invalidated. Safe pattern
+    for vector: use the remove-erase idiom — v.erase(std::remove_if(...), v.end()).
+    For associative containers: capture the iterator returned by erase — it = c.erase(it).'
+  spec: null
+  simulator_trigger: Simulator UE cleanup — erasing stale UE contexts from a vector
+    during periodic garbage collection
+  interview_context: Tests a subtle but common C++ bug source in container-traversal
+    code in simulator maintenance tasks
+- id: q031
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp-stl
+  - vector
+  level: engineer
+  question: Why does std::remove not actually remove elements from a vector?
+  answer: std::remove is a pure algorithm — it rearranges elements so that unwanted
+    values are moved to the end and returns an iterator to the new logical end, but
+    it never changes the container's size() because it has no access to the container
+    object. To actually shrink the vector, call v.erase(new_end, v.end()) — this is
+    the canonical remove-erase idiom. In C++20, the std::erase and std::erase_if free-functions
+    do both steps in one call.
+  spec: null
+  simulator_trigger: Simulator expired subscription cleanup — remove-erase idiom on
+    subscription_list_ vector in mme_node.cpp
+  interview_context: Tests a frequent source of bugs where developers call remove
+    thinking it modifies container size
+- id: q032
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp-stl
+  - iterator
+  level: senior
+  question: What are custom comparators, and how do you provide one to a C++ container
+    or algorithm?
+  answer: 'A custom comparator is any callable implementing a strict weak ordering
+    — irreflexive, asymmetric, and transitive. Pass it as a template argument to ordered
+    containers (std::map<K,V,Comp>, std::priority_queue) or as a runtime argument
+    to algorithms (std::sort, std::lower_bound). A lambda is the most concise: std::sort(v.begin(),
+    v.end(), [](auto& a, auto& b){ return a.priority > b.priority; }).'
+  spec: null
+  simulator_trigger: Simulator timer heap — priority_queue with custom comparator
+    ordering events by scheduled_time
+  interview_context: Tests practical STL customization needed for simulator scheduling
+    data structures
+- id: q033
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp-stl
+  - vector
+  level: engineer
+  question: What is the difference between emplace and insert / push_back in C++ containers?
+  answer: insert and push_back require a pre-constructed object that is then copied
+    or moved into the container. emplace and emplace_back forward constructor arguments
+    directly and construct the object in-place inside the container's memory, eliminating
+    any extra move or copy. Prefer emplace for complex types where construction involves
+    allocations; for small trivially-copyable types the difference is negligible.
+  spec: null
+  simulator_trigger: Simulator UE context emplacement — emplace_back into ue_list_
+    vector to avoid temporary construction cost
+  interview_context: Tests knowledge of in-place construction that reduces overhead
+    in hot simulator paths
+- id: q034
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp17
+  - structured-bindings
+  level: engineer
+  question: What are structured bindings in C++17?
+  answer: 'Structured bindings allow you to unpack tuple-like objects (tuples, pairs,
+    aggregates, arrays) into named variables in a single declaration: auto [key, value]
+    = myMap.begin(). The bindings can be const, auto&, or auto&& to control copy vs
+    reference. They are especially useful in range-for loops over maps: for (auto&
+    [k, v] : myMap) instead of accessing .first/.second.'
+  spec: null
+  simulator_trigger: 'Simulator map iteration — for (auto& [imsi, ue_ctx] : ue_store_)
+    pattern in mme_node.cpp'
+  interview_context: Tests awareness of modern C++17 ergonomics commonly used in telecom
+    code bases post-2019
+- id: q035
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp17
+  - optional
+  level: senior
+  question: What is std::optional, and when should you use it?
+  answer: std::optional<T> represents a value that may or may not be present, without
+    heap allocation — it avoids the magic-sentinel anti-pattern (returning -1 or nullptr
+    to mean no value). Typical uses include returning from a function that may fail
+    (optional<UeContext> find_ue(imsi)), optional parameters, and lazy initialization.
+    Access with *opt or opt.value() (throws if empty), or opt.value_or(default); check
+    with if (opt) or opt.has_value().
+  spec: null
+  simulator_trigger: Simulator UE lookup — find_ue_context() returns optional<UeContext>
+    rather than raw pointer to model absence cleanly
+  interview_context: Tests modern C++17 patterns for safe nullable-value handling
+    in simulator APIs
+- id: q036
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp17
+  - variant
+  level: senior
+  question: What is std::variant, and how does it compare to inheritance for sum types?
+  answer: std::variant<T1, T2, ...> is a type-safe discriminated union holding exactly
+    one value from a fixed set of types without heap allocation or vtable overhead.
+    Unlike inheritance, it captures a closed one-of relationship, enables exhaustive
+    pattern matching via std::visit, and avoids base-class slicing. The trade-off
+    is the type set is closed — adding a new type requires changing the variant declaration.
+  spec: null
+  simulator_trigger: Simulator NAS message variant — std::variant<AttachRequest, TauRequest,
+    DetachRequest> for type-safe NAS PDU dispatch
+  interview_context: Tests whether the candidate knows when sum types are more appropriate
+    than open polymorphic hierarchies
+- id: q037
+  domain: cpp
+  subdomain: stl
+  tags:
+  - cpp17
+  level: senior
+  question: What is if constexpr, and why is it superior to SFINAE for compile-time
+    branching?
+  answer: 'if constexpr(condition) evaluates the condition at compile time and only
+    instantiates the taken branch — the non-taken branch is not compiled and can be
+    semantically incorrect for the current template argument without causing an error.
+    This replaces complex SFINAE (std::enable_if) patterns with readable, linear code
+    inside a single function template. Example: if constexpr (std::is_integral_v<T>)
+    { return x * x; } else { return x.size(); }.'
+  spec: null
+  simulator_trigger: Simulator template serializer — if constexpr to branch between
+    fixed-length and variable-length field encodings
+  interview_context: Tests modern C++17 template programming that simplifies simulator
+    codec implementations

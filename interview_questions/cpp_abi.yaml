@@ -1,0 +1,86 @@
+- id: q343
+  domain: cpp
+  subdomain: abi
+  tags:
+  - abi
+  level: senior
+  question: What is ABI and what kinds of changes break it in C++?
+  answer: 'ABI (Application Binary Interface) defines how compiled code interacts
+    at the binary level: calling conventions (how arguments are passed/returned in
+    registers or stack), name mangling (how overloaded and namespace-qualified symbols
+    are encoded), vtable layout (offset of virtual function pointers), and data structure
+    layout (field offsets, alignment, size). Changes that break ABI: adding/removing/reordering
+    virtual functions, adding fields to a class, changing calling conventions, or
+    altering the size/alignment of any type in a shared interface. ABI-stable shared
+    libraries require careful discipline: add only at the end of classes, never remove
+    virtual functions, and use the PIMPL idiom to hide implementation details.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — ABI stability
+    in shared telecom middleware libraries
+  interview_context: Telecom vendors ship pre-compiled NF binaries that link against
+    middleware; ABI breaks cause crashes at load time or silent data corruption at
+    runtime
+- id: q344
+  domain: cpp
+  subdomain: abi
+  tags:
+  - abi
+  level: senior
+  question: What is name mangling and how does extern C fix it?
+  answer: C++ name mangling encodes function overloads, namespaces, and template instantiations
+    into unique symbol names (e.g., _ZN3foo3barEi for foo::bar(int)) so the linker
+    can differentiate them. The exact mangling scheme is compiler-specific (GCC/Clang
+    use the Itanium ABI; MSVC uses its own). This means C++ symbols are not directly
+    callable from C or from differently-compiled C++ binaries. extern "C" suppresses
+    mangling and uses the flat C symbol convention, making functions linkable from
+    C code and across ABI boundaries. It cannot be applied to overloaded functions
+    (since C has no overloading).
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — extern C
+    in plugin interfaces loaded by telecom frameworks
+  interview_context: Telecom NF plugin APIs exposed as .so files typically use extern
+    C entry points so they can be loaded regardless of compiler version
+- id: q345
+  domain: cpp
+  subdomain: abi
+  tags:
+  - abi
+  level: engineer
+  question: What is the difference between static and dynamic linking?
+  answer: 'Static linking copies all required library code into the executable at
+    link time, producing a self-contained binary with no runtime library dependency.
+    Dynamic linking produces a smaller executable that loads shared libraries (.so/.dll)
+    at runtime via the dynamic linker; the library code is shared in memory across
+    processes. Trade-offs: static binaries are portable and startup-deterministic
+    but larger and cannot be patched without recompilation. Dynamic libraries can
+    be updated independently (security patches) but introduce dependency management
+    (DLL hell, version conflicts) and add dlopen/PLT indirection overhead. Telecom
+    NFs with hard-coded C++ ABI interfaces commonly link the core framework statically
+    and expose extension points via extern C dynamic plugins.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — static vs
+    dynamic linking in telecom NF deployment
+  interview_context: Most 5G NF binaries in cloud deployments use dynamic linking
+    for libc/libstdc++ but static linking for proprietary protocol stacks
+- id: q346
+  domain: cpp
+  subdomain: abi
+  tags:
+  - abi
+  level: architect
+  question: How does the PIMPL idiom help with ABI stability?
+  answer: PIMPL (Pointer to IMPLementation) moves all private data members and implementation
+    details into a separate Impl class whose definition is not exposed in the header,
+    only a forward declaration and a unique_ptr<Impl>. The public header's size is
+    fixed (just one pointer) regardless of implementation changes. Adding/removing
+    private fields or helper methods does not change the public class's sizeof or
+    field offsets, so existing compiled client code continues to work without recompilation.
+    The cost is one extra heap allocation per object and one extra pointer dereference
+    per member access. PIMPL is the canonical technique for implementing stable C++
+    library ABIs over long maintenance cycles, as used in Qt and many telecom middleware
+    SDKs.
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — PIMPL in
+    telecom middleware headers for ABI stability
+  interview_context: Telecom vendors use PIMPL extensively to allow upgrading NF implementations
+    without recompiling application code that uses the SDK

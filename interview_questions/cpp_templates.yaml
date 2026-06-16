@@ -1,0 +1,107 @@
+- id: q327
+  domain: cpp
+  subdomain: templates
+  tags:
+  - cpp-templates
+  - sfinae
+  - enable-if
+  level: senior
+  question: What is SFINAE and how does enable_if use it?
+  answer: SFINAE (Substitution Failure Is Not An Error) means that when the compiler
+    substitutes template arguments and the resulting type is ill-formed, it silently
+    removes that candidate from the overload set rather than issuing a compile error.
+    std::enable_if<Condition, T>::type defines a nested type alias only when Condition
+    is true; when false, the alias does not exist, causing substitution failure that
+    SFINAE quietly discards. This lets you write two overloads — one for integral
+    types, one for floating-point — selected at compile time. In C++14+, std::enable_if_t<Condition,
+    T> removes the ::type boilerplate. C++20 Concepts supersede most enable_if patterns
+    with cleaner syntax.
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — SFINAE in
+    message type dispatchers
+  interview_context: Tests compile-time polymorphism knowledge for protocol codec
+    libraries dispatching to hardware-optimized paths
+- id: q328
+  domain: cpp
+  subdomain: templates
+  tags:
+  - cpp-templates
+  - sfinae
+  level: senior
+  question: What are the key type_traits and how are they used?
+  answer: std::is_integral<T>::value is true for int, long, bool, char — used to gate
+    code paths requiring integer semantics. std::is_same<T, U>::value checks exact
+    type identity (ignoring cv-qualifiers only if you apply std::remove_cv first).
+    std::conditional<Condition, T, F>::type is a compile-time ternary yielding T if
+    Condition is true, else F — used to select storage types at compile time. std::decay<T>
+    strips references, top-level cv-qualifiers, and converts arrays/function types
+    to pointers — what auto deduction applies and what you use before storing a template
+    argument by value. All four are zero-runtime-cost compile-time operations.
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — decay in
+    generic message-buffer code
+  interview_context: decay prevents unintended reference storage; conditional drives
+    compile-time dispatch of fixed-point vs floating-point signal types
+- id: q329
+  domain: cpp
+  subdomain: templates
+  tags:
+  - cpp-templates
+  level: senior
+  question: Why is constexpr if cleaner than SFINAE in C++17?
+  answer: 'With SFINAE, conditional logic requires writing multiple separate function
+    templates, one per branch, each guarded by enable_if — the intent is spread across
+    overload sets and error messages are cryptic. ''if constexpr'' (C++17) places
+    the compile-time branch inside a single function body: the compiler evaluates
+    the condition at compile time and discards the unselected branch entirely (that
+    branch is not even instantiated). This produces cleaner error messages, sequential
+    readable logic, and avoids proliferation of function overloads. Critical difference:
+    ''if constexpr'' is NOT SFINAE — it does not remove the function from the overload
+    set if the condition is false, so you cannot use it when multiple independently
+    selectable overloads are needed.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — constexpr
+    if in protocol field serializers
+  interview_context: Simplifies protocol field serializers where integer vs float
+    fields require different encoding without generating separate instantiations
+- id: q330
+  domain: cpp
+  subdomain: templates
+  tags:
+  - cpp-templates
+  level: senior
+  question: What are variadic templates and fold expressions?
+  answer: 'Variadic templates accept zero or more template arguments via ''typename...
+    Args'', packed into a parameter pack. Before C++17, processing a pack required
+    recursive templates. C++17 fold expressions collapse a parameter pack over a binary
+    operator in a single expression: (args + ...) is a unary right fold. Fold expressions
+    are more concise, compile faster, and avoid deep template instantiation stacks.
+    Four forms: unary left, unary right, binary left, binary right. sizeof...(args)
+    gives the pack size. Fold expressions also work with the comma operator for side-effect-based
+    iteration: ((std::cout << args << '' ''), ...).'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — variadic
+    signal handlers in event-driven telecom stacks
+  interview_context: Used in generic tuple-based message dispatchers, variadic signal
+    handlers, and compile-time registration of protocol command handlers
+- id: q331
+  domain: cpp
+  subdomain: templates
+  tags:
+  - cpp-templates
+  level: senior
+  question: What is the difference between full and partial template specialisation?
+  answer: 'Full specialisation provides a completely concrete definition for a specific
+    set of template arguments — template<> class Foo<int> {} — replacing the primary
+    template entirely for T=int. It works for both class and function templates. Partial
+    specialisation provides a definition for a subset of template arguments, leaving
+    some still generic — template<typename T> class Foo<T*> {} — and is only legal
+    for class templates (and variable templates), not for function templates (use
+    overloading instead). The compiler chooses the most specialised match during instantiation.
+    Partial specialisation is the engine behind most type trait implementations: is_pointer
+    has a primary false_type and a partial specialisation for T* that yields true_type.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — serialization
+    traits specialization per message category
+  interview_context: Used to build zero-overhead type dispatch tables for protocol
+    message types specialising serialisation traits per message category

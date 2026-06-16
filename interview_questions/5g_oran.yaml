@@ -1,0 +1,258 @@
+- id: q161
+  domain: 5g
+  subdomain: oran
+  tags:
+  - 5g-sba
+  - nf-services
+  - sbi
+  - http2
+  - amf
+  - smf
+  - upf
+  level: engineer
+  question: What are the most important architectural differences between 5G Core
+    and 4G EPC?
+  answer: '5G Core replaces 4G''s point-to-point reference interfaces (S11, Gx, S6a…)
+    with a Service-Based Architecture where every NF exposes RESTful HTTP/2 services
+    discoverable via the NRF. The 4G MME is split into AMF (mobility/NAS) and SMF
+    (session management), while SGW+PGW user planes merge into a single UPF controlled
+    by SMF via PFCP — control-user plane separation is mandatory, not optional. Network
+    slicing via NSSAI is a first-class architectural feature rather than an overlay,
+    and SUCI/ECIES replace plaintext IMSI to eliminate IMSI-catcher attacks. Deployment
+    is cloud-native by design: NFs are containerized microservices orchestrated on
+    Kubernetes rather than monolithic appliances.'
+  spec: TS 23.501 §4, TR 23.799
+  simulator_trigger: Any 5G command versus 4G ATTACH command — contrast the SBA service
+    call graph versus point-to-point GTPv2-C messages
+  interview_context: Baseline question for any 5G engineering role — tests breadth
+    of architectural knowledge
+- id: q162
+  domain: 5g
+  subdomain: oran
+  tags:
+  - 5g-sba
+  - nf-services
+  - http2
+  - amf
+  - smf
+  level: engineer
+  question: '4G NF to 5G NF mapping: what replaces the MME, HSS, PCRF, PGW, and SGW
+    in 5G?'
+  answer: 'The 4G MME is replaced by AMF (access/mobility/NAS) and SMF (session management)
+    combined. The HSS is replaced by three separate NFs: UDM (business logic and AKA),
+    UDR (data repository), and AUSF (authentication server). The PCRF is replaced
+    by PCF using HTTP/2 instead of Diameter. Both SGW-C and PGW-C collapse into SMF,
+    while SGW-U and PGW-U collapse into UPF. The ePDG for untrusted Wi-Fi access becomes
+    N3IWF, and SCEF (network exposure) becomes NEF.'
+  spec: TS 23.501 Annex B
+  simulator_trigger: 5G REG and PDU commands — simulator node roles map to these NF
+    equivalents
+  interview_context: Asked to test migration knowledge; interviewers want candidates
+    to articulate the reasoning behind each split
+- id: q163
+  domain: 5g
+  subdomain: oran
+  tags:
+  - kubernetes
+  - cnf
+  - cloud-native
+  - docker
+  level: senior
+  question: What is a Cloud-Native Network Function (CNF), and how does it differ
+    from a VNF?
+  answer: 'A VNF (Virtual Network Function) runs as a VM image requiring a full OS
+    and is managed by ETSI NFV-MANO frameworks; it typically scales by adding entire
+    VM instances. A CNF is packaged as Linux containers (Docker/OCI), designed stateless,
+    and orchestrated by Kubernetes — a single 5GC NF like SMF may decompose into multiple
+    containers (session manager pod, PFCP handler pod, charging interface pod) that
+    scale independently. CNFs follow 12-factor app methodology: configuration via
+    ConfigMaps/Secrets, ephemeral storage, health probes for graceful restart. CNFs
+    start faster, use less memory, and enable per-microservice horizontal scaling
+    compared to VNFs, but require K8s expertise and careful NUMA/SR-IOV tuning for
+    the UPF data plane.'
+  spec: ETSI GS NFV-SWA 001, 3GPP TR 21.917
+  simulator_trigger: Kubernetes deploy command in devops simulator — CNF pod lifecycle
+    vs VM boot time
+  interview_context: Tests cloud-native infrastructure knowledge; asked for DevOps/platform
+    engineering roles at 5GC vendors
+- id: q164
+  domain: 5g
+  subdomain: oran
+  tags:
+  - kubernetes
+  - cnf
+  - cloud-native
+  level: senior
+  question: Why is Kubernetes used for 5G Core deployments, and which K8s features
+    are most critical?
+  answer: Kubernetes provides horizontal scaling for stateless NFs (AMF, SMF, PCF)
+    via Deployments and HPA, stateful per-pod identity for data-layer NFs (UDR) via
+    StatefulSets, and service DNS names used as NRF-registered FQDNs via ClusterIP
+    Services. Helm Charts package NF configurations as versioned deployable units
+    enabling GitOps-style CI/CD rollouts; Istio/Envoy sidecars provide mTLS between
+    NFs and implement the SCP (Service Communication Proxy) function for load balancing
+    and circuit breaking. For the UPF, NUMA-aware scheduling with CPU Manager, Topology
+    Manager, SR-IOV plugins, and hugepages are critical to achieve line-rate packet
+    forwarding without kernel overhead. Network Policies enforce per-slice and per-NF
+    isolation at the pod level.
+  spec: 3GPP TR 21.917, ETSI GS NFV-IFA 029
+  simulator_trigger: kubernetes command in devops simulator — shows K8s resource objects
+    for each 5GC NF
+  interview_context: Tests DevOps depth for 5G cloud-native roles; expected at senior
+    level for any CNF deployment position
+- id: q165
+  domain: 5g
+  subdomain: oran
+  tags:
+  - kubernetes
+  - cnf
+  - upf
+  - pfcp
+  - n4
+  - cloud-native
+  level: architect
+  question: Why does the UPF require special Kubernetes configuration compared to
+    control-plane NFs?
+  answer: The UPF is a dataplane NF with line-rate forwarding requirements (millions
+    of PPS, microsecond latency), unlike stateless control-plane NFs that communicate
+    over HTTP/2 at modest request rates. It requires kernel bypass via DPDK or SR-IOV
+    (Single Root I/O Virtualization), CPU pinning and NUMA node affinity via Kubernetes
+    CPU Manager and Topology Manager, hugepages for DPDK memory pools, and privileged
+    container capabilities (NET_ADMIN) for direct NIC access. Operators often deploy
+    the UPF on dedicated node pools separate from control-plane NF nodes, or even
+    as a bare-metal function with a cloud-native control plane, to avoid interference
+    with container networking overhead. This mixed deployment (cloud-native CP + bare-metal
+    UP) is a common pattern at Nokia and Ericsson in production networks.
+  spec: TS 23.501 §5.7, ETSI GS NFV-IFA 029
+  simulator_trigger: upf deploy command — simulator highlights UPF node pool annotations
+    vs control-plane pod specs
+  interview_context: Architect-level question separating candidates who understand
+    dataplane performance from those who do not
+- id: q166
+  domain: 5g
+  subdomain: oran
+  tags:
+  - o-ran
+  - ric
+  - xapp
+  - e2-interface
+  level: engineer
+  question: What is O-RAN, and how does it differ from traditional monolithic RAN?
+  answer: 'O-RAN (Open RAN) is an O-RAN Alliance architecture that disaggregates the
+    RAN into open, standardized, interoperable components: O-RU (Radio Unit), O-DU
+    (Distributed Unit), and O-CU (Centralized Unit, split into O-CU-CP and O-CU-UP),
+    with open fronthaul based on the WG4 7.2x functional split. Traditional monolithic
+    RAN tightly couples RRU, BBU, and software from a single vendor behind proprietary
+    interfaces, making multi-vendor mixing impossible. O-RAN adds RAN Intelligent
+    Controllers (near-RT RIC and non-RT RIC) that provide AI/ML-driven optimization
+    layers above the base station using standardized E2 and A1 interfaces. In practice,
+    operators can mix vendors and deploy third-party xApps on the near-RT RIC for
+    use-case-specific radio optimization.'
+  spec: O-RAN Alliance Architecture Description WG1.OAD
+  simulator_trigger: O-RAN simulator — shows O-RU/O-DU/O-CU functional split and RIC
+    control loops
+  interview_context: Baseline O-RAN question for RAN/core integration roles; validates
+    vocabulary and functional split knowledge
+- id: q167
+  domain: 5g
+  subdomain: oran
+  tags:
+  - o-ran
+  - ric
+  - xapp
+  - e2-interface
+  level: senior
+  question: What is the difference between the near-RT RIC and the non-RT RIC in O-RAN?
+  answer: The non-RT RIC (part of the SMO — Service Management and Orchestration)
+    operates on control loops longer than 1 second, running rApps for AI/ML model
+    training, long-term radio policy management, and trained model distribution; it
+    communicates with the near-RT RIC via the A1 interface. The near-RT RIC operates
+    on 10 ms to 1 second control loops, running xApps that subscribe to real-time
+    RAN metrics via E2 and inject per-UE control actions (handover decisions, PRB
+    allocation adjustments) via E2 Control messages to O-DU/O-CU. Neither RIC controls
+    the sub-10 ms real-time scheduler (HARQ, beamforming) — that remains exclusively
+    in the O-DU. The two-tier design allows long-horizon ML training to remain decoupled
+    from latency-sensitive per-UE decisions.
+  spec: O-RAN.WG2.A1AP, O-RAN.WG3.E2AP
+  simulator_trigger: O-RAN RIC simulator — near-RT RIC subscription shows 100 ms E2
+    indication period vs non-RT 60 s policy push via A1
+  interview_context: Tests RIC architecture depth; candidates confusing the two tiers
+    signal insufficient O-RAN background
+- id: q168
+  domain: 5g
+  subdomain: oran
+  tags:
+  - o-ran
+  - ric
+  - xapp
+  - e2-interface
+  level: senior
+  question: What is an xApp, and how does it use the E2 interface to control the RAN?
+  answer: An xApp is a microservice on the near-RT RIC that implements one specific
+    RAN optimization use case; it subscribes to E2 reports (e.g., PRB utilization,
+    RSRP, handover events) from O-DU/O-CU via E2 Subscription messages using a standardized
+    E2 Service Model (E2SM). The O-DU sends periodic or event-triggered E2 Indication
+    messages carrying the subscribed KPIs; the xApp processes these, runs its optimization
+    logic, and sends E2 Control messages back to the O-DU/O-CU to adjust scheduler
+    weights, trigger handovers, or change PRB allocations. Standardized E2SMs include
+    E2SM-KPM (metrics), E2SM-RC (RAN control), E2SM-CCC (cell configuration), and
+    E2SM-NI (network interface). The E2 interface uses SCTP transport and the E2AP
+    ASN.1 message format.
+  spec: O-RAN.WG3.E2AP, O-RAN.WG3.E2SM-KPM, O-RAN.WG3.E2SM-RC
+  simulator_trigger: xApp deploy command in O-RAN simulator — E2 Subscription → Indication
+    → Control message flow
+  interview_context: Tests xApp lifecycle knowledge; commonly asked for O-RAN platform
+    and integration engineer roles
+- id: q169
+  domain: 5g
+  subdomain: oran
+  tags:
+  - o-ran
+  - ric
+  - e2-interface
+  level: senior
+  question: What are the A1 and O1 interfaces in O-RAN?
+  answer: 'The A1 interface connects the non-RT RIC to the near-RT RIC and carries
+    three message types: policy intents downward (e.g., handover guidance based on
+    UE RSRP thresholds), AI/ML model deployments downward to xApps, and enrichment
+    information upward (aggregated KPIs for model training). The O1 interface is the
+    management interface between the SMO and all O-RAN managed elements (O-RU, O-DU,
+    O-CU, near-RT RIC), providing FCAPS management using NETCONF/YANG for configuration
+    and REST APIs or file-based mechanisms for performance data collection. O1 is
+    analogous to the traditional OAM interface but standardized across all O-RAN vendors,
+    enabling multi-vendor FCAPS from a single SMO platform. Without O1, operators
+    would need vendor-specific NMS systems for each component.'
+  spec: O-RAN.WG2.A1AP, O-RAN.WG1.O1-Interface specification
+  simulator_trigger: O-RAN simulator management plane — O1 NETCONF config push and
+    A1 policy intent log
+  interview_context: Tests O-RAN management plane awareness; important for system
+    integration and OSS/BSS alignment roles
+- id: q170
+  domain: 5g
+  subdomain: oran
+  tags:
+  - o-ran
+  - ric
+  - xapp
+  - e2-interface
+  - network-slicing
+  - 5g-sba
+  level: architect
+  question: How do O-RAN xApps interact with 5GC network slicing for slice-aware radio
+    resource management?
+  answer: An xApp can use E2SM-RC control messages to influence the O-DU/O-CU scheduler
+    to enforce per-slice PRB budgets based on S-NSSAI, ensuring that URLLC slice traffic
+    receives preferential scheduling over eMBB slice traffic during congestion. The
+    near-RT RIC receives slice membership information (S-NSSAI per UE) via E2SM-KPM
+    reports and uses this to run slice-aware load balancing or handover optimization
+    xApps. The non-RT RIC can push per-slice policy intents via A1 (e.g., minimum
+    guaranteed PRBs per SST=2 URLLC slice), which the near-RT RIC translates into
+    E2 Control actions. End-to-end slice QoS alignment requires coordination between
+    the 5GC PCF (which enforces 5QI/GBR policy on SMF/UPF) and the near-RT RIC xApp
+    (which enforces radio scheduler policy) — currently an active standardization
+    area in 3GPP and O-RAN Alliance Release 3.
+  spec: TS 23.501 §5.15, O-RAN.WG3.E2SM-RC, O-RAN Alliance Release 3
+  simulator_trigger: network-slicing + O-RAN combined command — shows S-NSSAI-tagged
+    PRB scheduler decisions in E2 Control messages
+  interview_context: Architect-level integration question testing end-to-end slice
+    awareness from radio to core

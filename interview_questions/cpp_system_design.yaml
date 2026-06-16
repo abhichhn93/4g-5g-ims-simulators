@@ -1,0 +1,22 @@
+- id: q050
+  domain: cpp
+  subdomain: system_design
+  tags:
+  - system-design
+  - cpp-concurrency
+  - shared-mutex
+  - cpp-stl
+  - map
+  level: senior
+  question: How would you design a thread-safe LRU cache in C++?
+  answer: Combine an unordered_map<Key, ListIterator> for O(1) lookups with a list<pair<Key,Value>>
+    for O(1) LRU eviction (most-recently-used at front, LRU at back). Wrap all operations
+    in a mutex for correctness; for higher concurrency use shared_mutex so multiple
+    reads proceed concurrently with exclusive writes only during insertion/eviction.
+    Consider sharding the cache into N independent segments (each with its own mutex)
+    to reduce contention proportionally.
+  spec: null
+  simulator_trigger: Simulator GUTI-to-MME context cache — sharded LRU cache in guti_cache.cpp
+    preventing stale context lookups
+  interview_context: Combines data structure design with concurrent cache design —
+    tests both skills simultaneously

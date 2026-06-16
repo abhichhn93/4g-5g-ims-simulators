@@ -1,0 +1,200 @@
+- id: q021
+  domain: cpp
+  subdomain: multithreading
+  tags:
+  - cpp-concurrency
+  - mutex
+  - thread-pool
+  level: senior
+  question: How does std::condition_variable work, and what is its classic use case?
+  answer: std::condition_variable allows a thread to block until a condition becomes
+    true, atomically releasing the mutex while waiting and re-acquiring it before
+    returning. The waiting thread calls cv.wait(lock, predicate) — the predicate guards
+    against spurious wakeups. A notifying thread modifies shared state under the mutex,
+    then calls cv.notify_one() or cv.notify_all(). The classic use case is a bounded
+    producer-consumer queue where producers block when full and consumers block when
+    empty.
+  spec: null
+  simulator_trigger: Simulator event queue — worker threads waiting on condition_variable
+    for new protocol events to process
+  interview_context: Tests fundamental condition-variable usage needed for simulator
+    I/O dispatch design
+- id: q022
+  domain: cpp
+  subdomain: multithreading
+  tags:
+  - cpp-concurrency
+  - atomic
+  - mutex
+  level: senior
+  question: What is std::atomic, and when should you use it instead of a mutex?
+  answer: std::atomic provides lock-free atomic read-modify-write operations using
+    hardware instructions like compare-and-swap. Use it for single-variable updates
+    such as counters, flags, and reference counts — it avoids mutex overhead. Use
+    a mutex when the invariant spans multiple variables or requires a longer critical
+    section. std::atomic also exposes memory ordering controls; seq_cst (the default)
+    is safest.
+  spec: null
+  simulator_trigger: Simulator event counter atomics — std::atomic<uint64_t> for per-node
+    message counters accessed from multiple threads
+  interview_context: Tests ability to choose between fine-grained atomic ops and coarser
+    mutex locking
+- id: q023
+  domain: cpp
+  subdomain: multithreading
+  tags:
+  - cpp-concurrency
+  - mutex
+  level: senior
+  question: How do you prevent deadlocks in a multi-threaded C++ program?
+  answer: 'A deadlock requires four Coffman conditions: mutual exclusion, hold-and-wait,
+    no preemption, and circular wait — breaking any one prevents it. Practical strategies
+    include always acquiring multiple locks in a consistent global order; using std::scoped_lock
+    (C++17) which atomically acquires multiple mutexes in a deadlock-free manner;
+    and applying try_lock_for timeouts so threads can back off and retry. Detect potential
+    lock-acquisition cycles during code review.'
+  spec: null
+  simulator_trigger: Simulator cross-node procedures (e.g., MME + SGW handshake) requiring
+    simultaneous locks on two node mutexes
+  interview_context: Tests ability to design safe lock acquisition order in multi-node
+    simulator interactions
+- id: q024
+  domain: cpp
+  subdomain: multithreading
+  tags:
+  - cpp-concurrency
+  - thread-pool
+  - system-design
+  level: senior
+  question: What is a thread pool and why use one in a telecom simulator?
+  answer: A thread pool is a fixed set of pre-created threads that pick tasks from
+    a shared queue, avoiding the overhead of creating and destroying a thread per
+    task — important when task submission rate is high. A typical implementation uses
+    a std::queue of std::function<void()> tasks protected by a mutex, a condition_variable
+    to wake idle threads, and an atomic stop flag for graceful shutdown. In the simulator,
+    the thread pool handles concurrent protocol event processing without the kernel
+    overhead of per-event thread creation.
+  spec: null
+  simulator_trigger: BULK command execution — simulator thread pool dispatching hundreds
+    of concurrent attach events
+  interview_context: Tests system-design thinking about concurrency architecture in
+    high-throughput simulators
+- id: q025
+  domain: cpp
+  subdomain: multithreading
+  tags:
+  - cpp-concurrency
+  - atomic
+  level: senior
+  question: What is lock-free programming, and what is the ABA problem in a lock-free
+    stack?
+  answer: Lock-free programming uses atomic operations (typically compare-and-swap)
+    instead of mutexes; at least one thread always makes progress, eliminating deadlocks
+    and reducing contention under high load. A lock-free stack stores an atomic head
+    pointer; push creates a new node and uses compare_exchange_weak in a loop to swap
+    it as the new head. The ABA problem occurs when a pointer appears unchanged but
+    the underlying object was replaced — solved with tagged pointers or hazard pointers.
+  spec: null
+  simulator_trigger: High-throughput simulator message queues using CAS-based lock-free
+    ring buffers for zero-contention event dispatch
+  interview_context: Tests advanced concurrency knowledge appropriate for performance-critical
+    simulator paths
+- id: q026
+  domain: cpp
+  subdomain: multithreading
+  tags:
+  - cpp-concurrency
+  - atomic
+  level: senior
+  question: 'Explain C++ memory ordering: memory_order_relaxed, acquire/release, and
+    seq_cst.'
+  answer: memory_order_relaxed provides atomicity for a single variable but no synchronization
+    between threads — use only for independent counters. memory_order_acquire on a
+    load ensures no subsequent reads/writes are reordered before it; memory_order_release
+    on a store ensures no prior operations are reordered after it — together they
+    form a publish/subscribe pattern. memory_order_seq_cst (the default) gives a single
+    total order across all seq_cst operations; it is safest but can slow performance
+    on weakly-ordered architectures like ARM.
+  spec: null
+  simulator_trigger: Simulator atomic flags using acquire/release for lock-free ready
+    signals between producer and consumer threads
+  interview_context: Architect-level question probing memory model knowledge needed
+    for correct lock-free simulator code
+- id: q027
+  domain: cpp
+  subdomain: multithreading
+  tags:
+  - cpp-stl
+  - vector
+  level: engineer
+  question: Compare std::vector, std::list, and std::deque. When do you use each?
+  answer: std::vector is a contiguous dynamic array with O(1) random access and amortized
+    O(1) push_back; it is cache-friendly and the default choice. std::list is a doubly-linked
+    list with O(1) insertion/deletion anywhere but O(n) index access and poor cache
+    behavior — use it for stable iterators and frequent mid-list modifications. std::deque
+    is a segmented buffer with O(1) push/pop at both ends and O(1) random access —
+    use it for queue-like structures with indexing.
+  spec: null
+  simulator_trigger: Simulator UE neighbor list storage — vector for static APN lists,
+    deque for FIFO event queues
+  interview_context: Tests data structure selection for different simulator access
+    patterns
+- id: q028
+  domain: cpp
+  subdomain: multithreading
+  tags:
+  - cpp-stl
+  - map
+  level: senior
+  question: Compare std::map and std::unordered_map. When do you prefer each?
+  answer: std::map is a Red-Black Tree with sorted keys and O(log n) lookup; use it
+    when you need sorted iteration, range queries (lower_bound/upper_bound), or non-hashable
+    keys. std::unordered_map is a hash table with average O(1) and worst-case O(n)
+    operations — use it as the default when order does not matter and keys are hashable.
+    For very small sizes a flat sorted vector<pair<K,V>> may outperform both due to
+    cache locality.
+  spec: null
+  simulator_trigger: Simulator TEID-to-bearer map — unordered_map for O(1) lookup
+    during packet forwarding in gtp_handler.cpp
+  interview_context: Tests ability to choose the right container for telecom lookup
+    tables with large UE populations
+- id: q029
+  domain: cpp
+  subdomain: multithreading
+  tags:
+  - cpp-stl
+  - iterator
+  level: engineer
+  question: What are the five iterator categories in C++, and why do they matter?
+  answer: 'C++ iterators are classified by capability: Input (single-pass read), Output
+    (single-pass write), Forward (multi-pass read/write), Bidirectional (supports
+    --), and Random Access (supports +=, -, [] in O(1)). Algorithms declare requirements
+    in these categories, enabling generic implementations that work with any conforming
+    container. C++20 adds Contiguous iterators for guaranteed contiguous memory (e.g.,
+    std::span).'
+  spec: null
+  simulator_trigger: STL algorithm usage on simulator container types — std::sort
+    requires random access iterators, std::find works on any input iterator
+  interview_context: Tests STL fundamentals that affect algorithm selection in simulator
+    utility code
+- id: q030
+  domain: cpp
+  subdomain: multithreading
+  tags:
+  - cpp-stl
+  - iterator
+  - vector
+  level: senior
+  question: What is iterator invalidation, and how do you safely erase elements from
+    a container while iterating?
+  answer: 'Iterator invalidation occurs when a container modification causes existing
+    iterators to become dangling or point to wrong elements. For std::vector, erasing
+    an element invalidates all iterators at or after the erased position; for std::map
+    and std::set, only the erased element''s iterator is invalidated. Safe pattern
+    for vector: use the remove-erase idiom — v.erase(std::remove_if(...), v.end()).
+    For associative containers: capture the iterator returned by erase — it = c.erase(it).'
+  spec: null
+  simulator_trigger: Simulator UE cleanup — erasing stale UE contexts from a vector
+    during periodic garbage collection
+  interview_context: Tests a subtle but common C++ bug source in container-traversal
+    code in simulator maintenance tasks

@@ -1,0 +1,212 @@
+- id: q040
+  domain: cpp
+  subdomain: design_patterns
+  tags:
+  - design-pattern
+  - singleton
+  - cpp-concurrency
+  level: senior
+  question: How do you implement a thread-safe Singleton in modern C++?
+  answer: 'The simplest C++11 approach exploits the guaranteed thread-safe initialization
+    of function-local static variables: static Singleton& getInstance() { static Singleton
+    instance; return instance; }. The runtime ensures exactly one construction even
+    under concurrent calls. Mark copy constructor and assignment operator = delete
+    to prevent duplication; avoid the pre-C++11 Double-Checked Locking Pattern which
+    was broken without the C++11 memory model.'
+  spec: null
+  simulator_trigger: Simulator global config and logger singletons accessed concurrently
+    from all node threads
+  interview_context: Tests knowledge of the correct modern C++ singleton pattern vs
+    the broken pre-C++11 versions
+- id: q041
+  domain: cpp
+  subdomain: design_patterns
+  tags:
+  - design-pattern
+  - factory
+  level: senior
+  question: Explain the Factory Method and Abstract Factory patterns. When do you
+    use each?
+  answer: Factory Method defines a virtual method in a base creator class that subclasses
+    override to produce a specific product — the base controls the workflow but delegates
+    instantiation. Abstract Factory provides an interface for creating families of
+    related objects (e.g., WindowsWidgetFactory vs MacWidgetFactory) without specifying
+    concrete classes, allowing the entire product family to be swapped. Use Factory
+    Method when a class cannot anticipate its product type; use Abstract Factory when
+    products from a family must be used together.
+  spec: null
+  simulator_trigger: Simulator node factory — NodeFactory::create() using Factory
+    Method to instantiate MmeNode, AmfNode, SmfNode by type
+  interview_context: Tests creational pattern selection relevant to simulator node
+    instantiation and test scenario setup
+- id: q042
+  domain: cpp
+  subdomain: design_patterns
+  tags:
+  - design-pattern
+  - observer
+  level: senior
+  question: Explain the Observer pattern and its typical C++ implementation.
+  answer: 'The Observer pattern defines a one-to-many dependency: when a Subject changes
+    state, all registered Observers are notified automatically. In C++, the Subject
+    holds a vector<Observer*> (or smart pointers) and a notify() method that calls
+    update() on each. Use weak_ptr for observers to prevent the Subject from extending
+    their lifetimes. Modern C++ can use std::function callbacks registered in a map
+    for more flexible subscriptions without a virtual Observer interface.'
+  spec: null
+  simulator_trigger: Simulator event notification system — UE state machine notifying
+    registered observers (logger, stats collector, test verifier)
+  interview_context: Tests observer pattern knowledge needed for simulator inter-component
+    notification design
+- id: q043
+  domain: cpp
+  subdomain: design_patterns
+  tags:
+  - design-pattern
+  level: senior
+  question: Explain the Strategy pattern. How does it differ from using virtual functions
+    directly?
+  answer: The Strategy pattern encapsulates a family of interchangeable algorithms
+    behind a common interface, allowing the algorithm to be swapped at runtime by
+    setting a different strategy object on a Context class. Unlike direct virtual
+    override, Strategy makes variation explicit and composable — you can swap algorithms
+    at runtime without changing the Context class, and algorithms can be shared across
+    multiple contexts. In modern C++ it is often implemented with std::function instead
+    of a virtual class.
+  spec: null
+  simulator_trigger: Simulator routing strategy — pluggable RouteSelector strategy
+    object in PGW node for different bearer selection algorithms
+  interview_context: Tests behavioral pattern knowledge needed for designing configurable
+    simulator policies
+- id: q044
+  domain: cpp
+  subdomain: design_patterns
+  tags:
+  - design-pattern
+  level: senior
+  question: What is CRTP (Curiously Recurring Template Pattern) and when do you use
+    it?
+  answer: 'CRTP is a compile-time polymorphism technique where a base template class
+    takes the derived class as its own template parameter: template<class D> class
+    Base { void interface() { static_cast<D*>(this)->impl(); } }; class Concrete :
+    public Base<Concrete>. The base can call derived methods via static_cast at zero
+    runtime cost — no vtable overhead. Use CRTP for performance-critical libraries
+    and static duck typing; the trade-off is you cannot store heterogeneous CRTP types
+    in a vector<Base*>.'
+  spec: null
+  simulator_trigger: Simulator high-frequency message serializer using CRTP to avoid
+    vtable cost on the 10M-events-per-second hot path
+  interview_context: Tests advanced template technique for performance-critical simulator
+    components
+- id: q045
+  domain: cpp
+  subdomain: design_patterns
+  tags:
+  - design-pattern
+  level: senior
+  question: What is the Flyweight pattern, and when do you use it?
+  answer: The Flyweight pattern minimizes memory by separating state into intrinsic
+    (shared, stored in the flyweight) and extrinsic (unique per client, passed at
+    use time). A FlyweightFactory backed by an unordered_map returns a cached instance
+    when a flyweight with given intrinsic state exists, rather than creating a new
+    one. Use it when your system creates millions of similar objects — e.g., character
+    objects in a text editor, particle instances in a simulation, or reusable codec
+    descriptors in a telecom simulator.
+  spec: null
+  simulator_trigger: Simulator QCI descriptor flyweights — shared immutable QCI profile
+    objects reused across thousands of simulated bearers
+  interview_context: Tests memory optimization pattern applicable to large-scale UE
+    population simulations
+- id: q046
+  domain: cpp
+  subdomain: design_patterns
+  tags:
+  - system-design
+  - scalability
+  - server
+  - thread-pool
+  - cpp-concurrency
+  level: senior
+  question: How would you design a scalable, high-performance server in C++?
+  answer: A scalable C++ server typically uses an event-driven, non-blocking I/O model
+    (epoll on Linux) combined with a thread pool — one thread per CPU core handles
+    I/O events and dispatches work tasks to minimize context switching. Protect shared
+    state with std::shared_mutex for read-heavy data structures; use RAII via custom
+    handles for sockets and file descriptors; and use custom memory allocators or
+    tcmalloc to reduce fragmentation. At the architecture level, partition data by
+    client/session ID to minimize cross-thread sharing (share-nothing design).
+  spec: null
+  simulator_trigger: Simulator server main loop in simulator_server.cpp — epoll-based
+    event dispatch feeding into a thread pool
+  interview_context: System-design question testing ability to translate telecom node
+    architecture into C++ server patterns
+- id: q047
+  domain: cpp
+  subdomain: design_patterns
+  tags:
+  - system-design
+  - scalability
+  - cpp-concurrency
+  - mutex
+  level: senior
+  question: How does connection pooling work, and what concurrency issues does it
+    introduce?
+  answer: A connection pool pre-creates a fixed number of connections at startup and
+    lends them to requesting threads, returning them on completion — avoiding connection-establishment
+    latency per request. Thread-safety requires a mutex protecting the pool's queue
+    and a condition_variable to block callers when all connections are in use. Critical
+    failure modes include connection leaks (use RAII wrappers), pool exhaustion under
+    peak load, and stale connections (require periodic health checks or reconnection
+    logic).
+  spec: null
+  simulator_trigger: Simulator Diameter connection pool to HSS — DiameterConnectionPool
+    in dia_client.cpp
+  interview_context: Tests concurrency and resilience design for the simulator's external
+    protocol connections
+- id: q048
+  domain: cpp
+  subdomain: design_patterns
+  tags:
+  - system-design
+  - producer-consumer
+  - cpp-concurrency
+  - mutex
+  - thread-pool
+  level: senior
+  question: Describe the producer-consumer pattern and its C++ implementation strategies.
+  answer: The producer-consumer pattern decouples production from consumption via
+    a thread-safe bounded buffer — producers block when full, consumers block when
+    empty. Classic implementation uses a std::queue protected by a mutex plus two
+    condition_variables (not_full, not_empty). For high throughput, a lock-free ring
+    buffer using atomic read/write indices eliminates mutex contention entirely for
+    single-producer-single-consumer cases. Key design decisions are buffer sizing
+    to absorb bursts, graceful shutdown via atomic stop flag, and consumer error handling.
+  spec: null
+  simulator_trigger: BULK command execution — simulator uses producer-consumer queue
+    between the SCTP receive thread and protocol-processing workers
+  interview_context: Tests concurrency pattern knowledge for the simulator's core
+    message dispatch architecture
+- id: q049
+  domain: cpp
+  subdomain: design_patterns
+  tags:
+  - system-design
+  - scalability
+  - cpp-concurrency
+  - mutex
+  - shared-mutex
+  level: senior
+  question: How do you handle concurrency in a multithreaded C++ application at the
+    architecture level?
+  answer: Prefer a share-nothing or message-passing architecture where each thread
+    owns its data and communicates via queues — this eliminates most data races by
+    design. When sharing is unavoidable, use std::atomic for single-variable flags/counters,
+    std::shared_mutex for read-heavy data structures, and std::mutex for complex invariants.
+    Follow the lock-ordering principle — assign a global rank to mutexes and always
+    acquire in ascending order. Use std::scoped_lock when acquiring multiple locks
+    simultaneously.
+  spec: null
+  simulator_trigger: Simulator overall threading model in simulator_architecture.md
+    — per-node thread isolation with lock-ordered cross-node signaling
+  interview_context: Architect-level question testing overall concurrency design philosophy
+    for multi-node simulator

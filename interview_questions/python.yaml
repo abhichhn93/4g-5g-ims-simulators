@@ -1,0 +1,571 @@
+- id: q251
+  domain: python
+  subdomain: data_structures
+  tags:
+  - python
+  level: beginner
+  question: What are the differences between list, tuple, set, and dict in Python?
+  answer: 'list: ordered, mutable, allows duplicates, O(n) lookup. tuple: ordered,
+    immutable (hashable, usable as dict key), allows duplicates, O(n) lookup. set:
+    unordered, mutable, no duplicates, O(1) membership test — use for deduplication
+    and intersection/union. dict: maps unique keys to values, keys must be hashable,
+    insertion-ordered (Python 3.7+), O(1) lookup. When parsing PCAP flows, use a dict
+    keyed on (src_ip, dst_ip, src_port, dst_port, proto) tuples to aggregate per-flow
+    stats in O(1); use a set for fast deduplication of seen IP addresses.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — data structure usage in packet statistics
+    aggregation
+  interview_context: Tests fundamental Python knowledge required for telecom scripting
+    and automation
+- id: q252
+  domain: python
+  subdomain: data_structures
+  tags:
+  - python
+  - gil
+  level: engineer
+  question: What is the GIL and how does it affect performance?
+  answer: The Global Interpreter Lock (GIL) is a mutex in CPython that allows only
+    one thread to execute Python bytecode at a time. For CPU-bound tasks, threading
+    offers no parallelism — use multiprocessing instead (separate processes each with
+    their own GIL). For I/O-bound tasks (network calls, file reads, sleep), the GIL
+    is released during the wait, so threading or asyncio are both effective. Python
+    3.13+ ships an experimental no-GIL build (--disable-gil). Extensions like NumPy
+    release the GIL during C-level computation, enabling actual CPU parallelism with
+    threads. A telecom packet-processing script reading from multiple sockets concurrently
+    benefits from threading (I/O-bound); signal processing using FFT needs multiprocessing
+    (CPU-bound).
+  spec: null
+  simulator_trigger: tools/viz_server.py — concurrency model selection for packet
+    processing
+  interview_context: Understanding the GIL is critical for choosing the right concurrency
+    approach in Python telecom tools
+- id: q253
+  domain: python
+  subdomain: data_structures
+  tags:
+  - python
+  - generator
+  level: engineer
+  question: What is the difference between a generator and an iterator?
+  answer: An iterator is any object that implements __iter__() and __next__(); it
+    holds state and raises StopIteration when exhausted. A generator is a special
+    iterator created by a function containing yield or by a generator expression (x
+    for x in ...). All generators are iterators, but not all iterators are generators.
+    Generators produce values lazily (O(1) memory) whereas a list comprehension materializes
+    all values eagerly (O(n) memory). When streaming through a multi-gigabyte PCAP
+    file, wrap the reader as a generator so only one packet is in memory at a time
+    — prevents OOM on large captures.
+  spec: null
+  simulator_trigger: tools/viz_server.py — generator-based PCAP streaming for large
+    captures
+  interview_context: Lazy evaluation via generators is critical for memory-efficient
+    processing of large telecom protocol captures
+- id: q254
+  domain: python
+  subdomain: functions
+  tags:
+  - python
+  - decorator
+  level: engineer
+  question: How do decorators work?
+  answer: 'A decorator is a callable that takes a function and returns a new function
+    wrapping it with additional behavior. The @decorator syntax is pure syntactic
+    sugar for func = decorator(func). Use functools.wraps(func) inside the wrapper
+    to preserve the original''s __name__, __doc__, and signature. Decorators are stacked
+    bottom-up: @A
+
+    @B
+
+    def f applies as A(B(f)). Parameterized decorators require a third layer of nesting.
+    Retry decorators wrap SNMP/Netconf calls; timing decorators profile packet-processing
+    functions; auth decorators gate REST endpoints on network management systems.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — retry and timing decorators on NMS REST
+    API calls
+  interview_context: Decorators are a fundamental Python pattern for cross-cutting
+    concerns in telecom automation scripts
+- id: q255
+  domain: python
+  subdomain: functions
+  tags:
+  - python
+  level: engineer
+  question: What is a closure, and what is the 'late binding' pitfall?
+  answer: 'A closure is a function that captures variables from its enclosing scope
+    even after that scope has finished executing. The captured variables are stored
+    in the function''s __closure__ attribute. The late binding pitfall occurs when
+    a lambda or inner function references a loop variable — all closures share the
+    same variable object, so by the time they execute the loop is finished and the
+    variable holds its final value. Fix: capture by default argument: lambda x, i=i:
+    x + i. This is a common interview gotcha for Python closures.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — closure pitfalls in callback registration
+    for socket handlers
+  interview_context: Late binding in closures is a classic Python bug in event-driven
+    telecom scripts
+- id: q256
+  domain: python
+  subdomain: oop
+  tags:
+  - python
+  level: engineer
+  question: What is the difference between __init__ and __new__?
+  answer: '__new__(cls, ...) is the actual constructor — it creates and returns the
+    new instance. __init__(self, ...) is the initializer — it configures the instance
+    __new__ already created. Override __new__ only when you need to control object
+    creation itself: implementing singletons, returning a cached instance, subclassing
+    immutable types (int, str, tuple) where __init__ is too late to alter the value.
+    For normal classes, only override __init__. The Singleton pattern uses __new__
+    to return the same instance on every call.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — Singleton pattern for simulator state management
+  interview_context: Tests deep Python OOP knowledge; singleton pattern is commonly
+    used in telecom configuration management
+- id: q257
+  domain: python
+  subdomain: oop
+  tags:
+  - python
+  level: engineer
+  question: What are dunder (magic) methods and why do they matter?
+  answer: 'Dunder (double-underscore) methods are Python''s protocol hooks that let
+    custom classes integrate with built-in operations. __repr__/__str__: triggered
+    by repr(), str(), f-strings. __len__: triggered by len(). __getitem__: triggered
+    by obj[key]. __iter__/__next__: triggered by for loops. __enter__/__exit__: triggered
+    by with statement. __eq__/__hash__: triggered by ==, dict/set membership. __call__:
+    triggered by obj(). Implementing __enter__/__exit__ makes a class a context manager
+    — critical for socket and file management ensuring cleanup even on exceptions.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — context manager protocol for socket cleanup
+    in tests
+  interview_context: Dunder methods enable Pythonic APIs in telecom simulation and
+    testing frameworks
+- id: q258
+  domain: python
+  subdomain: oop
+  tags:
+  - python
+  level: engineer
+  question: Explain @property, @classmethod, and @staticmethod.
+  answer: '@property turns a method into a read-only attribute; adding @attr.setter
+    makes it writable — enforces encapsulation without breaking call syntax (obj.attr
+    not obj.attr()). @classmethod receives the class (cls) as the first argument —
+    used for alternative constructors (e.g., Packet.from_hex(''...'')). @staticmethod
+    receives no implicit first argument; it''s a plain function namespaced inside
+    the class — used for utility functions logically related to the class but not
+    needing instance or class state.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — property and classmethod usage in Packet/Flow
+    classes
+  interview_context: Tests Python OOP design patterns used in telecom protocol modeling
+    code
+- id: q259
+  domain: python
+  subdomain: oop
+  tags:
+  - python
+  level: senior
+  question: What is Method Resolution Order (MRO) and how does Python's C3 linearization
+    work?
+  answer: 'MRO defines the order Python searches base classes when resolving method
+    calls in multiple inheritance. Python uses C3 linearization, which guarantees:
+    (1) a class always appears before its parents, and (2) the order base classes
+    appear in a class definition is respected. Inspect with ClassName.__mro__ or ClassName.mro().
+    super() always delegates to the next class in the MRO chain — enabling cooperative
+    multiple inheritance where each class calls super().__init__() and all initializers
+    run exactly once. Diamond inheritance pitfall: if two mixin classes both inherit
+    from a base and call super().__init__(), C3 ensures the base is initialized exactly
+    once.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — multiple inheritance in simulator mixin
+    classes
+  interview_context: MRO and diamond inheritance are common interview topics for Python
+    OOP mastery
+- id: q260
+  domain: python
+  subdomain: async
+  tags:
+  - python
+  - asyncio
+  level: engineer
+  question: What is the asyncio event loop?
+  answer: The asyncio event loop is a single-threaded scheduler that runs coroutines,
+    handles I/O events, and manages callbacks. It runs on one OS thread — coroutines
+    never truly execute in parallel, they interleave at await points where the current
+    coroutine voluntarily yields control. The loop monitors file descriptors via select/epoll/kqueue
+    and resumes coroutines when their awaited I/O completes. Run the loop with asyncio.run(main())
+    (Python 3.7+). Blocking code can be offloaded via loop.run_in_executor() which
+    delegates to a thread pool.
+  spec: null
+  simulator_trigger: tools/viz_server.py — asyncio event loop for concurrent NF simulation
+    connections
+  interview_context: A network simulator that opens thousands of virtual connections
+    per second benefits massively from asyncio
+- id: q261
+  domain: python
+  subdomain: async
+  tags:
+  - python
+  - asyncio
+  level: engineer
+  question: What is the difference between a coroutine, a task, and a future?
+  answer: 'A coroutine is a function defined with async def — calling it returns a
+    coroutine object but does NOT start execution. An asyncio.Task wraps a coroutine
+    and schedules it to run on the event loop concurrently with other tasks; create
+    with asyncio.create_task(coro). A Future is a lower-level awaitable representing
+    a result that does not yet exist — Tasks are a subclass of Future. Key rule: await
+    coro() runs the coroutine sequentially; asyncio.gather(coro1(), coro2()) runs
+    them concurrently by creating tasks internally.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — asyncio.gather for concurrent NF operations
+    in simulator
+  interview_context: Distinguishing sequential vs concurrent async execution is critical
+    for correct async telecom simulation code
+- id: q262
+  domain: python
+  subdomain: async
+  tags:
+  - python
+  - asyncio
+  level: senior
+  question: When should you use asyncio vs threading vs multiprocessing?
+  answer: 'asyncio: many concurrent I/O-bound tasks (HTTP, sockets) — single thread,
+    minimal overhead, highly scalable. threading: blocking I/O with legacy code —
+    GIL released on I/O, simpler than asyncio for few threads. multiprocessing: CPU-bound
+    computation — bypasses GIL, each process has its own GIL. threading with NumPy/C
+    extensions: NumPy releases GIL, threads achieve parallelism. asyncio + run_in_executor:
+    mixed I/O + CPU — offload CPU to thread/process pool. A packet-decoding pipeline
+    that FFT-analyzes radio signals needs multiprocessing to parallelize CPU-bound
+    decoding.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — concurrency selection in visualization
+    server
+  interview_context: Choosing the right concurrency model is a senior Python interview
+    topic with direct telecom applications
+- id: q263
+  domain: python
+  subdomain: testing
+  tags:
+  - python
+  - pytest
+  level: engineer
+  question: What are pytest fixtures and how do scopes work?
+  answer: 'Fixtures are functions decorated with @pytest.fixture that provide reusable
+    setup/teardown to tests via dependency injection — a test declares a fixture as
+    a parameter and pytest supplies it automatically. Scopes control how often a fixture
+    is created: function (default), class, module, session. Use yield to separate
+    setup (before yield) from teardown (after yield). conftest.py is pytest''s plugin
+    file — fixtures defined there are available to all tests in that directory and
+    subdirectories without explicit imports.'
+  spec: null
+  simulator_trigger: test_automation.py — pytest fixtures for simulator integration
+    tests
+  interview_context: pytest fixtures are the foundation of maintainable test automation
+    in telecom CI pipelines
+- id: q264
+  domain: python
+  subdomain: testing
+  tags:
+  - python
+  - pytest
+  level: engineer
+  question: How does @pytest.mark.parametrize work?
+  answer: '@pytest.mark.parametrize(''arg1, arg2'', [(val1a, val2a), (val1b, val2b)])
+    generates multiple test invocations from a single test function — one for each
+    row. It avoids copy-pasting tests and makes it easy to add new cases. Multiple
+    @parametrize decorators stack multiplicatively (cartesian product). Use pytest.param(...,
+    marks=pytest.mark.xfail) to mark individual cases as expected failures. Parametrize
+    is the Python equivalent of Go table-driven tests and is the idiomatic approach
+    for protocol message variation testing.'
+  spec: null
+  simulator_trigger: test_automation.py — parametrized tests for protocol message
+    variants
+  interview_context: Parametrized tests ensure comprehensive coverage of protocol
+    message variants in telecom regression testing
+- id: q265
+  domain: python
+  subdomain: testing
+  tags:
+  - python
+  - pytest
+  level: engineer
+  question: How do you mock with unittest.mock?
+  answer: 'unittest.mock.patch temporarily replaces an attribute in a module''s namespace
+    for the duration of a test. Key rule: patch where the name is looked up, not where
+    it is defined — if mymodule.py does ''from socket import connect'', patch ''mymodule.connect'',
+    not ''socket.connect''. MagicMock auto-creates attributes and records all calls.
+    mock.assert_called_once_with(...) verifies call arguments. mock.return_value or
+    mock.side_effect (for exceptions or callables) control return behavior.'
+  spec: null
+  simulator_trigger: test_automation.py — mocking SNMP/Netconf clients in unit tests
+  interview_context: Mocking is essential for unit testing telecom protocol clients
+    without real network infrastructure
+- id: q266
+  domain: python
+  subdomain: scripting
+  tags:
+  - python
+  - subprocess
+  level: engineer
+  question: How does the subprocess module work, and when should you use run vs Popen?
+  answer: subprocess.run() is the high-level API — it blocks until the command completes
+    and returns a CompletedProcess object. Use capture_output=True to capture stdout/stderr;
+    check=True to raise CalledProcessError on non-zero exit. subprocess.Popen is the
+    low-level API for interactive processes, streaming large output, or pipes between
+    processes. Never pass untrusted input to shell commands — use list form ['cmd',
+    'arg'] instead of a string with shell=True to prevent shell injection. Use Popen
+    for streaming tcpdump output in real time.
+  spec: null
+  simulator_trigger: test_automation.py — subprocess for tshark/tcpdump invocation
+    in CI tests
+  interview_context: subprocess is used extensively in telecom automation scripts
+    for interfacing with network tools
+- id: q267
+  domain: python
+  subdomain: networking
+  tags:
+  - python
+  - socket
+  level: engineer
+  question: What are the basics of the Python socket module?
+  answer: 'The socket module provides low-level BSD socket access. A TCP server: socket.socket(AF_INET,
+    SOCK_STREAM), .bind((host, port)), .listen(backlog), .accept() (blocking, returns
+    new socket + address). A TCP client: .connect((host, port)), .send(data), .recv(bufsize).
+    Always set SO_REUSEADDR to avoid ''address already in use'' on restart. Raw sockets
+    (SOCK_RAW) require root and are used in packet crafting. In production, prefer
+    asyncio streams or a framework over raw sockets for concurrency.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — Python socket client for simulator management
+    interface
+  interview_context: Python socket programming is used in telecom test automation
+    for simulating client connections
+- id: q268
+  domain: python
+  subdomain: networking
+  tags:
+  - python
+  - pyshark
+  level: engineer
+  question: What is Scapy and when would you use it over PyShark?
+  answer: Scapy is a Python library for crafting, sending, sniffing, and decoding
+    network packets. Use Scapy when you need to craft and transmit custom packets,
+    build network scanners/fuzzers, or do interactive packet exploration. PyShark
+    is a Python wrapper around Wireshark's tshark — best for decoding complex protocols
+    like SIP, Diameter, GTP-U from existing captures; PyShark is read-only (cannot
+    send), slower, and requires Wireshark installed. dpkt is a lightweight, fast pcap
+    parser for raw bytes with no external dependencies — best for high-performance
+    batch pcap analysis.
+  spec: null
+  simulator_trigger: test_automation.py — PyShark for SIP/Diameter/GTP-U trace analysis
+    in regression tests
+  interview_context: PyShark leverages Wireshark's full dissector library — essential
+    for decoding complex telecom protocols in Python
+- id: q269
+  domain: python
+  subdomain: networking
+  tags:
+  - python
+  - pyshark
+  level: engineer
+  question: How do you parse a PCAP file with PyShark?
+  answer: 'PyShark''s FileCapture reads a saved .pcap or .pcapng file; LiveCapture
+    sniffs an interface in real time. Each packet object exposes layers as attributes
+    (packet.ip.src, packet.tcp.dstport). Apply BPF/display filters to reduce processed
+    packets. Use keep_packets=False to avoid caching in memory. Always call cap.close()
+    or use a context manager to release the tshark subprocess. For SIP: check hasattr(pkt,
+    ''sip'') then access pkt.sip.method. Telecom use: parse SIP signaling, DIAMETER,
+    GTP-U, or RTP streams from test captures in regression testing pipelines.'
+  spec: null
+  simulator_trigger: test_automation.py — PyShark FileCapture with SIP display filter
+    in integration tests
+  interview_context: PyShark PCAP parsing is the standard approach for automated verification
+    of telecom protocol traces
+- id: q270
+  domain: python
+  subdomain: performance
+  tags:
+  - python
+  level: engineer
+  question: How do you profile Python code with cProfile?
+  answer: 'cProfile is Python''s built-in deterministic profiler. Run from command
+    line: python -m cProfile -s cumulative script.py. Or wrap code with cProfile.Profile().
+    Output columns: ncalls (invocations), tottime (time in function excluding callees),
+    cumtime (time including callees). Sort by cumtime to find slow call hierarchies;
+    sort by tottime to find intrinsically slow functions. Visualize with snakeviz
+    for flame-graph style exploration.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — cProfile used to identify slow packet processing
+    paths
+  interview_context: cProfile is the primary profiling tool for identifying performance
+    bottlenecks in Python telecom scripts
+- id: q271
+  domain: python
+  subdomain: performance
+  tags:
+  - python
+  level: engineer
+  question: When should you use NumPy instead of pure Python loops?
+  answer: 'NumPy vectorized operations run in optimized C code — typically 10-100x
+    faster than equivalent Python loops for numerical array work. Use NumPy when:
+    performing element-wise math on large arrays; computing statistics (mean, std,
+    FFT); doing linear algebra; processing signal samples. Pure Python remains appropriate
+    for: small arrays (<~1000 elements); heterogeneous data; complex control flow
+    with early exits; non-numerical transformations. NumPy also releases the GIL during
+    C-level operations, enabling actual CPU parallelism with threading.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — NumPy for statistical analysis of packet
+    timing data
+  interview_context: NumPy vectorization is critical for performance in signal processing
+    and network statistics computation
+- id: q272
+  domain: python
+  subdomain: performance
+  tags:
+  - python
+  - gil
+  level: senior
+  question: How do you achieve real parallelism in Python while avoiding the GIL?
+  answer: 'Three main approaches: (1) multiprocessing — spawns separate OS processes
+    each with its own GIL; processes communicate via Queue, Pipe, or shared memory;
+    higher overhead from process spawn and pickle serialization. (2) C extensions
+    (NumPy, TensorFlow, OpenCV) release the GIL during heavy computation — use threading
+    on these. (3) Python 3.13+ no-GIL (--disable-gil) — experimental; removes the
+    GIL entirely but requires thread-safe extension code. For telecom, a hybrid approach:
+    asyncio for I/O-bound network communication + ProcessPoolExecutor for CPU-bound
+    packet decoding workers.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — ProcessPoolExecutor for CPU-bound PCAP
+    chunk decoding
+  interview_context: Senior Python engineers must know how to achieve true CPU parallelism
+    for computationally intensive telecom data processing
+- id: q273
+  domain: python
+  subdomain: data_structures
+  tags:
+  - python
+  level: engineer
+  question: What is the collections module and when do you use it?
+  answer: 'Key classes: Counter — word/element frequency counting, arithmetic on counts;
+    defaultdict — dict that auto-initializes missing keys (avoids KeyError); deque
+    — O(1) append/pop from both ends, ideal for sliding windows and BFS; OrderedDict
+    — pre-3.7 ordered dict, still useful for move_to_end(); namedtuple — lightweight
+    immutable records with named fields; ChainMap — combine multiple dicts as one
+    view (config layering). In packet analysis: use defaultdict for flow stats aggregation,
+    Counter for protocol distribution, deque for sliding window of last N packets.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — collections.Counter for protocol statistics
+    in simulator
+  interview_context: collections module is essential for efficient data aggregation
+    in telecom packet analysis scripts
+- id: q274
+  domain: python
+  subdomain: oop
+  tags:
+  - python
+  level: engineer
+  question: What is the difference between mutable and immutable objects? Why does
+    it matter?
+  answer: 'Mutable objects (list, dict, set, bytearray) can be changed in place after
+    creation — their identity stays the same while content changes. Immutable objects
+    (int, str, tuple, frozenset, bytes) cannot be altered after creation. Immutability
+    matters for: correctness (immutable objects are safe as dict keys and set members);
+    function argument safety (passing an immutable prevents callers from mutating
+    it); thread safety (immutable objects need no locking). Classic pitfall: mutable
+    default argument def f(lst=[]) — use None sentinel instead.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — tuple keys for flow dictionaries in packet
+    analysis
+  interview_context: Mutable vs immutable distinction is fundamental for thread-safe
+    concurrent telecom data processing
+- id: q275
+  domain: python
+  subdomain: scripting
+  tags:
+  - python
+  level: engineer
+  question: What is the difference between os/os.path and pathlib?
+  answer: 'os.path works with paths as plain strings requiring function-composition
+    calls (os.path.join(a, b, c)). pathlib.Path (Python 3.4+) is an object-oriented
+    API — paths are objects, concatenation uses the / operator, operations are methods.
+    pathlib is the modern preferred approach: Path(''/data/pcaps'') / ''session''
+    / ''capture.pcap''. Key pathlib methods: .read_text(), .write_bytes(), .glob(''*.pcap''),
+    .rglob(''**/*.log''), .stat(), .resolve(). Both coexist; pathlib can round-trip
+    to/from strings.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — pathlib for PCAP file discovery in test
+    automation
+  interview_context: pathlib provides Pythonic file system operations for telecom
+    log and PCAP file management
+- id: q276
+  domain: python
+  subdomain: scripting
+  tags:
+  - python
+  level: engineer
+  question: How do you build a robust CLI with argparse?
+  answer: 'argparse.ArgumentParser creates a parser; .add_argument() defines flags
+    and positional args with type=, default=, help=, choices=, and required=. Use
+    subparsers for multi-command CLIs (like git commit, git push). Call parser.parse_args()
+    in if __name__ == ''__main__'' to avoid executing during import. For modern Python
+    (3.11+), consider click or typer for complex CLIs. Example: add_argument(''--protocol'',
+    choices=[''tcp'',''udp'',''icmp''], default=''tcp'') for a PCAP analyzer CLI.'
+  spec: null
+  simulator_trigger: test_automation.py — argparse CLI for simulator test runner with
+    protocol and capture options
+  interview_context: Robust CLI design is essential for telecom network automation
+    and test tooling
+- id: q277
+  domain: python
+  subdomain: functions
+  tags:
+  - python
+  level: engineer
+  question: Explain *args, **kwargs, and positional-only vs keyword-only parameters.
+  answer: '*args collects extra positional arguments into a tuple; **kwargs collects
+    extra keyword arguments into a dict. Python 3 introduced / (positional-only) and
+    * (keyword-only) separators in function signatures. Parameters before / cannot
+    be passed by keyword; parameters after * cannot be passed positionally. This matters
+    for API design: positional-only parameters prevent relying on argument names and
+    allow future renaming without breaking callers. def api(p1, p2, /, std, *, kw_only)
+    demonstrates all forms.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — function signature design in Python telecom
+    utilities
+  interview_context: Understanding function parameter types is important for writing
+    clean Python APIs in telecom tools
+- id: q278
+  domain: python
+  subdomain: scripting
+  tags:
+  - python
+  level: beginner
+  question: How do you handle file I/O safely in Python?
+  answer: Always use the with statement (context manager) to open files — it guarantees
+    the file is closed even if an exception occurs. Use encoding= explicitly to avoid
+    platform-dependent defaults. For large files, iterate line-by-line (for line in
+    f:) or read in chunks (f.read(chunk_size)) rather than f.read() which loads everything
+    into memory. Use binary mode ('rb', 'wb') for pcap and other binary formats. For
+    atomic writes, write to a temporary file then rename with os.replace().
+  spec: null
+  simulator_trigger: tools/viz_server.py — safe file I/O for PCAP and log file processing
+  interview_context: Safe file I/O prevents resource leaks and data corruption in
+    telecom log processing scripts
+- id: q279
+  domain: python
+  subdomain: data_structures
+  tags:
+  - python
+  level: engineer
+  question: When should you use list comprehensions vs map/filter?
+  answer: 'List comprehensions are generally preferred for readability: [x*2 for x
+    in data if x > 0]. map() and filter() return lazy iterators (memory-efficient)
+    and are marginally faster for simple built-in functions. Use map(str.upper, items)
+    when applying a named function without a lambda; use comprehensions when the transformation
+    is non-trivial. zip() pairs two iterables lazily; enumerate() adds an index without
+    needing range(len(...)). All three (map, filter, zip) must be wrapped in list()
+    to materialize in Python 3.'
+  spec: null
+  simulator_trigger: tools/viz_server.py — comprehensions vs map in packet data transformation
+  interview_context: Idiomatic Python data transformation patterns for efficient telecom
+    data processing pipelines

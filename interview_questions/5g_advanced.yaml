@@ -1,0 +1,172 @@
+- id: q320
+  domain: 5g
+  subdomain: service_types
+  tags:
+  - urllc
+  - embb
+  - mmtc
+  level: architect
+  question: Define the three 5G service categories. Give the actual latency and reliability
+    numbers from ITU-R and 3GPP specs, and describe two production use cases for each.
+  answer: 'eMBB (enhanced Mobile Broadband): peak data rate ≥ 20 Gbps DL / 10 Gbps
+    UL, user-experienced ≥ 100 Mbps in dense urban, latency ≤ 4 ms, reliability ~99.9%
+    — use cases: 4K/8K video streaming and AR/VR applications. URLLC (Ultra-Reliable
+    Low-Latency): user-plane latency ≤ 1 ms (0.5 ms in Release 16 RAN), reliability
+    1−10^-5 for 32-byte packets within 1 ms (≥99.999%); Rel-16 tightens to 10^-6 for
+    factory automation — use cases: autonomous vehicle cooperative driving (V2X, <
+    5 ms E2E) and industrial robot control (< 1 ms cycle time, 99.9999% reliability).
+    mMTC (massive Machine Type Communication): connection density ≥ 1 million devices/km²,
+    10-15 year battery life, data rates in kbps, RTL < 10s for 20-byte payload — use
+    cases: smart city IoT sensor networks and agricultural monitoring. URLLC uses
+    short TTIs (mini-slots), conservative MCS, and packet duplication — preempts eMBB
+    transmissions when URLLC traffic arrives.'
+  spec: 3GPP TS 22.261
+  simulator_trigger: BULK command — URLLC/eMBB/mMTC traffic classification in 5G slicing
+    simulation
+  interview_context: Tests understanding of 5G service category requirements with
+    specific numbers from specs — asked at Qualcomm and Ericsson for 5G architect
+    roles
+- id: q321
+  domain: 5g
+  subdomain: mec
+  tags:
+  - mec
+  level: architect
+  question: 'Explain how 5G enables Multi-access Edge Computing: LADN, UPF placement,
+    and local breakout latency benefits.'
+  answer: '5G enables MEC by deploying a UPF close to the radio site — at the base
+    station aggregation site, central office, or co-located with the gNB — and using
+    the UPF as the local breakout point. Two 5G mechanisms: LADN (Local Area Data
+    Network) is a DNN accessible only within a defined geographic area (a set of TAs);
+    when a UE enters the LADN area, it can establish a PDU session to that DNN routing
+    through the local UPF to the edge application. UL CL (Uplink Classifier) and Branching
+    Point UPF features (TS 23.501 §5.6.4) allow a single PDU session to split traffic:
+    a local UPF applies traffic steering rules to route latency-sensitive flows locally
+    while routing other flows through a central UPF. Latency benefit: centralized
+    UPF adds 15-30 ms; distributed UPF at RAN aggregation reduces to 2-5 ms; on-premise
+    UPF achieves sub-1 ms.'
+  spec: 3GPP TS 23.501
+  simulator_trigger: UPF placement in 5G sim — MEC local UPF configuration in simulator
+  interview_context: Tests 5G MEC architecture for edge computing — LADN, UL CL, and
+    UPF placement are critical for industrial 5G deployments
+- id: q322
+  domain: 5g
+  subdomain: tsn
+  tags:
+  - tsn
+  level: architect
+  question: How does 5G integrate with IEEE Time-Sensitive Networking (TSN)? Explain
+    DS-TT, NW-TT, and the TSN AF.
+  answer: '5G TSN integration (Release 16, TS 23.501 §5.28) allows an industrial TSN
+    Ethernet network to use a 5G radio link as a transparent bridge segment — the
+    5G system appears to the TSN Centralized Network Controller (CNC) as a standard
+    IEEE 802.1Q Ethernet bridge. DS-TT (Device-Side TSN Translator) is at the UE side;
+    NW-TT (Network-Side TSN Translator) is within the UPF — together they form the
+    two ports of the ''5GS Bridge''. The TSN AF is the 5GC control-plane entity communicating
+    with the external CNC: it receives bridge topology and stream configuration from
+    the CNC, maps TSN QoS requirements to 5G QoS (5QI values and TSCAI), and installs
+    PCC rules via PCF→SMF. Time synchronization: DS-TT and NW-TT participate in IEEE
+    802.1AS gPTP domain, synchronized to the 5G GM clock; they measure and compensate
+    for 5GS bridge residence time. Enables deterministic < 1 ms jitter for factory
+    automation over wireless.'
+  spec: 3GPP TS 23.501
+  simulator_trigger: BULK command — TSN bridge configuration in industrial 5G simulator
+  interview_context: Tests 5G TSN integration for industry 4.0 use cases — DS-TT/NW-TT
+    and TSN AF are key to wireless deterministic networking
+- id: q323
+  domain: 5g
+  subdomain: 5glan
+  tags:
+  - urllc
+  level: architect
+  question: What is 5G-LAN and how does it differ from regular internet PDU sessions?
+    Explain UPF as L2 switch and the N19 interface.
+  answer: '5G-LAN (TS 23.501 §5.29) enables a set of UEs to communicate directly as
+    if connected to a private Ethernet LAN, where the UPF acts as a Layer 2 switch
+    rather than a Layer 3 router — UE-to-UE traffic stays within the UPF without traversing
+    the external data network. The UPF maintains a 5G-LAN MAC address forwarding table:
+    when a UE sends an Ethernet frame, the UPF looks up the destination MAC, identifies
+    the PDU session (GTP-U tunnel TEID) of the destination UE, and bridges the frame
+    directly between GTP tunnels. Group management: PCF/SMF defines 5G-LAN groups
+    as a set of UE identities (GPSIs) sharing a DNN and S-NSSAI. N19 interface: a
+    new 5G interface between UPFs — when two group members are served by different
+    UPFs, N19 allows direct L2 frame forwarding between UPFs without going through
+    the DN. Supports multicast/broadcast within the group — suited for industrial
+    IoT control planes.'
+  spec: 3GPP TS 23.501
+  simulator_trigger: BULK command — 5G-LAN group communication simulation in industrial
+    deployment
+  interview_context: Tests 5G-LAN architecture for private enterprise networks — UPF
+    as L2 switch and N19 interface are specific to 5G enterprise use cases
+- id: q324
+  domain: 5g
+  subdomain: ntn
+  tags:
+  - ntn
+  level: architect
+  question: How does 3GPP Release 17 enable 5G over satellites (NTN)? What are the
+    key protocol adaptations?
+  answer: '3GPP Release 17 NTN (TS 38.821) formalizes NR operation via LEO (~600 km)
+    and GEO (~35,786 km) satellites. Key challenge: LEO introduces 5-12 ms one-way
+    delay and GEO ~270 ms — breaking the standard TA mechanism (NR TA field supports
+    only ~2 ms at 15 kHz SCS). Rel-17 solution — GNSS-based TA and Doppler pre-compensation:
+    all NTN UEs require GNSS receivers; network broadcasts satellite ephemeris data
+    in SIB19 so UE can compute propagation delay and pre-apply TA offset (open-loop
+    hybrid TA). Doppler pre-compensation: UE adjusts uplink carrier frequency based
+    on computed relative velocity toward satellite (up to 24 ppm for 600 km LEO).
+    HARQ is substantially modified: disables HARQ retransmissions (HARQ process=1
+    with disabled feedback) and relies on blind repetitions and outer FEC. The 5G
+    Core is agnostic to NTN radio access.'
+  spec: 3GPP TR 38.821
+  simulator_trigger: BULK command — NTN satellite simulation with Timing Advance pre-compensation
+  interview_context: Tests 5G NTN satellite integration knowledge — GNSS-based TA
+    pre-compensation and HARQ modifications are specific to non-terrestrial networks
+- id: q325
+  domain: 5g
+  subdomain: nwdaf
+  tags:
+  - nwdaf
+  level: architect
+  question: What is the NWDAF in the 5G architecture and how does it enable closed-loop
+    network automation?
+  answer: 'The NWDAF (Network Data Analytics Function, TS 23.288) is the 5G core''s
+    AI/ML analytics engine: it collects data from all NFs (AMF, SMF, UPF, PCF, OAM)
+    via Nnwdaf service-based interfaces, trains ML models, and provides analytics
+    results — load predictions, UE mobility patterns, QoS sustainability predictions,
+    and anomaly detection — as a service to consuming NFs. Closed-loop automation:
+    a consumer NF (e.g., SMF) subscribes to NWDAF analytics; NWDAF notifies with results
+    (e.g., ''UPF utilization will exceed 80% in 5 minutes''); the consumer NF takes
+    autonomous action (e.g., SMF redirects new PDU sessions to a less-loaded UPF).
+    Release 17 splits NWDAF into AnLF (Analytics Logical Function for inference) and
+    MTLF (Model Training Logical Function), and introduces DCCF (Data Collection Coordination
+    Function) to prevent multiple NWDAFs from independently querying the same NF.'
+  spec: 3GPP TS 23.288
+  simulator_trigger: BULK command — NWDAF analytics simulation for proactive capacity
+    scaling
+  interview_context: Tests understanding of 5G AI/ML network automation via NWDAF
+    — closed-loop automation is a key 5G differentiator from LTE
+- id: q326
+  domain: 5g
+  subdomain: ursp
+  tags:
+  - ursp
+  level: senior
+  question: What are URSP rules in 5G? How does the UE use them to map application
+    traffic to a specific network slice, DNN, and access type?
+  answer: 'URSP (UE Route Selection Policy, TS 24.526 and TS 23.503 §6.6.2) is a set
+    of rules configured on the UE by the PCF that instruct the NAS/modem layer on
+    how to route application traffic to the correct PDU session. Each URSP rule contains:
+    a Traffic Descriptor (match criteria: OS App ID, IP 3-tuple, destination FQDN,
+    DNN, or Connection Capabilities) and one or more Route Selection Descriptors (actions:
+    S-NSSAI selection, DNN selection, access type preference) ordered by RSD precedence.
+    Evaluation is top-down: when an application generates traffic, the UE iterates
+    URSP rules until a Traffic Descriptor matches, then tries each RSD — checking
+    whether an existing PDU session satisfies the RSD criteria; if not, the UE tries
+    to establish a new PDU session with the RSD parameters. Example: Rule 1 maps ''VideoConference
+    App'' to S-NSSAI=SST:2/SD:0x000001 (eMBB slice) + DNN=enterprise; Rule 2 maps
+    PRIORITIZE_LATENCY to URLLC slice; Rule 3 (default) maps all other traffic to
+    internet.'
+  spec: 3GPP TS 24.526
+  simulator_trigger: BULK command — URSP rule evaluation in UE traffic steering simulation
+  interview_context: Tests deep understanding of 5G UE traffic steering policies —
+    URSP is a specific 5G feature asked in Qualcomm and Ericsson architect interviews

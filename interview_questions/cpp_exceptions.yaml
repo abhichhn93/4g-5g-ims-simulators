@@ -1,0 +1,66 @@
+- id: q340
+  domain: cpp
+  subdomain: exceptions
+  tags:
+  - noexcept
+  - abi
+  level: senior
+  question: What are the three exception safety guarantees (basic, strong, nothrow)?
+  answer: 'The basic guarantee: if an exception is thrown, no resources are leaked
+    and invariants remain valid, though the object may be in a different (but valid)
+    state. The strong guarantee: if an exception is thrown, the operation has no effect
+    — the program state is as if the operation was never attempted (rollback semantics,
+    typically implemented via copy-and-swap or copy-then-move). The nothrow guarantee
+    (noexcept): the operation never throws; this is required for destructors, move
+    constructors, and swap to ensure standard library containers can provide the strong
+    guarantee. Standard library containers invoke move constructors with noexcept
+    for reallocation; if your move constructor is not noexcept, they fall back to
+    copying.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — exception
+    safety in protocol message processing
+  interview_context: Telecom message handlers that partially apply state mutations
+    require the strong guarantee to avoid inconsistent node state on error
+- id: q341
+  domain: cpp
+  subdomain: exceptions
+  tags:
+  - noexcept
+  level: senior
+  question: Why is noexcept critical for move constructors and how does it interact
+    with std::vector reallocation?
+  answer: 'When std::vector<T> grows (reallocation), it must move or copy existing
+    elements to the new buffer. If T''s move constructor is noexcept, vector uses
+    it and achieves O(n) reallocation with no exceptions possible. If the move constructor
+    is not noexcept, vector falls back to copying to preserve the strong guarantee
+    — because a throwing move would leave both old and new buffers partially constructed
+    with no way to roll back. Mark move constructors noexcept whenever they genuinely
+    cannot throw (moving raw pointers and scalars, which is typical). The static_assert
+    pattern: static_assert(std::is_nothrow_move_constructible_v<T>) confirms this
+    property at compile time.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — noexcept
+    move constructors in message queue types
+  interview_context: Message types stored in std::vector with non-noexcept move constructors
+    silently regress to O(n) copy on reallocation — a common performance surprise
+- id: q342
+  domain: cpp
+  subdomain: exceptions
+  tags:
+  - noexcept
+  level: architect
+  question: When should you NOT use exceptions and prefer error codes or std::expected?
+  answer: 'Avoid exceptions in: (1) hard real-time and high-performance dataplane
+    code where exception handling tables bloat binaries and the zero-cost model has
+    nonzero thrown-path cost; (2) code that must be called from C (no exception propagation
+    across C ABI); (3) constructors where a two-phase init pattern or factory function
+    is preferable; (4) extremely tight loops where even the bookkeeping cost matters.
+    C++23 std::expected<T,E> is a value-type alternative that returns either a result
+    or an error, making the error path explicit without dynamic dispatch. In telecom,
+    use exceptions for control-plane error signalling and expected/error-codes for
+    dataplane packet processing.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — when telecom
+    packet processing must avoid exceptions
+  interview_context: 5G UPF dataplane processes millions of packets/second; exceptions
+    are categorically avoided in that path while used freely in the control plane

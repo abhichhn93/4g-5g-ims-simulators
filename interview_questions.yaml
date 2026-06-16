@@ -1,0 +1,3025 @@
+# =============================================================================
+# interview_questions.yaml
+# =============================================================================
+# Telecom Simulator — Interview Mode Question Bank
+# Generated: June 2026
+#
+# STRUCTURE:
+#   Each entry is a list item with these fields:
+#     id               : Unique identifier (q001–q170)
+#     domain           : Top-level domain — cpp | 4g | ims | 5g | system_design | devops
+#     subdomain        : Specific topic within the domain
+#     tags             : List of strings used at runtime to match questions to
+#                        active simulator events (see tag_rules.json for patterns)
+#     level            : Seniority — beginner | engineer | senior | architect
+#     question         : The interview question (plain text, no markdown)
+#     answer           : Concise plain-English answer (max 4 sentences, no bullets)
+#     spec             : 3GPP TS reference or null
+#     simulator_trigger: The simulator command / file pattern that surfaces this Q
+#     interview_context: Why an interviewer asks this question
+#
+# ID RANGES:
+#   q001–q050 : C++ (OOP, Memory, Multithreading, STL, C++17, Patterns, SysDesign)
+#   q051–q095 : 4G EPC (Attach, Auth, Bearer, Handover, TAU, Interfaces, Nodes, GTPv2, Diameter)
+#   q096–q130 : IMS / VoLTE (Registration, Call, CSCF, Supplementary, IR.92, SIP, Cx/Rx, EPC)
+#   q131–q170 : 5G Core (Architecture, AMF, UDM/AUSF, SMF, UPF, NRF, PCF, NSSF, Slicing,
+#                         SUCI, Security, NGAP, Roaming, 5G-vs-4G, K8s/CNF, O-RAN)
+#
+# TAG USAGE:
+#   The simulator runtime reads active message logs, extracts patterns, and looks up
+#   matching tags in tag_rules.json to surface contextually relevant questions.
+#   Tags on each question must be a subset of the valid tag vocabulary defined in the
+#   tag_rules section at the bottom of this file.
+# =============================================================================
+
+questions:
+
+  # ---------------------------------------------------------------------------
+  # C++ — OOP (q001–q010)
+  # ---------------------------------------------------------------------------
+
+  - id: "q001"
+    domain: "cpp"
+    subdomain: "oop"
+    tags:
+      - "cpp-oop"
+      - "virtual"
+      - "polymorphism"
+    level: "engineer"
+    question: "What is the difference between virtual functions and pure virtual functions?"
+    answer: "A virtual function has a definition in the base class and can be overridden in derived classes; derived classes are not required to override it. A pure virtual function is declared with = 0, has no base-class body, and must be overridden by any concrete derived class. A class with at least one pure virtual function is abstract and cannot be instantiated directly."
+    spec: null
+    simulator_trigger: "Any simulator node base class with virtual dispatch (e.g., NodeBase in simulator node hierarchy)"
+    interview_context: "Baseline OOP check — every C++ engineer must know this cleanly"
+
+  - id: "q002"
+    domain: "cpp"
+    subdomain: "oop"
+    tags:
+      - "cpp-oop"
+      - "virtual"
+      - "polymorphism"
+    level: "senior"
+    question: "Explain how the vtable (virtual table) mechanism works in C++."
+    answer: "When a class declares at least one virtual function, the compiler generates a per-class vtable — a static array of function pointers, one per virtual function. Each object carries a hidden vptr pointing to its class's vtable. When a virtual function is called through a base-class pointer, the runtime follows object → vptr → vtable → function pointer. This is dynamic dispatch and enables runtime polymorphism."
+    spec: null
+    simulator_trigger: "Simulator node polymorphism — e.g., MmeNode and AmfNode both derive from a common ProtocolNode base"
+    interview_context: "Tests understanding of the internals behind runtime polymorphism"
+
+  - id: "q003"
+    domain: "cpp"
+    subdomain: "oop"
+    tags:
+      - "cpp-oop"
+      - "virtual"
+      - "polymorphism"
+    level: "senior"
+    question: "Why can't constructors be virtual? Why should destructors in polymorphic base classes be virtual?"
+    answer: "Constructors cannot be virtual because virtual dispatch requires a fully constructed object with a valid vptr, which does not yet exist during construction. Destructors in a polymorphic base class must be virtual so that deleting a derived object via a base-class pointer calls the derived destructor first, preventing resource leaks in the derived part."
+    spec: null
+    simulator_trigger: "Resource cleanup in simulator node teardown — NodeBase destructor must be virtual"
+    interview_context: "Detects knowledge of a common real-world bug in polymorphic hierarchies"
+
+  - id: "q004"
+    domain: "cpp"
+    subdomain: "oop"
+    tags:
+      - "cpp-oop"
+      - "virtual"
+      - "polymorphism"
+    level: "senior"
+    question: "What is the diamond problem in multiple inheritance, and how does virtual inheritance solve it?"
+    answer: "The diamond problem arises when class D inherits from both B and C, which both inherit from a common base A, resulting in two copies of A's members in D — causing ambiguity and extra memory. Virtual inheritance (class B : virtual public A) tells the compiler to create only one shared subobject of A regardless of how many paths lead to it."
+    spec: null
+    simulator_trigger: "Multiple-inheritance patterns in simulator base classes (e.g., TimerBase + EventBase)"
+    interview_context: "Tests awareness of multiple-inheritance pitfalls relevant to framework design"
+
+  - id: "q005"
+    domain: "cpp"
+    subdomain: "oop"
+    tags:
+      - "cpp-oop"
+      - "virtual"
+      - "polymorphism"
+    level: "engineer"
+    question: "What are the different types of polymorphism in C++?"
+    answer: "C++ has two categories: compile-time polymorphism via function overloading and operator overloading, where the compiler resolves the call; and runtime polymorphism via virtual functions and overriding, where the vtable resolves the call at runtime. Static binding is faster; dynamic binding is more flexible and extensible."
+    spec: null
+    simulator_trigger: "Simulator message dispatch — template-based compile-time dispatch vs virtual-function runtime dispatch"
+    interview_context: "Confirms candidate can distinguish static vs dynamic dispatch and choose appropriately"
+
+  - id: "q006"
+    domain: "cpp"
+    subdomain: "oop"
+    tags:
+      - "cpp-oop"
+    level: "engineer"
+    question: "What is a friend class and a friend function? When would you use them?"
+    answer: "A friend function is a non-member function granted access to private and protected members via a friend declaration inside the class. A friend class similarly grants all its member functions that access. Both are used sparingly — typical uses include operator overloading (operator<<) and tightly coupled helper classes where encapsulation would otherwise force unnecessary public exposure."
+    spec: null
+    simulator_trigger: "Simulator stats collector classes that need internal-state access without making all fields public"
+    interview_context: "Tests understanding of encapsulation boundaries and when to deliberately break them"
+
+  - id: "q007"
+    domain: "cpp"
+    subdomain: "oop"
+    tags:
+      - "cpp-oop"
+    level: "engineer"
+    question: "What is operator overloading, and what are its restrictions?"
+    answer: "Operator overloading lets you redefine the behavior of built-in operators for user-defined types by defining operator@ as a member or friend function. You cannot create new operators, cannot change arity or precedence, and certain operators (::, ., .*, ?:, sizeof) cannot be overloaded. The overloaded operator should semantically match its mathematical or linguistic meaning."
+    spec: null
+    simulator_trigger: "Simulator message comparison operators — operator== for matching PDU types in test assertions"
+    interview_context: "Tests knowledge of overloading rules often violated in telecom message model classes"
+
+  - id: "q008"
+    domain: "cpp"
+    subdomain: "oop"
+    tags:
+      - "cpp-oop"
+      - "virtual"
+      - "polymorphism"
+    level: "engineer"
+    question: "What is an abstract class, and when should you use it?"
+    answer: "An abstract class has at least one pure virtual function and cannot be instantiated directly; it defines a contract that all concrete derived classes must fulfill. Use abstract classes to enforce a specific interface across a hierarchy, enable polymorphism through base-class pointers, and share common data or partial implementations."
+    spec: null
+    simulator_trigger: "Abstract ProtocolHandler base class with pure virtual handle_message() in simulator"
+    interview_context: "Confirms candidate can design extensible simulator node hierarchies correctly"
+
+  - id: "q009"
+    domain: "cpp"
+    subdomain: "oop"
+    tags:
+      - "cpp-oop"
+      - "virtual"
+      - "polymorphism"
+    level: "beginner"
+    question: "What is the difference between function overriding and function overloading?"
+    answer: "Overloading defines multiple functions with the same name but different parameter lists in the same scope; the compiler selects the correct version at compile time. Overriding redefines a base-class virtual function in a derived class with the same signature; the correct version is selected at runtime. Use the override specifier in C++11 to let the compiler catch signature mismatches."
+    spec: null
+    simulator_trigger: "Simulator event handler methods — distinguishing overloaded event constructors from overridden handlers"
+    interview_context: "Entry-level check to distinguish compile-time from runtime polymorphism"
+
+  - id: "q010"
+    domain: "cpp"
+    subdomain: "oop"
+    tags:
+      - "cpp-oop"
+      - "virtual"
+      - "polymorphism"
+    level: "engineer"
+    question: "What is the override and final specifier in C++?"
+    answer: "override on a derived-class function signals intent to override a base virtual; the compiler emits an error if no matching virtual exists in the base class. final on a virtual function prevents further overriding; final on a class prevents subclassing. Both improve clarity and catch signature-mismatch bugs at compile time."
+    spec: null
+    simulator_trigger: "Simulator node message handler classes using override on handle_s1ap(), handle_ngap() methods"
+    interview_context: "Tests knowledge of modern C++ specifiers that prevent subtle override bugs"
+
+  # ---------------------------------------------------------------------------
+  # C++ — Memory Management (q011–q018)
+  # ---------------------------------------------------------------------------
+
+  - id: "q011"
+    domain: "cpp"
+    subdomain: "memory"
+    tags:
+      - "cpp-memory"
+      - "raii"
+    level: "beginner"
+    question: "What is the difference between stack and heap allocation in C++?"
+    answer: "Stack memory is allocated and deallocated automatically when functions are entered and exited; it is very fast but limited in size (~1–8 MB). Heap memory is dynamically allocated with new/delete, can be as large as available RAM, but is slower due to allocator overhead and must be explicitly managed. Modern C++ prefers smart pointers and containers over raw new/delete."
+    spec: null
+    simulator_trigger: "Simulator UE context objects — large UE stores use heap allocation while per-function state uses the stack"
+    interview_context: "Baseline memory model check for any systems C++ role"
+
+  - id: "q012"
+    domain: "cpp"
+    subdomain: "memory"
+    tags:
+      - "cpp-memory"
+      - "raii"
+      - "smart-ptr"
+    level: "engineer"
+    question: "What is RAII, and why does it matter in C++?"
+    answer: "RAII (Resource Acquisition Is Initialization) ties a resource's lifetime to an object's: the constructor acquires the resource and the destructor releases it. Because the C++ runtime guarantees destructors run when objects go out of scope, even during exception unwinding, RAII provides automatic exception-safe cleanup without manual try-finally blocks. Examples include unique_ptr (heap memory), lock_guard (mutex), and fstream (file handle)."
+    spec: null
+    simulator_trigger: "RAII in socket_wrapper.h — socket file descriptor acquired in constructor, released in destructor"
+    interview_context: "Core C++ idiom check; essential for writing safe telecom code"
+
+  - id: "q013"
+    domain: "cpp"
+    subdomain: "memory"
+    tags:
+      - "cpp-memory"
+      - "raii"
+      - "smart-ptr"
+    level: "senior"
+    question: "Compare unique_ptr, shared_ptr, and weak_ptr. When do you use each?"
+    answer: "unique_ptr represents exclusive single ownership; it cannot be copied, only moved, and has zero overhead — it is the default choice. shared_ptr provides shared ownership through an atomic reference count; the object is deleted when the last owner goes out of scope — use it only when multiple components genuinely co-own the same object. weak_ptr is a non-owning observer that does not increment the count; call lock() to get a temporary shared_ptr — use it to break cyclic references and in caches."
+    spec: null
+    simulator_trigger: "unique_ptr in simulator node factories; shared_ptr for shared UE context accessed across MME and SGW simulators"
+    interview_context: "Tests ownership reasoning critical for memory-safe telecom node simulation"
+
+  - id: "q014"
+    domain: "cpp"
+    subdomain: "memory"
+    tags:
+      - "cpp-memory"
+      - "move-semantics"
+    level: "senior"
+    question: "What is the difference between std::move and std::forward?"
+    answer: "std::move unconditionally casts its argument to an rvalue reference, signaling that the object's resources may be transferred rather than copied — it does not actually move anything itself. std::forward is used inside template functions to perform perfect forwarding, conditionally casting to lvalue or rvalue depending on the original value category of the caller's argument. Use move for explicit ownership transfer; use forward in forwarding-reference templates."
+    spec: null
+    simulator_trigger: "Simulator message passing — moving PDU buffers into packet queues to avoid deep copies on the hot path"
+    interview_context: "Tests understanding of value categories and their performance implications in message pipelines"
+
+  - id: "q015"
+    domain: "cpp"
+    subdomain: "memory"
+    tags:
+      - "cpp-memory"
+      - "move-semantics"
+      - "raii"
+    level: "senior"
+    question: "What are move semantics and how do you implement a move constructor?"
+    answer: "Move semantics allow resources to be transferred from a temporary (rvalue) object to a new one without a deep copy, by stealing the internal pointer and leaving the source in a valid-but-empty state. A move constructor is declared as MyClass(MyClass&& other) noexcept and typically steals other's resources then nulls out other. Marking move operations noexcept is critical — it allows std::vector to use moves instead of copies during reallocation."
+    spec: null
+    simulator_trigger: "SimulatorEvent move constructors in the event queue — noexcept required for safe push_back into vectors"
+    interview_context: "Tests practical move semantics knowledge relevant to high-throughput event queues"
+
+  - id: "q016"
+    domain: "cpp"
+    subdomain: "memory"
+    tags:
+      - "cpp-memory"
+      - "raii"
+      - "smart-ptr"
+    level: "senior"
+    question: "What is the Rule of Five, and what is the Rule of Zero?"
+    answer: "If a class manually manages a resource, you must define or explicitly delete all five special members: destructor, copy constructor, copy assignment, move constructor, and move assignment — because the compiler-generated defaults will cause double-frees or leaks. The Rule of Zero says prefer RAII types (smart pointers, containers) so your class needs no custom resource management and the compiler can generate all five correctly by default."
+    spec: null
+    simulator_trigger: "Simulator node base classes managing raw socket/file descriptors — must apply Rule of Five explicitly"
+    interview_context: "Tests resource management discipline essential for long-running telecom daemon code"
+
+  - id: "q017"
+    domain: "cpp"
+    subdomain: "memory"
+    tags:
+      - "cpp-memory"
+      - "cpp17"
+    level: "senior"
+    question: "What is copy elision and Named Return Value Optimization (NRVO)?"
+    answer: "Copy elision is a compiler optimization that eliminates unnecessary copy or move constructor calls by constructing an object directly in its destination memory. NRVO is the most common form: when a function returns a named local object, the compiler may construct it directly in the caller's stack frame. In C++17, copy elision from a prvalue (return MyClass{args}) is guaranteed and cannot be suppressed."
+    spec: null
+    simulator_trigger: "Simulator factory functions returning large node configuration objects — NRVO eliminates unnecessary copies"
+    interview_context: "Tests awareness of zero-cost abstractions relevant to simulation performance"
+
+  - id: "q018"
+    domain: "cpp"
+    subdomain: "memory"
+    tags:
+      - "cpp-memory"
+      - "raii"
+      - "smart-ptr"
+    level: "engineer"
+    question: "How do you detect and prevent memory leaks in C++?"
+    answer: "Prevent leaks by using smart pointers (unique_ptr, shared_ptr) instead of raw new/delete, applying RAII for all resources, and preferring STL containers over manual dynamic arrays. Detection tools include Valgrind, AddressSanitizer (-fsanitize=address), and Visual Studio's CRT debug heap. Cyclic shared_ptr references are a subtle source of leaks — break cycles with weak_ptr."
+    spec: null
+    simulator_trigger: "Simulator long-run stress tests where ASAN or Valgrind is run to detect UE context leaks"
+    interview_context: "Tests practical debugging skills essential for maintaining stable telecom simulator daemons"
+
+  # ---------------------------------------------------------------------------
+  # C++ — Multithreading (q019–q026)
+  # ---------------------------------------------------------------------------
+
+  - id: "q019"
+    domain: "cpp"
+    subdomain: "multithreading"
+    tags:
+      - "cpp-concurrency"
+      - "mutex"
+      - "atomic"
+    level: "senior"
+    question: "What is a race condition, and how do you prevent it in C++?"
+    answer: "A race condition occurs when two or more threads access shared mutable state, at least one access is a write, and the accesses are unsynchronized — the result depends on unpredictable thread scheduling. Prevention strategies include mutual exclusion via std::mutex, atomic operations via std::atomic for single-variable updates, immutable data structures, and thread-local storage. For complex invariants spanning multiple variables a mutex is correct; for simple counters std::atomic avoids lock overhead."
+    spec: null
+    simulator_trigger: "BULK command execution — concurrent UE context reads and writes in mme_node.cpp"
+    interview_context: "Tests concurrency fundamentals critical for any multi-threaded simulator component"
+
+  - id: "q020"
+    domain: "cpp"
+    subdomain: "multithreading"
+    tags:
+      - "cpp-concurrency"
+      - "mutex"
+      - "shared-mutex"
+      - "ue-store"
+    level: "senior"
+    question: "Why use shared_mutex instead of mutex for the UE store in the MME simulator?"
+    answer: "shared_mutex allows multiple simultaneous readers while blocking only on writes — fitting the UE store access pattern where hundreds of concurrent reads occur during active calls (paging, bearer queries) while writes are rare (new attach, detach). A regular mutex would serialize all reads even though they cannot conflict, creating unnecessary latency. Use shared_lock for read operations and unique_lock for writes on the shared_mutex."
+    spec: null
+    simulator_trigger: "BULK command execution, ue_context_store_ lookup in mme_node.cpp"
+    interview_context: "Asked to test understanding of reader-writer concurrency patterns in telecom control-plane stores"
+
+  - id: "q021"
+    domain: "cpp"
+    subdomain: "multithreading"
+    tags:
+      - "cpp-concurrency"
+      - "mutex"
+      - "thread-pool"
+    level: "senior"
+    question: "How does std::condition_variable work, and what is its classic use case?"
+    answer: "std::condition_variable allows a thread to block until a condition becomes true, atomically releasing the mutex while waiting and re-acquiring it before returning. The waiting thread calls cv.wait(lock, predicate) — the predicate guards against spurious wakeups. A notifying thread modifies shared state under the mutex, then calls cv.notify_one() or cv.notify_all(). The classic use case is a bounded producer-consumer queue where producers block when full and consumers block when empty."
+    spec: null
+    simulator_trigger: "Simulator event queue — worker threads waiting on condition_variable for new protocol events to process"
+    interview_context: "Tests fundamental condition-variable usage needed for simulator I/O dispatch design"
+
+  - id: "q022"
+    domain: "cpp"
+    subdomain: "multithreading"
+    tags:
+      - "cpp-concurrency"
+      - "atomic"
+      - "mutex"
+    level: "senior"
+    question: "What is std::atomic, and when should you use it instead of a mutex?"
+    answer: "std::atomic provides lock-free atomic read-modify-write operations using hardware instructions like compare-and-swap. Use it for single-variable updates such as counters, flags, and reference counts — it avoids mutex overhead. Use a mutex when the invariant spans multiple variables or requires a longer critical section. std::atomic also exposes memory ordering controls; seq_cst (the default) is safest."
+    spec: null
+    simulator_trigger: "Simulator event counter atomics — std::atomic<uint64_t> for per-node message counters accessed from multiple threads"
+    interview_context: "Tests ability to choose between fine-grained atomic ops and coarser mutex locking"
+
+  - id: "q023"
+    domain: "cpp"
+    subdomain: "multithreading"
+    tags:
+      - "cpp-concurrency"
+      - "mutex"
+    level: "senior"
+    question: "How do you prevent deadlocks in a multi-threaded C++ program?"
+    answer: "A deadlock requires four Coffman conditions: mutual exclusion, hold-and-wait, no preemption, and circular wait — breaking any one prevents it. Practical strategies include always acquiring multiple locks in a consistent global order; using std::scoped_lock (C++17) which atomically acquires multiple mutexes in a deadlock-free manner; and applying try_lock_for timeouts so threads can back off and retry. Detect potential lock-acquisition cycles during code review."
+    spec: null
+    simulator_trigger: "Simulator cross-node procedures (e.g., MME + SGW handshake) requiring simultaneous locks on two node mutexes"
+    interview_context: "Tests ability to design safe lock acquisition order in multi-node simulator interactions"
+
+  - id: "q024"
+    domain: "cpp"
+    subdomain: "multithreading"
+    tags:
+      - "cpp-concurrency"
+      - "thread-pool"
+      - "system-design"
+    level: "senior"
+    question: "What is a thread pool and why use one in a telecom simulator?"
+    answer: "A thread pool is a fixed set of pre-created threads that pick tasks from a shared queue, avoiding the overhead of creating and destroying a thread per task — important when task submission rate is high. A typical implementation uses a std::queue of std::function<void()> tasks protected by a mutex, a condition_variable to wake idle threads, and an atomic stop flag for graceful shutdown. In the simulator, the thread pool handles concurrent protocol event processing without the kernel overhead of per-event thread creation."
+    spec: null
+    simulator_trigger: "BULK command execution — simulator thread pool dispatching hundreds of concurrent attach events"
+    interview_context: "Tests system-design thinking about concurrency architecture in high-throughput simulators"
+
+  - id: "q025"
+    domain: "cpp"
+    subdomain: "multithreading"
+    tags:
+      - "cpp-concurrency"
+      - "atomic"
+    level: "senior"
+    question: "What is lock-free programming, and what is the ABA problem in a lock-free stack?"
+    answer: "Lock-free programming uses atomic operations (typically compare-and-swap) instead of mutexes; at least one thread always makes progress, eliminating deadlocks and reducing contention under high load. A lock-free stack stores an atomic head pointer; push creates a new node and uses compare_exchange_weak in a loop to swap it as the new head. The ABA problem occurs when a pointer appears unchanged but the underlying object was replaced — solved with tagged pointers or hazard pointers."
+    spec: null
+    simulator_trigger: "High-throughput simulator message queues using CAS-based lock-free ring buffers for zero-contention event dispatch"
+    interview_context: "Tests advanced concurrency knowledge appropriate for performance-critical simulator paths"
+
+  - id: "q026"
+    domain: "cpp"
+    subdomain: "multithreading"
+    tags:
+      - "cpp-concurrency"
+      - "atomic"
+    level: "senior"
+    question: "Explain C++ memory ordering: memory_order_relaxed, acquire/release, and seq_cst."
+    answer: "memory_order_relaxed provides atomicity for a single variable but no synchronization between threads — use only for independent counters. memory_order_acquire on a load ensures no subsequent reads/writes are reordered before it; memory_order_release on a store ensures no prior operations are reordered after it — together they form a publish/subscribe pattern. memory_order_seq_cst (the default) gives a single total order across all seq_cst operations; it is safest but can slow performance on weakly-ordered architectures like ARM."
+    spec: null
+    simulator_trigger: "Simulator atomic flags using acquire/release for lock-free ready signals between producer and consumer threads"
+    interview_context: "Architect-level question probing memory model knowledge needed for correct lock-free simulator code"
+
+  # ---------------------------------------------------------------------------
+  # C++ — STL (q027–q033)
+  # ---------------------------------------------------------------------------
+
+  - id: "q027"
+    domain: "cpp"
+    subdomain: "stl"
+    tags:
+      - "cpp-stl"
+      - "vector"
+    level: "engineer"
+    question: "Compare std::vector, std::list, and std::deque. When do you use each?"
+    answer: "std::vector is a contiguous dynamic array with O(1) random access and amortized O(1) push_back; it is cache-friendly and the default choice. std::list is a doubly-linked list with O(1) insertion/deletion anywhere but O(n) index access and poor cache behavior — use it for stable iterators and frequent mid-list modifications. std::deque is a segmented buffer with O(1) push/pop at both ends and O(1) random access — use it for queue-like structures with indexing."
+    spec: null
+    simulator_trigger: "Simulator UE neighbor list storage — vector for static APN lists, deque for FIFO event queues"
+    interview_context: "Tests data structure selection for different simulator access patterns"
+
+  - id: "q028"
+    domain: "cpp"
+    subdomain: "stl"
+    tags:
+      - "cpp-stl"
+      - "map"
+    level: "senior"
+    question: "Compare std::map and std::unordered_map. When do you prefer each?"
+    answer: "std::map is a Red-Black Tree with sorted keys and O(log n) lookup; use it when you need sorted iteration, range queries (lower_bound/upper_bound), or non-hashable keys. std::unordered_map is a hash table with average O(1) and worst-case O(n) operations — use it as the default when order does not matter and keys are hashable. For very small sizes a flat sorted vector<pair<K,V>> may outperform both due to cache locality."
+    spec: null
+    simulator_trigger: "Simulator TEID-to-bearer map — unordered_map for O(1) lookup during packet forwarding in gtp_handler.cpp"
+    interview_context: "Tests ability to choose the right container for telecom lookup tables with large UE populations"
+
+  - id: "q029"
+    domain: "cpp"
+    subdomain: "stl"
+    tags:
+      - "cpp-stl"
+      - "iterator"
+    level: "engineer"
+    question: "What are the five iterator categories in C++, and why do they matter?"
+    answer: "C++ iterators are classified by capability: Input (single-pass read), Output (single-pass write), Forward (multi-pass read/write), Bidirectional (supports --), and Random Access (supports +=, -, [] in O(1)). Algorithms declare requirements in these categories, enabling generic implementations that work with any conforming container. C++20 adds Contiguous iterators for guaranteed contiguous memory (e.g., std::span)."
+    spec: null
+    simulator_trigger: "STL algorithm usage on simulator container types — std::sort requires random access iterators, std::find works on any input iterator"
+    interview_context: "Tests STL fundamentals that affect algorithm selection in simulator utility code"
+
+  - id: "q030"
+    domain: "cpp"
+    subdomain: "stl"
+    tags:
+      - "cpp-stl"
+      - "iterator"
+      - "vector"
+    level: "senior"
+    question: "What is iterator invalidation, and how do you safely erase elements from a container while iterating?"
+    answer: "Iterator invalidation occurs when a container modification causes existing iterators to become dangling or point to wrong elements. For std::vector, erasing an element invalidates all iterators at or after the erased position; for std::map and std::set, only the erased element's iterator is invalidated. Safe pattern for vector: use the remove-erase idiom — v.erase(std::remove_if(...), v.end()). For associative containers: capture the iterator returned by erase — it = c.erase(it)."
+    spec: null
+    simulator_trigger: "Simulator UE cleanup — erasing stale UE contexts from a vector during periodic garbage collection"
+    interview_context: "Tests a subtle but common C++ bug source in container-traversal code in simulator maintenance tasks"
+
+  - id: "q031"
+    domain: "cpp"
+    subdomain: "stl"
+    tags:
+      - "cpp-stl"
+      - "vector"
+    level: "engineer"
+    question: "Why does std::remove not actually remove elements from a vector?"
+    answer: "std::remove is a pure algorithm — it rearranges elements so that unwanted values are moved to the end and returns an iterator to the new logical end, but it never changes the container's size() because it has no access to the container object. To actually shrink the vector, call v.erase(new_end, v.end()) — this is the canonical remove-erase idiom. In C++20, the std::erase and std::erase_if free-functions do both steps in one call."
+    spec: null
+    simulator_trigger: "Simulator expired subscription cleanup — remove-erase idiom on subscription_list_ vector in mme_node.cpp"
+    interview_context: "Tests a frequent source of bugs where developers call remove thinking it modifies container size"
+
+  - id: "q032"
+    domain: "cpp"
+    subdomain: "stl"
+    tags:
+      - "cpp-stl"
+      - "iterator"
+    level: "senior"
+    question: "What are custom comparators, and how do you provide one to a C++ container or algorithm?"
+    answer: "A custom comparator is any callable implementing a strict weak ordering — irreflexive, asymmetric, and transitive. Pass it as a template argument to ordered containers (std::map<K,V,Comp>, std::priority_queue) or as a runtime argument to algorithms (std::sort, std::lower_bound). A lambda is the most concise: std::sort(v.begin(), v.end(), [](auto& a, auto& b){ return a.priority > b.priority; })."
+    spec: null
+    simulator_trigger: "Simulator timer heap — priority_queue with custom comparator ordering events by scheduled_time"
+    interview_context: "Tests practical STL customization needed for simulator scheduling data structures"
+
+  - id: "q033"
+    domain: "cpp"
+    subdomain: "stl"
+    tags:
+      - "cpp-stl"
+      - "vector"
+    level: "engineer"
+    question: "What is the difference between emplace and insert / push_back in C++ containers?"
+    answer: "insert and push_back require a pre-constructed object that is then copied or moved into the container. emplace and emplace_back forward constructor arguments directly and construct the object in-place inside the container's memory, eliminating any extra move or copy. Prefer emplace for complex types where construction involves allocations; for small trivially-copyable types the difference is negligible."
+    spec: null
+    simulator_trigger: "Simulator UE context emplacement — emplace_back into ue_list_ vector to avoid temporary construction cost"
+    interview_context: "Tests knowledge of in-place construction that reduces overhead in hot simulator paths"
+
+  # ---------------------------------------------------------------------------
+  # C++ — Modern C++17 (q034–q039)
+  # ---------------------------------------------------------------------------
+
+  - id: "q034"
+    domain: "cpp"
+    subdomain: "cpp17"
+    tags:
+      - "cpp17"
+      - "structured-bindings"
+    level: "engineer"
+    question: "What are structured bindings in C++17?"
+    answer: "Structured bindings allow you to unpack tuple-like objects (tuples, pairs, aggregates, arrays) into named variables in a single declaration: auto [key, value] = myMap.begin(). The bindings can be const, auto&, or auto&& to control copy vs reference. They are especially useful in range-for loops over maps: for (auto& [k, v] : myMap) instead of accessing .first/.second."
+    spec: null
+    simulator_trigger: "Simulator map iteration — for (auto& [imsi, ue_ctx] : ue_store_) pattern in mme_node.cpp"
+    interview_context: "Tests awareness of modern C++17 ergonomics commonly used in telecom code bases post-2019"
+
+  - id: "q035"
+    domain: "cpp"
+    subdomain: "cpp17"
+    tags:
+      - "cpp17"
+      - "optional"
+    level: "senior"
+    question: "What is std::optional, and when should you use it?"
+    answer: "std::optional<T> represents a value that may or may not be present, without heap allocation — it avoids the magic-sentinel anti-pattern (returning -1 or nullptr to mean no value). Typical uses include returning from a function that may fail (optional<UeContext> find_ue(imsi)), optional parameters, and lazy initialization. Access with *opt or opt.value() (throws if empty), or opt.value_or(default); check with if (opt) or opt.has_value()."
+    spec: null
+    simulator_trigger: "Simulator UE lookup — find_ue_context() returns optional<UeContext> rather than raw pointer to model absence cleanly"
+    interview_context: "Tests modern C++17 patterns for safe nullable-value handling in simulator APIs"
+
+  - id: "q036"
+    domain: "cpp"
+    subdomain: "cpp17"
+    tags:
+      - "cpp17"
+      - "variant"
+    level: "senior"
+    question: "What is std::variant, and how does it compare to inheritance for sum types?"
+    answer: "std::variant<T1, T2, ...> is a type-safe discriminated union holding exactly one value from a fixed set of types without heap allocation or vtable overhead. Unlike inheritance, it captures a closed one-of relationship, enables exhaustive pattern matching via std::visit, and avoids base-class slicing. The trade-off is the type set is closed — adding a new type requires changing the variant declaration."
+    spec: null
+    simulator_trigger: "Simulator NAS message variant — std::variant<AttachRequest, TauRequest, DetachRequest> for type-safe NAS PDU dispatch"
+    interview_context: "Tests whether the candidate knows when sum types are more appropriate than open polymorphic hierarchies"
+
+  - id: "q037"
+    domain: "cpp"
+    subdomain: "cpp17"
+    tags:
+      - "cpp17"
+    level: "senior"
+    question: "What is if constexpr, and why is it superior to SFINAE for compile-time branching?"
+    answer: "if constexpr(condition) evaluates the condition at compile time and only instantiates the taken branch — the non-taken branch is not compiled and can be semantically incorrect for the current template argument without causing an error. This replaces complex SFINAE (std::enable_if) patterns with readable, linear code inside a single function template. Example: if constexpr (std::is_integral_v<T>) { return x * x; } else { return x.size(); }."
+    spec: null
+    simulator_trigger: "Simulator template serializer — if constexpr to branch between fixed-length and variable-length field encodings"
+    interview_context: "Tests modern C++17 template programming that simplifies simulator codec implementations"
+
+  - id: "q038"
+    domain: "cpp"
+    subdomain: "cpp17"
+    tags:
+      - "cpp17"
+    level: "senior"
+    question: "What are fold expressions in C++17?"
+    answer: "Fold expressions allow variadic template parameter packs to be folded over a binary operator. A unary right-fold (args + ...) expands to (a0 + (a1 + (a2 + ...))). They replace recursive template metaprogramming for tasks like summing variadic arguments: template<typename... Ts> auto sum(Ts... args) { return (args + ...); }. They also work with && and || for logical conjunction/disjunction over parameter packs."
+    spec: null
+    simulator_trigger: "Simulator variadic message builder — fold expression to concatenate multiple AVP fields into a Diameter message"
+    interview_context: "Tests advanced C++17 template features used in generic simulator protocol encoders"
+
+  - id: "q039"
+    domain: "cpp"
+    subdomain: "cpp17"
+    tags:
+      - "cpp17"
+    level: "senior"
+    question: "What is Class Template Argument Deduction (CTAD) in C++17?"
+    answer: "CTAD allows the compiler to infer template parameters from constructor arguments, so you can write std::pair p(1, 3.14) instead of std::pair<int, double>(1, 3.14), and std::vector v{1, 2, 3} instead of std::vector<int>{1, 2, 3}. When default deduction guides fail you can provide explicit deduction guides. CTAD reduces boilerplate and improves readability with zero runtime cost."
+    spec: null
+    simulator_trigger: "Simulator template wrapper types using CTAD for cleaner construction in test harnesses"
+    interview_context: "Tests awareness of C++17 ergonomic improvements in the simulator's utility and test layers"
+
+  # ---------------------------------------------------------------------------
+  # C++ — Design Patterns (q040–q045)
+  # ---------------------------------------------------------------------------
+
+  - id: "q040"
+    domain: "cpp"
+    subdomain: "design-pattern"
+    tags:
+      - "design-pattern"
+      - "singleton"
+      - "cpp-concurrency"
+    level: "senior"
+    question: "How do you implement a thread-safe Singleton in modern C++?"
+    answer: "The simplest C++11 approach exploits the guaranteed thread-safe initialization of function-local static variables: static Singleton& getInstance() { static Singleton instance; return instance; }. The runtime ensures exactly one construction even under concurrent calls. Mark copy constructor and assignment operator = delete to prevent duplication; avoid the pre-C++11 Double-Checked Locking Pattern which was broken without the C++11 memory model."
+    spec: null
+    simulator_trigger: "Simulator global config and logger singletons accessed concurrently from all node threads"
+    interview_context: "Tests knowledge of the correct modern C++ singleton pattern vs the broken pre-C++11 versions"
+
+  - id: "q041"
+    domain: "cpp"
+    subdomain: "design-pattern"
+    tags:
+      - "design-pattern"
+      - "factory"
+    level: "senior"
+    question: "Explain the Factory Method and Abstract Factory patterns. When do you use each?"
+    answer: "Factory Method defines a virtual method in a base creator class that subclasses override to produce a specific product — the base controls the workflow but delegates instantiation. Abstract Factory provides an interface for creating families of related objects (e.g., WindowsWidgetFactory vs MacWidgetFactory) without specifying concrete classes, allowing the entire product family to be swapped. Use Factory Method when a class cannot anticipate its product type; use Abstract Factory when products from a family must be used together."
+    spec: null
+    simulator_trigger: "Simulator node factory — NodeFactory::create() using Factory Method to instantiate MmeNode, AmfNode, SmfNode by type"
+    interview_context: "Tests creational pattern selection relevant to simulator node instantiation and test scenario setup"
+
+  - id: "q042"
+    domain: "cpp"
+    subdomain: "design-pattern"
+    tags:
+      - "design-pattern"
+      - "observer"
+    level: "senior"
+    question: "Explain the Observer pattern and its typical C++ implementation."
+    answer: "The Observer pattern defines a one-to-many dependency: when a Subject changes state, all registered Observers are notified automatically. In C++, the Subject holds a vector<Observer*> (or smart pointers) and a notify() method that calls update() on each. Use weak_ptr for observers to prevent the Subject from extending their lifetimes. Modern C++ can use std::function callbacks registered in a map for more flexible subscriptions without a virtual Observer interface."
+    spec: null
+    simulator_trigger: "Simulator event notification system — UE state machine notifying registered observers (logger, stats collector, test verifier)"
+    interview_context: "Tests observer pattern knowledge needed for simulator inter-component notification design"
+
+  - id: "q043"
+    domain: "cpp"
+    subdomain: "design-pattern"
+    tags:
+      - "design-pattern"
+    level: "senior"
+    question: "Explain the Strategy pattern. How does it differ from using virtual functions directly?"
+    answer: "The Strategy pattern encapsulates a family of interchangeable algorithms behind a common interface, allowing the algorithm to be swapped at runtime by setting a different strategy object on a Context class. Unlike direct virtual override, Strategy makes variation explicit and composable — you can swap algorithms at runtime without changing the Context class, and algorithms can be shared across multiple contexts. In modern C++ it is often implemented with std::function instead of a virtual class."
+    spec: null
+    simulator_trigger: "Simulator routing strategy — pluggable RouteSelector strategy object in PGW node for different bearer selection algorithms"
+    interview_context: "Tests behavioral pattern knowledge needed for designing configurable simulator policies"
+
+  - id: "q044"
+    domain: "cpp"
+    subdomain: "design-pattern"
+    tags:
+      - "design-pattern"
+    level: "senior"
+    question: "What is CRTP (Curiously Recurring Template Pattern) and when do you use it?"
+    answer: "CRTP is a compile-time polymorphism technique where a base template class takes the derived class as its own template parameter: template<class D> class Base { void interface() { static_cast<D*>(this)->impl(); } }; class Concrete : public Base<Concrete>. The base can call derived methods via static_cast at zero runtime cost — no vtable overhead. Use CRTP for performance-critical libraries and static duck typing; the trade-off is you cannot store heterogeneous CRTP types in a vector<Base*>."
+    spec: null
+    simulator_trigger: "Simulator high-frequency message serializer using CRTP to avoid vtable cost on the 10M-events-per-second hot path"
+    interview_context: "Tests advanced template technique for performance-critical simulator components"
+
+  - id: "q045"
+    domain: "cpp"
+    subdomain: "design-pattern"
+    tags:
+      - "design-pattern"
+    level: "senior"
+    question: "What is the Flyweight pattern, and when do you use it?"
+    answer: "The Flyweight pattern minimizes memory by separating state into intrinsic (shared, stored in the flyweight) and extrinsic (unique per client, passed at use time). A FlyweightFactory backed by an unordered_map returns a cached instance when a flyweight with given intrinsic state exists, rather than creating a new one. Use it when your system creates millions of similar objects — e.g., character objects in a text editor, particle instances in a simulation, or reusable codec descriptors in a telecom simulator."
+    spec: null
+    simulator_trigger: "Simulator QCI descriptor flyweights — shared immutable QCI profile objects reused across thousands of simulated bearers"
+    interview_context: "Tests memory optimization pattern applicable to large-scale UE population simulations"
+
+  # ---------------------------------------------------------------------------
+  # C++ — System Design (q046–q050)
+  # ---------------------------------------------------------------------------
+
+  - id: "q046"
+    domain: "system_design"
+    subdomain: "server"
+    tags:
+      - "system-design"
+      - "scalability"
+      - "server"
+      - "thread-pool"
+      - "cpp-concurrency"
+    level: "senior"
+    question: "How would you design a scalable, high-performance server in C++?"
+    answer: "A scalable C++ server typically uses an event-driven, non-blocking I/O model (epoll on Linux) combined with a thread pool — one thread per CPU core handles I/O events and dispatches work tasks to minimize context switching. Protect shared state with std::shared_mutex for read-heavy data structures; use RAII via custom handles for sockets and file descriptors; and use custom memory allocators or tcmalloc to reduce fragmentation. At the architecture level, partition data by client/session ID to minimize cross-thread sharing (share-nothing design)."
+    spec: null
+    simulator_trigger: "Simulator server main loop in simulator_server.cpp — epoll-based event dispatch feeding into a thread pool"
+    interview_context: "System-design question testing ability to translate telecom node architecture into C++ server patterns"
+
+  - id: "q047"
+    domain: "system_design"
+    subdomain: "connection-pool"
+    tags:
+      - "system-design"
+      - "scalability"
+      - "cpp-concurrency"
+      - "mutex"
+    level: "senior"
+    question: "How does connection pooling work, and what concurrency issues does it introduce?"
+    answer: "A connection pool pre-creates a fixed number of connections at startup and lends them to requesting threads, returning them on completion — avoiding connection-establishment latency per request. Thread-safety requires a mutex protecting the pool's queue and a condition_variable to block callers when all connections are in use. Critical failure modes include connection leaks (use RAII wrappers), pool exhaustion under peak load, and stale connections (require periodic health checks or reconnection logic)."
+    spec: null
+    simulator_trigger: "Simulator Diameter connection pool to HSS — DiameterConnectionPool in dia_client.cpp"
+    interview_context: "Tests concurrency and resilience design for the simulator's external protocol connections"
+
+  - id: "q048"
+    domain: "system_design"
+    subdomain: "producer-consumer"
+    tags:
+      - "system-design"
+      - "producer-consumer"
+      - "cpp-concurrency"
+      - "mutex"
+      - "thread-pool"
+    level: "senior"
+    question: "Describe the producer-consumer pattern and its C++ implementation strategies."
+    answer: "The producer-consumer pattern decouples production from consumption via a thread-safe bounded buffer — producers block when full, consumers block when empty. Classic implementation uses a std::queue protected by a mutex plus two condition_variables (not_full, not_empty). For high throughput, a lock-free ring buffer using atomic read/write indices eliminates mutex contention entirely for single-producer-single-consumer cases. Key design decisions are buffer sizing to absorb bursts, graceful shutdown via atomic stop flag, and consumer error handling."
+    spec: null
+    simulator_trigger: "BULK command execution — simulator uses producer-consumer queue between the SCTP receive thread and protocol-processing workers"
+    interview_context: "Tests concurrency pattern knowledge for the simulator's core message dispatch architecture"
+
+  - id: "q049"
+    domain: "system_design"
+    subdomain: "concurrency-architecture"
+    tags:
+      - "system-design"
+      - "scalability"
+      - "cpp-concurrency"
+      - "mutex"
+      - "shared-mutex"
+    level: "senior"
+    question: "How do you handle concurrency in a multithreaded C++ application at the architecture level?"
+    answer: "Prefer a share-nothing or message-passing architecture where each thread owns its data and communicates via queues — this eliminates most data races by design. When sharing is unavoidable, use std::atomic for single-variable flags/counters, std::shared_mutex for read-heavy data structures, and std::mutex for complex invariants. Follow the lock-ordering principle — assign a global rank to mutexes and always acquire in ascending order. Use std::scoped_lock when acquiring multiple locks simultaneously."
+    spec: null
+    simulator_trigger: "Simulator overall threading model in simulator_architecture.md — per-node thread isolation with lock-ordered cross-node signaling"
+    interview_context: "Architect-level question testing overall concurrency design philosophy for multi-node simulator"
+
+  - id: "q050"
+    domain: "system_design"
+    subdomain: "lru-cache"
+    tags:
+      - "system-design"
+      - "cpp-concurrency"
+      - "shared-mutex"
+      - "cpp-stl"
+      - "map"
+    level: "senior"
+    question: "How would you design a thread-safe LRU cache in C++?"
+    answer: "Combine an unordered_map<Key, ListIterator> for O(1) lookups with a list<pair<Key,Value>> for O(1) LRU eviction (most-recently-used at front, LRU at back). Wrap all operations in a mutex for correctness; for higher concurrency use shared_mutex so multiple reads proceed concurrently with exclusive writes only during insertion/eviction. Consider sharding the cache into N independent segments (each with its own mutex) to reduce contention proportionally."
+    spec: null
+    simulator_trigger: "Simulator GUTI-to-MME context cache — sharded LRU cache in guti_cache.cpp preventing stale context lookups"
+    interview_context: "Combines data structure design with concurrent cache design — tests both skills simultaneously"
+
+  # ---------------------------------------------------------------------------
+  # 4G EPC — Attach Procedure (q051–q055)
+  # ---------------------------------------------------------------------------
+
+  - id: "q051"
+    domain: "4g"
+    subdomain: "attach"
+    tags:
+      - "4g-attach"
+      - "s1ap"
+      - "nas"
+      - "emm"
+      - "mme"
+      - "sgw"
+      - "pgw"
+      - "hss"
+      - "diameter"
+    level: "engineer"
+    question: "Walk me through the LTE Initial Attach procedure step by step, naming every interface and message."
+    answer: "The UE sends an Attach Request (containing IMSI or GUTI) inside an S1AP Initial UE Message to the MME over S1-MME. The MME fetches subscriber data from the HSS over S6a (Diameter AIR/AIA, then ULR/ULA), performs EPS-AKA authentication, and establishes NAS security. The MME then sends Create Session Request to SGW over S11 (GTPv2-C); the SGW relays it to the PGW over S5/S8, which allocates an IP address, applies PCRF policy via Gx, and returns Create Session Response back through SGW to MME. Finally the MME sends Initial Context Setup Request (S1AP) to the eNodeB to set up the radio bearer, and the UE receives an Attach Accept with GUTI, TAI list, and PDN address."
+    spec: "TS 23.401 §5.3.2"
+    simulator_trigger: "4G ATTACH command — full flow from S1AP InitialUEMessage through Diameter AIR to GTPv2 Create Session"
+    interview_context: "Fundamental end-to-end 4G knowledge check; expected at mid-level and above"
+
+  - id: "q052"
+    domain: "4g"
+    subdomain: "attach"
+    tags:
+      - "4g-attach"
+      - "s1ap"
+      - "nas"
+      - "mme"
+      - "emm"
+    level: "engineer"
+    question: "What is the role of S1AP in the LTE attach procedure, and what message type carries the NAS PDU?"
+    answer: "S1AP (S1 Application Protocol) is the control-plane protocol on the S1-MME interface between eNodeB and MME, running over SCTP/IP. NAS messages (Attach Request, Authentication Request) are carried transparently as the NAS-PDU IE inside S1AP messages such as Initial UE Message, Downlink NAS Transport, and Uplink NAS Transport. The eNodeB does not parse NAS content — only the MME terminates NAS. This separation of RAN and CN signaling is a key EPS design principle."
+    spec: "TS 36.413, TS 24.301"
+    simulator_trigger: "4G ATTACH command step 1 — S1AP InitialUEMessage carrying NAS Attach Request to MME"
+    interview_context: "Tests understanding of the S1AP/NAS layering principle, commonly confused by junior engineers"
+
+  - id: "q053"
+    domain: "4g"
+    subdomain: "attach"
+    tags:
+      - "4g-attach"
+      - "pgw"
+      - "gtpv2"
+    level: "engineer"
+    question: "During LTE attach, at what step does the UE get an IP address, and which node assigns it?"
+    answer: "The UE receives an IP address at the end of the default bearer establishment phase, not at the beginning of attach. The PGW is responsible for IP address allocation — it maintains an IP address pool per APN and assigns one during the Create Session procedure. The IP address is returned in the Create Session Response, propagated through SGW → MME → eNodeB, and delivered to the UE in the Attach Accept / PDN Connectivity Accept message."
+    spec: "TS 23.401 §5.3.2, TS 29.274"
+    simulator_trigger: "4G ATTACH command step 6 — PGW returns Create Session Response with UE IP address to SGW"
+    interview_context: "Tests precise knowledge of which node allocates the IP address and at which step"
+
+  - id: "q054"
+    domain: "4g"
+    subdomain: "attach"
+    tags:
+      - "4g-attach"
+      - "mme"
+      - "nas"
+      - "emm"
+    level: "engineer"
+    question: "What is a GUTI, and why is it used instead of the IMSI after the first attach?"
+    answer: "The GUTI (Globally Unique Temporary Identity) is a temporary identifier assigned by the MME to the UE after successful attach, replacing the permanent IMSI in subsequent signaling. It is composed of PLMN ID + MME Group ID + MME Code + M-TMSI. The primary reason is IMSI confidentiality — sending IMSI over the air exposes the subscriber to IMSI-catcher attacks. The GUTI also enables fast context retrieval at a new MME via the encoded old MME address, potentially avoiding full re-authentication."
+    spec: "TS 23.003, TS 23.401"
+    simulator_trigger: "4G ATTACH command completion — MME assigns GUTI in Attach Accept, stored in ue_context.guti"
+    interview_context: "Tests subscriber identity and privacy knowledge fundamental to 4G/5G engineering roles"
+
+  - id: "q055"
+    domain: "4g"
+    subdomain: "attach"
+    tags:
+      - "4g-attach"
+      - "mme"
+      - "nas"
+      - "emm"
+    level: "engineer"
+    question: "Explain the difference between Combined Attach and EPS-only Attach in LTE."
+    answer: "An EPS-only Attach registers the UE for LTE data services only. A Combined EPS/IMSI Attach additionally registers the UE in a legacy CS core (MSC/VLR) for circuit-switched voice and SMS via the SGs interface between MME and MSC/VLR, supporting Circuit-Switched Fallback (CSFB). The MME forwards the location update to MSC/VLR; if that SGs connection fails, the attach still succeeds as EPS-only. With VoLTE deployments, operators typically provision EPS-only attach."
+    spec: "TS 23.401 §5.3.2, TS 29.118"
+    simulator_trigger: "4G ATTACH command with combined_attach=true flag in simulator config"
+    interview_context: "Tests knowledge of 4G/2G/3G interworking relevant in networks still supporting CSFB"
+
+  # ---------------------------------------------------------------------------
+  # 4G EPC — Authentication & Security (q056–q060)
+  # ---------------------------------------------------------------------------
+
+  - id: "q056"
+    domain: "4g"
+    subdomain: "authentication"
+    tags:
+      - "4g-auth"
+      - "aka"
+      - "diameter"
+      - "s6a"
+      - "hss"
+      - "kasme"
+    level: "senior"
+    question: "Describe the EPS-AKA procedure. What vectors does the HSS generate, and what does each field represent?"
+    answer: "The HSS generates an EPS Authentication Vector containing four values: RAND (128-bit random challenge), AUTN (Authentication Token enabling mutual authentication), XRES (Expected Response used by the MME to verify the UE), and K_ASME (the top-level session key derived from CK, IK, SQN, and serving network ID). The MME sends RAND and AUTN to the UE; the UE verifies AUTN, computes RES, and returns it. The MME validates RES == XRES, and both sides independently derive K_ASME which is never transmitted over the air."
+    spec: "TS 33.401, TS 33.102"
+    simulator_trigger: "4G ATTACH command step 4 — Diameter AIR sent by MME to HSS; AIA returns EPS-AV"
+    interview_context: "Core security knowledge expected at senior level in any 4G/5G network function role"
+
+  - id: "q057"
+    domain: "4g"
+    subdomain: "authentication"
+    tags:
+      - "4g-auth"
+      - "kasme"
+      - "s6a"
+      - "hss"
+    level: "senior"
+    question: "What is K_ASME and what keys are derived from it in LTE?"
+    answer: "K_ASME (Access Security Management Entity Key) is the master key for EPS security, derived jointly by the UE and HSS from CK, IK, SQN, and the Serving Network Identity — never transmitted over the air. From K_ASME, three second-level keys are derived: K_NASenc (NAS encryption), K_NASint (NAS integrity), and K_eNB (forwarded to the eNodeB). From K_eNB, the eNodeB further derives K_RRCenc, K_RRCint, and K_UPenc."
+    spec: "TS 33.401 §6.2"
+    simulator_trigger: "4G ATTACH command security phase — NAS Security Mode Command sent after EPS-AKA completes"
+    interview_context: "Tests the 4G key hierarchy — important for security-focused roles and VoLTE NAS security debugging"
+
+  - id: "q058"
+    domain: "4g"
+    subdomain: "authentication"
+    tags:
+      - "4g-auth"
+      - "nas"
+      - "mme"
+    level: "engineer"
+    question: "What is the NAS Security Mode Command in LTE, and when is it triggered?"
+    answer: "The NAS Security Mode Command (SMC) is sent by the MME to the UE after successful EPS-AKA to activate NAS-layer encryption and integrity protection. It carries the selected encryption algorithm (EEA), integrity algorithm (EIA), eKSI, and a NAS-MAC. The UE verifies the NAS-MAC, derives K_NASenc and K_NASint, and responds with NAS Security Mode Complete. Crucially, the SMC itself is integrity-protected but not ciphered — ciphering is activated for all subsequent NAS messages."
+    spec: "TS 24.301 §5.4.2, TS 33.401"
+    simulator_trigger: "4G ATTACH command — NAS SMC sent by MME after Diameter AIA returns authentication vectors"
+    interview_context: "Tests understanding of the NAS security activation sequence and its ordering invariant"
+
+  - id: "q059"
+    domain: "4g"
+    subdomain: "authentication"
+    tags:
+      - "4g-auth"
+      - "s1ap"
+      - "mme"
+    level: "senior"
+    question: "What is the AS Security Mode Command in LTE and which layer executes it?"
+    answer: "The AS (Access Stratum) Security Mode Command is an RRC-layer message (not NAS) sent by the eNodeB to the UE to activate RRC and user-plane security using K_eNB received from the MME in the Initial Context Setup Request. It activates integrity and ciphering for RRC signaling and ciphering for user-plane data at the PDCP layer. AS integrity protection is mandatory for RRC; ciphering is configurable per operator policy."
+    spec: "TS 33.401 §7.2, TS 36.331"
+    simulator_trigger: "4G ATTACH command — eNodeB sends RRC Security Mode Command after receiving K_eNB in S1AP Initial Context Setup"
+    interview_context: "Tests ability to distinguish NAS-layer and RRC-layer security activation procedures"
+
+  - id: "q060"
+    domain: "4g"
+    subdomain: "authentication"
+    tags:
+      - "4g-auth"
+      - "mme"
+      - "nas"
+    level: "senior"
+    question: "What ciphering and integrity algorithms are supported for NAS and AS in LTE?"
+    answer: "LTE defines Evolved Encryption Algorithms (EEA): EEA0=null, EEA1=SNOW 3G, EEA2=AES-CTR, EEA3=ZUC. Evolved Integrity Algorithms (EIA): EIA0=null (only for emergency calls), EIA1=SNOW 3G, EIA2=AES-CMAC, EIA3=ZUC. The MME selects algorithms based on the UE's capability list and the operator's priority list; NAS integrity is mandatory (EIA0 only allowed for unauthenticated emergency sessions). EIA2/EEA2 (AES) is the most commonly deployed in commercial networks."
+    spec: "TS 33.401 §5.1, Annex B"
+    simulator_trigger: "4G ATTACH command security negotiation — algorithm selection logged in mme_security.cpp"
+    interview_context: "Tests cryptographic algorithm knowledge expected at senior level in security-sensitive core network roles"
+
+  # ---------------------------------------------------------------------------
+  # 4G EPC — Bearer Management & QoS (q061–q065)
+  # ---------------------------------------------------------------------------
+
+  - id: "q061"
+    domain: "4g"
+    subdomain: "bearer"
+    tags:
+      - "4g-bearer"
+      - "qci"
+      - "gtpv2"
+      - "sgw"
+      - "pgw"
+    level: "engineer"
+    question: "What is the difference between a default EPS bearer and a dedicated EPS bearer?"
+    answer: "A default EPS bearer is established automatically during PDN connection setup, is always non-GBR, and remains active for the lifetime of the PDN connection — providing always-on connectivity. A dedicated EPS bearer is established dynamically when the default bearer's QoS cannot meet a specific service's requirements (e.g., VoLTE voice); it is linked to the default bearer via the Linked EPS Bearer ID and carries a TFT to route specific flows. Dedicated bearers can be GBR or non-GBR; up to 11 EPS bearers (EBI 5–15) can be active per UE simultaneously."
+    spec: "TS 23.401 §5.4, TS 23.203"
+    simulator_trigger: "4G ATTACH command — default bearer (QCI 9) establishment; VoLTE CALL command — dedicated bearer (QCI 1) establishment"
+    interview_context: "Foundational bearer model question expected at entry-to-mid level in EPC roles"
+
+  - id: "q062"
+    domain: "4g"
+    subdomain: "bearer"
+    tags:
+      - "4g-bearer"
+      - "qci"
+      - "volte-bearer"
+      - "pgw"
+    level: "engineer"
+    question: "What is QCI? List the QCI values most relevant to VoLTE and their characteristics."
+    answer: "QCI (QoS Class Identifier) is a scalar value (1–9 in Release 8) mapping to QoS characteristics: resource type (GBR or non-GBR), priority, packet delay budget, and packet error loss rate. For VoLTE: QCI 1 (GBR, 100ms PDB) is the dedicated bearer for RTP voice media; QCI 5 (non-GBR, 100ms PDB) is the default bearer for IMS SIP signaling; QCI 9 (non-GBR, 300ms PDB) is the default bearer for internet data. The QCI 2 (GBR, 150ms) dedicated bearer is added for video calls."
+    spec: "TS 23.203 §6.1.7"
+    simulator_trigger: "CALL command — QCI 1 dedicated bearer setup triggered by PCRF Gx RAR after Rx AAR from P-CSCF"
+    interview_context: "Core VoLTE bearer model knowledge tested universally in IMS/VoLTE roles"
+
+  - id: "q063"
+    domain: "4g"
+    subdomain: "bearer"
+    tags:
+      - "4g-bearer"
+      - "qci"
+      - "volte-bearer"
+      - "ims-epc"
+    level: "engineer"
+    question: "Describe the EPS bearer model for a VoLTE UE with an active voice call and concurrent data session."
+    answer: "A VoLTE UE with simultaneous voice and data maintains at least three EPS bearers: a default non-GBR bearer (QCI 9) on the internet APN for regular IP data; a default non-GBR bearer (QCI 5) on the IMS APN for SIP signaling, always active once IMS is connected; and a dedicated GBR bearer (QCI 1) on the IMS APN for RTP voice media, established only during a call and released when the call ends. For a video call, a fourth bearer (QCI 2, GBR) is added for the video media stream."
+    spec: "TS 23.203, GSMA IR.92"
+    simulator_trigger: "CALL command — QCI 5 pre-established by ATTACH; QCI 1 added during call setup; QCI 9 active in parallel"
+    interview_context: "End-to-end VoLTE bearer topology question testing understanding of concurrent bearer coexistence"
+
+  - id: "q064"
+    domain: "4g"
+    subdomain: "bearer"
+    tags:
+      - "4g-bearer"
+      - "qci"
+      - "pgw"
+      - "mme"
+    level: "senior"
+    question: "What is ARP and how does it interact with bearer admission control in LTE?"
+    answer: "ARP (Allocation and Retention Priority) controls bearer admission and preemption, independent of QCI. It has three sub-fields: Priority Level (1–15, where 1 is highest), Preemption Capability (can this bearer preempt others?), and Preemption Vulnerability (can this bearer be preempted?). When resources are insufficient, the network uses ARP to reject the new bearer or preempt an existing lower-priority one. ARP only affects admission/rejection decisions — not in-flight packet scheduling, which is QCI-driven."
+    spec: "TS 23.203 §6.1.7.2"
+    simulator_trigger: "CALL command under congestion — ARP preemption logic in pgw_bearer_manager.cpp"
+    interview_context: "Tests precise understanding of admission control vs QoS scheduling — a common interview trap"
+
+  - id: "q065"
+    domain: "4g"
+    subdomain: "bearer"
+    tags:
+      - "4g-bearer"
+      - "pgw"
+      - "qci"
+    level: "senior"
+    question: "What is AMBR, and how does it differ from GBR and MBR in LTE?"
+    answer: "GBR (Guaranteed Bit Rate) and MBR (Maximum Bit Rate) apply per-bearer to GBR-type bearers only — GBR is the minimum guaranteed rate, MBR is the ceiling. AMBR (Aggregate Maximum Bit Rate) applies to non-GBR bearers: UE-AMBR limits total non-GBR traffic across all APNs for a UE, while APN-AMBR limits aggregate non-GBR traffic on a specific APN. There is no per-bearer rate cap for non-GBR bearers — only aggregate limits enforced at the PGW and UE."
+    spec: "TS 23.203 §6.1.7, TS 29.212"
+    simulator_trigger: "4G ATTACH command — AMBR provisioned from HSS via Diameter ULA, enforced by PGW in Create Session"
+    interview_context: "Tests precise understanding of the three-tier LTE QoS rate model often confused in interviews"
+
+  # ---------------------------------------------------------------------------
+  # 4G EPC — Handover (q066–q069)
+  # ---------------------------------------------------------------------------
+
+  - id: "q066"
+    domain: "4g"
+    subdomain: "handover"
+    tags:
+      - "4g-handover"
+      - "x2"
+      - "s1-ho"
+      - "path-switch"
+      - "mme"
+    level: "engineer"
+    question: "Explain the X2-based handover procedure. When is it used, and when is S1-based handover preferred?"
+    answer: "X2 handover is used when source and target eNodeBs communicate directly via X2 (same MME pool area); it is faster because MME and SGW are not in the critical path. The source eNB sends Handover Request to the target eNB over X2; after UE attaches, the target eNB notifies the MME via Path Switch Request, and the MME updates the SGW bearer path. S1 handover is used when the eNBs are in different MME pools, no X2 exists, the serving PLMN changes, or security key forwarding requires MME involvement."
+    spec: "TS 36.300, TS 23.401 §5.5.1"
+    simulator_trigger: "HO command in simulator — X2-based path triggers x2_handover_handler.cpp; S1-based triggers s1_handover_handler.cpp"
+    interview_context: "Tests fundamental handover procedure knowledge relevant to LTE mobility performance analysis"
+
+  - id: "q067"
+    domain: "4g"
+    subdomain: "handover"
+    tags:
+      - "4g-handover"
+      - "x2"
+      - "s1-ho"
+      - "path-switch"
+      - "gtpv2"
+      - "teid"
+    level: "senior"
+    question: "During X2 handover, what is a Path Switch and which GTP tunnels are modified?"
+    answer: "After the UE attaches to the target eNodeB, the target eNB sends a Path Switch Request (S1AP) to the MME. The MME sends a Modify Bearer Request (GTPv2) to the SGW providing the new S1-U TEID of the target eNB; the SGW re-points its downlink GTP-U tunnel from the source eNB's IP/TEID to the target eNB's IP/TEID. The S5/S8 tunnel between SGW and PGW is not modified — the PGW remains the anchor. The MME then signals the source eNB to release its resources."
+    spec: "TS 23.401 §5.5.1.1.2, TS 29.274"
+    simulator_trigger: "HO command — Modify Bearer Request in x2_path_switch.cpp updating SGW downlink TEID after UE moves"
+    interview_context: "Tests deep GTP tunnel understanding needed for handover debugging in the simulator"
+
+  - id: "q068"
+    domain: "4g"
+    subdomain: "handover"
+    tags:
+      - "4g-handover"
+      - "mme"
+      - "s1-ho"
+    level: "senior"
+    question: "Describe the difference between intra-MME and inter-MME S1 handover at the core network level."
+    answer: "In intra-MME S1 handover, source and target eNodeBs connect to the same MME; the MME coordinates the Handover Request to the target eNB and updates the bearer path via SGW. In inter-MME S1 handover, the source MME sends a Forward Relocation Request to the target MME via S10 (GTPv2), which sets up new S11/S5 bearers with possibly a new SGW; after UE attachment the target MME sends Forward Relocation Complete and the old MME releases all resources. This involves full re-establishment of the GTP tunnel chain."
+    spec: "TS 23.401 §5.5.1.2, §5.5.1.3"
+    simulator_trigger: "HO command with inter-mme=true flag — S10 Forward Relocation Request between two MME simulator instances"
+    interview_context: "Tests understanding of the GTP re-anchoring complexity introduced by MME changes"
+
+  - id: "q069"
+    domain: "4g"
+    subdomain: "handover"
+    tags:
+      - "4g-handover"
+      - "mme"
+    level: "senior"
+    question: "What is SRVCC and why is it needed in VoLTE networks?"
+    answer: "SRVCC (Single Radio Voice Call Continuity) enables seamless handover of an ongoing VoLTE/IMS voice call from LTE (PS domain) to 2G/3G (CS domain) when LTE coverage is lost — without SRVCC the call would drop. The MME sends a PS-to-CS HO request to the MSC Server via the Sv interface; the MSC creates a CS call leg while IMS anchors media at the ATCF/ATGW; the S-CSCF is notified via SIP signaling to update the session. SRVCC requires the UE's STN-SR (Session Transfer Number for SRVCC) to be provisioned in the HSS."
+    spec: "TS 23.216, TS 23.401"
+    simulator_trigger: "HO command with srvcc=true — MME sends Sv interface PS-to-CS request after LTE coverage loss detected"
+    interview_context: "Tests VoLTE-specific handover continuity knowledge required at senior IMS/VoLTE engineering levels"
+
+  # ---------------------------------------------------------------------------
+  # 4G EPC — TAU (q070–q072)
+  # ---------------------------------------------------------------------------
+
+  - id: "q070"
+    domain: "4g"
+    subdomain: "tau"
+    tags:
+      - "4g-tau"
+      - "tracking-area"
+      - "mobility"
+      - "mme"
+      - "nas"
+      - "emm"
+    level: "engineer"
+    question: "What triggers a TAU in LTE and what are the different types of TAU?"
+    answer: "A TAU is triggered when: the UE moves into a TA not on its assigned TA list; the periodic TAU timer T3412 expires; the UE transitions to ECM-CONNECTED in a new TA; or the UE changes PLMN or ISR state. TAU types include Normal TAU (TA update without SGW change), TAU with SGW relocation (requires Create Session Request cycle), Combined TAU (also updates VLR for CS fallback), and Periodic TAU (keep-alive confirming UE reachability)."
+    spec: "TS 23.401 §5.3.3, TS 24.301"
+    simulator_trigger: "TAU command in simulator — triggers tau_handler.cpp with configurable tau_type parameter"
+    interview_context: "Tests mobility management knowledge essential for any MME software engineering role"
+
+  - id: "q071"
+    domain: "4g"
+    subdomain: "tau"
+    tags:
+      - "4g-tau"
+      - "tracking-area"
+      - "mobility"
+      - "mme"
+      - "diameter"
+      - "s6a"
+    level: "senior"
+    question: "Walk through the key steps of a TAU procedure when the MME changes (inter-MME TAU)."
+    answer: "The UE sends a TAU Request (with old GUTI) to the new MME; the new MME derives the old MME address from the GUTI and sends a Context Request (S10, GTPv2) to retrieve the UE's MM and bearer context. The new MME optionally re-authenticates, sends an Update Location Request (Diameter ULR) to the HSS over S6a, and receives the subscriber profile in ULA while the HSS cancels the old MME registration via CLR. The new MME sends Modify Bearer Request (S11, GTPv2) to the SGW and returns a TAU Accept with new GUTI and TA list; the UE confirms with TAU Complete."
+    spec: "TS 23.401 §5.3.3.1, TS 29.272"
+    simulator_trigger: "TAU command with inter_mme=true — S10 Context Request/Response between two simulator MME instances"
+    interview_context: "Tests end-to-end TAU procedure knowledge including cross-MME context transfer and HSS interaction"
+
+  - id: "q072"
+    domain: "4g"
+    subdomain: "tau"
+    tags:
+      - "4g-tau"
+      - "tracking-area"
+      - "mobility"
+      - "mme"
+      - "nas"
+    level: "senior"
+    question: "What is the difference between TAU in EMM-IDLE and EMM-CONNECTED state?"
+    answer: "In EMM-IDLE, the UE has no active S1 connection; a TAU requires first establishing an RRC connection and S1 signaling association, making it a TAU without active flag with bearers typically suspended. In EMM-CONNECTED, the UE already has an active S1 connection and bearer context; TAU is more common when the UE moves across TA boundaries while actively transmitting. The Active Flag in the TAU Request indicates whether the UE requests bearer re-activation after TAU, avoiding a separate Service Request."
+    spec: "TS 23.401 §5.3.3, TS 24.301 §5.5.3"
+    simulator_trigger: "TAU command — simulator configures active_flag in TAU Request to test idle vs connected TAU paths"
+    interview_context: "Tests fine-grained UE state machine knowledge relevant to TAU failure analysis"
+
+  # ---------------------------------------------------------------------------
+  # 4G EPC — Interfaces (q073–q077)
+  # ---------------------------------------------------------------------------
+
+  - id: "q073"
+    domain: "4g"
+    subdomain: "interfaces"
+    tags:
+      - "s1-mme"
+      - "s1ap"
+      - "mme"
+      - "nas"
+    level: "engineer"
+    question: "Describe the S1-MME interface: protocol stack, messages, and its role."
+    answer: "S1-MME is the control-plane interface between eNodeB and MME, carrying S1AP messages over SCTP/IP. SCTP provides reliable, ordered transport with multi-homing support. Key S1AP messages include UE-associated (Initial UE Message, Initial Context Setup Request/Response, UE Context Release Command) and non-UE-associated (S1 Setup Request/Response, Paging, Reset). NAS PDUs are carried as transparent IEs — the eNodeB does not interpret them. A single eNodeB typically has S1-MME connections to 2–3 MMEs for redundancy."
+    spec: "TS 36.413, TS 23.401"
+    simulator_trigger: "4G ATTACH command — S1AP InitialUEMessage is the first message from gNB simulator to MME simulator"
+    interview_context: "Tests precise S1 interface knowledge needed for debugging S1AP setup and UE context issues"
+
+  - id: "q074"
+    domain: "4g"
+    subdomain: "interfaces"
+    tags:
+      - "s6a"
+      - "diameter"
+      - "mme"
+      - "hss"
+      - "4g-auth"
+    level: "senior"
+    question: "What Diameter commands are exchanged on the S6a interface between MME and HSS?"
+    answer: "The S6a interface uses Diameter (3GPP Multimedia application, App-ID 16777251). Key command pairs are: AIR/AIA (Authentication-Information-Request/Answer) — MME fetches EPS authentication vectors; ULR/ULA (Update-Location-Request/Answer) — MME registers UE and receives subscription data; CLR/CLA (Cancel-Location-Request/Answer) — HSS deregisters UE from old MME; IDR/IDA (Insert-Subscriber-Data) — HSS pushes updated subscription data; PUR/PUA (Purge-UE) — MME deregisters UE after detach."
+    spec: "TS 29.272"
+    simulator_trigger: "4G ATTACH command step 4 — Diameter AIR/AIA; step 5 — ULR/ULA on s6a_client.cpp"
+    interview_context: "Tests Diameter S6a command knowledge required for HSS troubleshooting in attach failure scenarios"
+
+  - id: "q075"
+    domain: "4g"
+    subdomain: "interfaces"
+    tags:
+      - "s11"
+      - "s5s8"
+      - "gtpv2"
+      - "mme"
+      - "sgw"
+      - "pgw"
+    level: "engineer"
+    question: "What is the difference between the S11 and S5/S8 interfaces in LTE?"
+    answer: "S11 is between MME and SGW, uses GTPv2-C for control-plane bearer management (Create/Modify/Delete Session requests), and carries no user-plane traffic. S5 is between SGW and PGW within the same PLMN (non-roaming), carrying both GTPv2-C and GTP-U user data. S8 is functionally identical to S5 but crosses PLMN boundaries for roaming scenarios — an IPX provider typically sits between S8 peers. The SGW acts as a relay, forwarding GTPv2-C messages from S11 to S5 with TEID updates."
+    spec: "TS 29.274, TS 23.401"
+    simulator_trigger: "4G ATTACH command — Create Session Request chain: MME → SGW (S11) → PGW (S5) in gtpv2_handler.cpp"
+    interview_context: "Tests ability to distinguish the control and user plane stacks on each interface"
+
+  - id: "q076"
+    domain: "4g"
+    subdomain: "interfaces"
+    tags:
+      - "gx"
+      - "diameter"
+      - "pgw"
+      - "pcrf"
+      - "4g-bearer"
+      - "qci"
+    level: "senior"
+    question: "What is the Gx interface and what protocol does it use?"
+    answer: "Gx connects the PGW (acting as PCEF) to the PCRF, using Diameter (App-ID 16777238) over TCP/SCTP. When a UE attaches and a PDN connection is established, the PGW opens a Gx session with CCR (CC-Request) INITIAL_REQUEST; the PCRF responds with CCA containing PCC Rules (QCI, ARP, GBR, MBR, flow descriptions, charging keys). The PCRF can push updated rules mid-session using RAR (Re-Auth-Request); the PGW responds with RAA. Gx enables dynamic QoS enforcement — e.g., when IMS triggers a dedicated bearer via Rx."
+    spec: "TS 29.212"
+    simulator_trigger: "4G ATTACH command — PGW sends Gx CCR-Initial to PCRF; CALL command — Gx RAR pushing QCI=1 PCC rule"
+    interview_context: "Tests Gx/PCC understanding critical for debugging VoLTE bearer establishment failures"
+
+  - id: "q077"
+    domain: "4g"
+    subdomain: "interfaces"
+    tags:
+      - "gy"
+      - "diameter"
+      - "pgw"
+    level: "senior"
+    question: "What is the Gy interface and how does it differ from Rf in LTE?"
+    answer: "Gy is the online charging interface between the PGW and OCS (Online Charging System), using Diameter Credit-Control Application — it checks and reserves credit before delivering service; if credit runs out, the service is immediately terminated or throttled. Rf is the offline charging interface using Diameter Accounting messages (ACR/ACA) to deliver CDRs post-session for batch billing reconciliation. Online (Gy) = pre-paid / real-time credit control; Offline (Rf) = post-paid / batch CDR delivery."
+    spec: "TS 32.299, TS 32.240"
+    simulator_trigger: "CALL command with charging=online flag — PGW sends Diameter CCR to OCS simulator over Gy"
+    interview_context: "Tests online vs offline charging model distinction fundamental to billing architecture roles"
+
+  # ---------------------------------------------------------------------------
+  # 4G EPC — Node Roles (q078–q082)
+  # ---------------------------------------------------------------------------
+
+  - id: "q078"
+    domain: "4g"
+    subdomain: "node-roles"
+    tags:
+      - "mme"
+      - "4g-attach"
+      - "nas"
+      - "emm"
+      - "4g-auth"
+      - "4g-bearer"
+    level: "engineer"
+    question: "What are the key functions of the MME in LTE EPC?"
+    answer: "The MME is the primary control-plane node in EPC handling: NAS termination (registration, authentication, attach/detach, TAU, paging); authentication and security (EPS-AKA via S6a, K_eNB distribution); mobility management (UE state, handovers, SGW/PGW selection); bearer management (EPS bearer establishment via S11); and session management (PDN connections, UE IP address). The MME is on the control plane only — no user data flows through it."
+    spec: "TS 23.401 §4.6.2"
+    simulator_trigger: "4G ATTACH command — mme_node.cpp is the central orchestrator for all EPC control-plane flows"
+    interview_context: "Baseline EPC node role question expected at entry-to-mid level"
+
+  - id: "q079"
+    domain: "4g"
+    subdomain: "node-roles"
+    tags:
+      - "sgw"
+      - "gtpv2"
+      - "teid"
+      - "4g-handover"
+    level: "engineer"
+    question: "What are the key functions of the SGW in LTE?"
+    answer: "The SGW is the user-plane anchor for intra-LTE mobility and the control-plane relay for session management. Its functions include user-plane routing (forwarding user data between eNodeB via S1-U GTP-U and PGW via S5/S8 GTP-U), mobility anchoring during X2 handover path switches, downlink buffering for idle UEs triggering paging, DSCP packet marking based on QCI, and lawful intercept. The SGW holds both S11 (GTPv2-C from MME) and S1-U (GTP-U to eNB) — it is a cross-layer node."
+    spec: "TS 23.401 §4.6.3"
+    simulator_trigger: "4G ATTACH command — sgw_node.cpp relays GTPv2-C between MME and PGW, manages GTP-U tunnels to eNB"
+    interview_context: "Tests SGW-specific function knowledge — commonly confused with PGW in interviews"
+
+  - id: "q080"
+    domain: "4g"
+    subdomain: "node-roles"
+    tags:
+      - "pgw"
+      - "gtpv2"
+      - "gx"
+      - "4g-bearer"
+      - "qci"
+    level: "engineer"
+    question: "What are the key functions of the PGW in LTE?"
+    answer: "The PGW is the anchor between EPC and external PDNs. Key functions include IP address allocation (per APN), PCEF — enforcing PCC rules from PCRF via Gx (QoS, charging, flow gating), deep packet inspection for service detection, charging interfaces to OCS (Gy) and CDF (Rf), SGi interface to the external PDN, and UE IP mobility anchor across SGW changes. In 5G, PGW-C evolves to SMF and PGW-U to UPF."
+    spec: "TS 23.401 §4.6.3"
+    simulator_trigger: "4G ATTACH command — pgw_node.cpp allocates UE IP, applies QoS via Gx, establishes S5/S8 GTP-U tunnel"
+    interview_context: "Tests PGW function knowledge; the PGW-to-SMF/UPF evolution is a key 5G mapping question"
+
+  - id: "q081"
+    domain: "4g"
+    subdomain: "node-roles"
+    tags:
+      - "pcrf"
+      - "gx"
+      - "rx-interface"
+      - "ims-epc"
+      - "qci"
+    level: "senior"
+    question: "What is the PCRF and how does it interact with the PGW and IMS?"
+    answer: "The PCRF makes QoS and charging policy decisions for EPC and IMS, providing PCC rules (flow descriptions, QCI, ARP, GBR/MBR, charging parameters). It interacts with the PGW via Gx for initial and updated PCC rules per PDN session; with the P-CSCF via Rx, which provides application-level media parameters from SDP to derive dedicated bearer requirements (e.g., triggering QCI=1 for VoLTE); and with the HSS/SPR for subscriber policy profiles. The PCRF is the policy bridge between IMS session management and EPC bearer management."
+    spec: "TS 23.203, TS 29.212, TS 29.214"
+    simulator_trigger: "CALL command — PCRF receives Rx AAR from P-CSCF and pushes Gx RAR to PGW for QCI=1 bearer"
+    interview_context: "Tests the critical P-CSCF/PCRF/PGW interaction chain in VoLTE call bearer setup"
+
+  - id: "q082"
+    domain: "4g"
+    subdomain: "node-roles"
+    tags:
+      - "hss"
+      - "diameter"
+      - "s6a"
+      - "4g-auth"
+      - "cx"
+    level: "engineer"
+    question: "What are the key functions of the HSS in LTE?"
+    answer: "The HSS is the master subscriber database for EPS and IMS. EPS functions include: storing IMSI, MSISDN, authentication keys (K), and subscription profiles; generating EPS authentication vectors (via S6a); tracking UE's current MME registration; and initiating Cancel Location on MME change. IMS functions include: storing IMPI, IMPU, and iFC (initial filter criteria) for service routing; providing IMS-AKA authentication vectors to S-CSCF via Cx; and tracking S-CSCF assignment. The HSS may integrate SLF for multi-HSS deployments."
+    spec: "TS 23.002, TS 29.272, TS 29.228"
+    simulator_trigger: "4G ATTACH command — hss_simulator.cpp responds to Diameter AIR, ULR; IMS REGISTER — responds to Cx MAR, SAR"
+    interview_context: "Tests HSS dual-role knowledge (EPC and IMS) expected at senior level in network function development"
+
+  # ---------------------------------------------------------------------------
+  # 4G EPC — GTPv2 (q083–q085)
+  # ---------------------------------------------------------------------------
+
+  - id: "q083"
+    domain: "4g"
+    subdomain: "gtpv2"
+    tags:
+      - "gtpv2"
+      - "teid"
+      - "tunnel"
+      - "sgw"
+      - "pgw"
+    level: "senior"
+    question: "What is a TEID and how is it used in GTP tunnels?"
+    answer: "A TEID (Tunnel Endpoint Identifier) is a 32-bit value that uniquely identifies a GTP tunnel endpoint at a given node. When Node A sends a GTP packet to Node B, it uses Node B's TEID in the header — this tells Node B which tunnel the packet belongs to for demultiplexing. TEIDs are locally significant to the assigning node. For each EPS bearer there is a chain of GTP-U TEIDs: eNB↔SGW (S1-U) and SGW↔PGW (S5/S8); GTPv2-C also uses TEIDs to match requests/responses. Nodes exchange TEIDs in Create Session Request/Response."
+    spec: "TS 29.274 §5.1, TS 29.281"
+    simulator_trigger: "4G ATTACH command — TEID allocation and exchange logged in gtpv2_session_manager.cpp"
+    interview_context: "Tests GTP tunnel endpoint identification knowledge — fundamental for bearer path debugging"
+
+  - id: "q084"
+    domain: "4g"
+    subdomain: "gtpv2"
+    tags:
+      - "gtpv2"
+      - "teid"
+      - "tunnel"
+      - "4g-bearer"
+      - "pgw"
+      - "sgw"
+      - "mme"
+    level: "senior"
+    question: "What GTPv2-C messages are used to establish, modify, and release a dedicated EPS bearer?"
+    answer: "For dedicated bearer establishment, the PCRF sends PCC rules to PGW via Gx RAR; the PGW sends Create Bearer Request (GTPv2) to SGW then MME, which configures the radio bearer. For modification, the PGW sends Update Bearer Request chain through SGW to MME, which updates radio and responds. For release, the PGW initiates Delete Bearer Request chain (network-initiated), or the UE requests via NAS Bearer Resource Modification Request resulting in a Delete Bearer Request from PGW; PCRF is notified of the final outcome via Gx."
+    spec: "TS 23.401 §5.4.2, TS 29.274"
+    simulator_trigger: "CALL command — dedicated bearer (QCI=1) Create Bearer Request chain from PGW through SGW to MME to eNB"
+    interview_context: "Tests end-to-end dedicated bearer lifecycle knowledge combining GTPv2, PCRF, and IMS interactions"
+
+  - id: "q085"
+    domain: "4g"
+    subdomain: "gtpv2"
+    tags:
+      - "gtpv2"
+      - "teid"
+      - "sgw"
+      - "pgw"
+      - "mme"
+    level: "senior"
+    question: "What is GTP echo and why is it important in LTE?"
+    answer: "GTP Echo Request/Response is a keep-alive mechanism used on GTPv2-C and GTP-U interfaces to verify that remote GTP peers are alive and tunnels are functional. If no response is received within timeout and retry count, the tunnel is considered failed and recovery procedures trigger. Critically, the Echo Response carries a Restart Counter — if a peer has restarted, its counter will have changed, alerting the sending node to clear stale tunnel state and re-establish sessions, preventing stale GTP contexts after node failures."
+    spec: "TS 29.274 §7.2.1, TS 29.281"
+    simulator_trigger: "Simulator node restart — GTP echo restart counter change triggers stale context cleanup in gtp_peer_manager.cpp"
+    interview_context: "Tests fault-detection mechanism knowledge needed for simulator resilience and CHAOS testing"
+
+  # ---------------------------------------------------------------------------
+  # 4G EPC — Diameter Protocol (q086–q088)
+  # ---------------------------------------------------------------------------
+
+  - id: "q086"
+    domain: "4g"
+    subdomain: "diameter"
+    tags:
+      - "diameter"
+      - "avp"
+      - "command-code"
+    level: "senior"
+    question: "What are AVPs in Diameter and how are they structured?"
+    answer: "AVPs (Attribute-Value Pairs) are the fundamental data units in Diameter messages. Each AVP has a 32-bit AVP Code, an AVP Flags byte (M-bit mandates rejection if unrecognized, V-bit indicates vendor-specific), a 24-bit AVP Length, an optional 32-bit Vendor-ID (3GPP uses 10415), and variable-length data padded to a 4-byte boundary. AVPs can be grouped to contain nested AVPs, enabling complex structures. Key examples include User-Name (AVP 1 = IMSI), Session-Id (263), and Auth-Application-Id (258)."
+    spec: "RFC 6733, TS 29.272"
+    simulator_trigger: "4G ATTACH command — Diameter AIR message decoded in diameter_codec.cpp showing AVP structure"
+    interview_context: "Tests Diameter protocol encoding knowledge needed for AVP-level message debugging in the simulator"
+
+  - id: "q087"
+    domain: "4g"
+    subdomain: "diameter"
+    tags:
+      - "diameter"
+      - "avp"
+      - "command-code"
+      - "s6a"
+    level: "senior"
+    question: "How does a Diameter session work? What is a Session-ID AVP?"
+    answer: "A Diameter session represents a logical service interaction identified by the Session-Id AVP (code 263), which must be globally unique and is typically constructed as <DiameterIdentity>;<high-32>:<low-32>. Sessions are established with an initial CCR (CC-Request-Type = INITIAL_REQUEST), maintained via interim updates, and terminated with a CCR TERMINATION_REQUEST. Destination-Host and Destination-Realm AVPs route messages; hop-by-hop routing is via DRAs; end-to-end identification uses End-to-End-Identifier."
+    spec: "RFC 6733, TS 29.212, TS 29.272"
+    simulator_trigger: "Gx CCR-Initial session in gx_session_manager.cpp — Session-Id generated at PDN connection establishment"
+    interview_context: "Tests Diameter session lifecycle needed for Gx/Rx/S6a session debugging in the simulator"
+
+  - id: "q088"
+    domain: "4g"
+    subdomain: "diameter"
+    tags:
+      - "diameter"
+      - "dra"
+      - "s6a"
+      - "hss"
+    level: "senior"
+    question: "What is a Diameter Routing Agent (DRA) and when is it needed?"
+    answer: "A DRA is a Diameter proxy or redirect agent that centralizes routing between Diameter peers, avoiding full-mesh connectivity. In a real network, an MME connecting to dozens of HSSs uses a single DRA that routes to the correct HSS based on Destination-Realm/Host, Session-Id, or IMSI range. DRAs also provide load balancing, failover, and in IMS, route Cx messages to the correct HSS in multi-HSS environments. DRAs are mandatory in large operator networks where full-mesh connections are impractical."
+    spec: "TS 29.272, RFC 6733"
+    simulator_trigger: "Simulator DRA node in multi-HSS test scenarios — diameter_routing_agent.cpp in the simulator topology"
+    interview_context: "Tests operational Diameter topology knowledge for large-scale EPC deployment roles"
+
+  # ---------------------------------------------------------------------------
+  # IMS / VoLTE — Registration (q089–q092 mapped to q096–q099)
+  # Note: IMS range is q096–q130; next IDs continue from q089 reaching IMS at q096
+  # 4G section covers q051–q095; we pad with 3 more questions to reach q095.
+  # Remaining 4G EPC questions to fill q089–q095:
+  # ---------------------------------------------------------------------------
+
+  - id: "q089"
+    domain: "4g"
+    subdomain: "attach"
+    tags:
+      - "4g-attach"
+      - "nas"
+      - "emm"
+      - "mme"
+    level: "engineer"
+    question: "What is the difference between ECM-IDLE and ECM-CONNECTED states in LTE, and what transitions them?"
+    answer: "ECM-IDLE (EPS Connection Management Idle) means the UE has no S1 signaling connection — bearers are suspended and the UE is reachable only via paging. ECM-CONNECTED means an active S1 signaling connection exists between UE, eNodeB, and MME — user data can flow and bearers are active. The UE moves from IDLE to CONNECTED when it sends a Service Request (triggered by uplink data or network paging); it moves back to IDLE after an inactivity timer expires and the network releases the RRC connection via S1 UE Context Release."
+    spec: "TS 23.401 §5.3.5"
+    simulator_trigger: "4G ATTACH command — UE transitions to ECM-CONNECTED; idle timer expiry triggers ECM-IDLE and S1 release"
+    interview_context: "Tests UE state machine knowledge fundamental to understanding paging, power saving, and data session management"
+
+  - id: "q090"
+    domain: "4g"
+    subdomain: "interfaces"
+    tags:
+      - "s1-mme"
+      - "mme"
+      - "nas"
+      - "emm"
+    level: "engineer"
+    question: "What is a Tracking Area List (TAI List) and why does the MME assign multiple TAs to a UE?"
+    answer: "A Tracking Area List (TAI list) is a set of Tracking Area Identities (TAIs) assigned by the MME to the UE in the Attach Accept and TAU Accept messages. Instead of requiring a TAU every time the UE moves to an adjacent cell in a neighboring TA, the UE only triggers a TAU when it enters a TA not on its list — reducing TAU signaling load. The MME balances TAI list size: too small causes frequent TAUs under mobility; too large increases paging overhead since the network must page in all TAs of the list simultaneously."
+    spec: "TS 23.401 §5.3.3"
+    simulator_trigger: "4G ATTACH command completion — TAI list assigned in Attach Accept message by mme_node.cpp"
+    interview_context: "Tests network-level mobility optimization trade-offs important for MME dimensioning roles"
+
+  - id: "q091"
+    domain: "4g"
+    subdomain: "node-roles"
+    tags:
+      - "mme"
+      - "nas"
+      - "emm"
+      - "4g-attach"
+    level: "engineer"
+    question: "What is the difference between EMM (EPS Mobility Management) and ESM (EPS Session Management) sub-layers in NAS?"
+    answer: "NAS in LTE has two sub-layers: EMM (EPS Mobility Management) handles UE registration, authentication, attach/detach, TAU, paging, and ECM/EMM state machines — these are UE-level procedures. ESM (EPS Session Management) handles PDN connection establishment, default and dedicated EPS bearer setup, modification, and release — these are bearer-level procedures and can run in parallel for different PDN connections. Both sub-layers use the same NAS message transport over S1-MME but have separate message types and states."
+    spec: "TS 24.301"
+    simulator_trigger: "4G ATTACH command — simultaneous EMM Attach and ESM PDN Connectivity procedures inside the same NAS exchange"
+    interview_context: "Tests understanding of NAS sublayer separation often misunderstood by junior 4G engineers"
+
+  - id: "q092"
+    domain: "4g"
+    subdomain: "bearer"
+    tags:
+      - "4g-bearer"
+      - "pgw"
+      - "mme"
+      - "gtpv2"
+    level: "engineer"
+    question: "What is a TFT (Traffic Flow Template) and what role does it play in bearer selection?"
+    answer: "A TFT (Traffic Flow Template) is a set of packet filter rules that maps IP flows to an EPS bearer based on the 5-tuple (source/destination IP, port, protocol) or 6-tuple (including ToS/DSCP). For dedicated bearers, TFTs ensure that specific flows (e.g., RTP voice to a specific destination port range) are mapped to the QCI=1 bearer instead of the default QCI=9 bearer. TFTs are provisioned by the PGW and programmed in the UE; in VoLTE, the IMS address/port of the media stream is used as the TFT filter."
+    spec: "TS 23.401 §5.4.2, TS 24.301"
+    simulator_trigger: "CALL command — QCI=1 dedicated bearer TFT matching RTP 5-tuple from SDP answer in bearer_tft_manager.cpp"
+    interview_context: "Tests traffic classification knowledge needed for debugging why voice traffic falls to the wrong bearer"
+
+  - id: "q093"
+    domain: "4g"
+    subdomain: "interfaces"
+    tags:
+      - "diameter"
+      - "s6a"
+      - "hss"
+      - "mme"
+    level: "senior"
+    question: "What is the difference between HSS-initiated and MME-initiated procedures on the S6a interface?"
+    answer: "MME-initiated procedures include AIR/AIA (fetching auth vectors during attach), ULR/ULA (registering UE location and obtaining subscriber data), PUR/PUA (purging UE after detach), and NOR/NOA (notifying HSS of UE status changes). HSS-initiated procedures include CLR/CLA (Cancel Location — HSS deregisters UE from an MME when the UE registers at a new MME), IDR/IDA (Insert-Subscriber-Data — HSS pushes updated subscription data to the MME mid-session), and DSR/DSA (Delete-Subscriber-Data). Understanding the direction is critical for correct S6a interface implementation."
+    spec: "TS 29.272"
+    simulator_trigger: "Inter-MME TAU — HSS sends CLR to old MME simulator after new MME sends ULR in s6a_server.cpp"
+    interview_context: "Tests bidirectional S6a interface knowledge including rarely-discussed HSS-initiated flows"
+
+  - id: "q094"
+    domain: "4g"
+    subdomain: "node-roles"
+    tags:
+      - "pgw"
+      - "gx"
+      - "pcrf"
+      - "4g-bearer"
+    level: "senior"
+    question: "What is the SGi interface, and what protocols can it carry?"
+    answer: "The SGi interface connects the PGW to external Packet Data Networks (PDN) — the internet, IMS core, or enterprise networks. It is a plain IP interface without GTP encapsulation. For internet APN, it carries standard IPv4/IPv6 traffic to the internet. For IMS APN, it carries SIP/RTP traffic to the IMS P-CSCF (the PGW is connected to the IMS core IP network). The PGW can also apply NAT on SGi for IPv4 subscribers behind private addresses, and perform DPI to detect applications for policy enforcement."
+    spec: "TS 23.401 §4.6.3"
+    simulator_trigger: "4G ATTACH command — PGW SGi interface simulator connecting to internet and IMS network simulators"
+    interview_context: "Tests interface boundary knowledge at the PGW — an often-overlooked interface in EPC troubleshooting"
+
+  - id: "q095"
+    domain: "4g"
+    subdomain: "bearer"
+    tags:
+      - "4g-bearer"
+      - "qci"
+      - "ims-epc"
+      - "volte-bearer"
+      - "pgw"
+    level: "senior"
+    question: "What is the difference between UE-initiated and network-initiated dedicated bearer establishment?"
+    answer: "In network-initiated dedicated bearer establishment, the PCRF pushes a PCC rule to the PGW via Gx RAR (typically triggered by the P-CSCF via Rx during VoLTE call setup); the PGW sends Create Bearer Request through SGW to MME without any UE request. In UE-initiated dedicated bearer establishment, the UE sends a NAS Bearer Resource Allocation Request to the MME requesting a new bearer with specific QoS/TFT parameters; the MME validates it against the subscription, contacts the PCRF via PGW, and only if the PCRF authorizes does the network proceed to create the bearer. Network-initiated is the standard VoLTE path; UE-initiated is used for certain enterprise services."
+    spec: "TS 23.401 §5.4.1, §5.4.2, TS 24.301"
+    simulator_trigger: "CALL command — network-initiated QCI=1 bearer via Gx/Rx chain; test scenarios with UE-initiated bearer requests"
+    interview_context: "Tests understanding of the two-path dedicated bearer creation model needed for VoLTE and enterprise APN roles"
+
+  # ---------------------------------------------------------------------------
+  # IMS / VoLTE — Registration (q096–q102)
+  # ---------------------------------------------------------------------------
+
+  - id: "q096"
+    domain: "ims"
+    subdomain: "ims-registration"
+    tags:
+      - "ims-register"
+      - "sip-register"
+      - "cx"
+      - "p-cscf"
+      - "s-cscf"
+      - "i-cscf"
+      - "hss"
+      - "diameter"
+    level: "senior"
+    question: "Walk through the complete IMS SIP registration procedure step by step, naming all interfaces."
+    answer: "The UE sends an unauthenticated SIP REGISTER to P-CSCF; P-CSCF forwards to I-CSCF, which queries HSS via Cx UAR/UAA to locate or select an S-CSCF. The S-CSCF fetches IMS-AKA auth vectors from HSS via Cx MAR/MAA and challenges the UE with 401 Unauthorized (RAND, AUTN). The UE responds with a second REGISTER carrying credentials (RES); the S-CSCF verifies RES, registers the S-CSCF assignment with HSS via SAR/SAA (receiving iFC and user profile), and returns 200 OK. The S-CSCF then invokes iFC to register with Application Servers (e.g., MTAS) for supplementary services."
+    spec: "TS 23.228, TS 24.229, TS 29.228"
+    simulator_trigger: "REGISTER command — SIP REGISTER from UE through P-CSCF to S-CSCF with Cx Diameter exchanges to HSS"
+    interview_context: "End-to-end IMS registration knowledge expected at senior level in any IMS/VoLTE role"
+
+  - id: "q097"
+    domain: "ims"
+    subdomain: "ims-registration"
+    tags:
+      - "ims-register"
+      - "p-cscf"
+      - "s-cscf"
+    level: "engineer"
+    question: "What is the difference between IMPI and IMPU in IMS?"
+    answer: "IMPI (IMS Private Identity) is the permanent, private identity of the IMS subscriber formatted as a NAI (user@domain) — used for authentication in the SIP REGISTER Authorization header and never visible to other users. IMPU (IMS Public Identity) is the user-visible identity used for communications — a SIP URI (sip:+1234@operator.com) or TEL URI (tel:+1234). One IMPI can have multiple IMPUs; IMPUs in the same implicit registration set are all registered simultaneously when any one is registered."
+    spec: "TS 23.003, TS 23.228"
+    simulator_trigger: "REGISTER command — IMPI in SIP Authorization header, IMPU in From/To headers in sip_register_handler.cpp"
+    interview_context: "Tests IMS identity model fundamental to IMS registration and service routing"
+
+  - id: "q098"
+    domain: "ims"
+    subdomain: "ims-registration"
+    tags:
+      - "ims-register"
+      - "s-cscf"
+      - "mtas"
+      - "cx"
+      - "hss"
+    level: "senior"
+    question: "What is an Initial Filter Criteria (iFC) and when is it triggered in IMS?"
+    answer: "An iFC is a trigger condition stored in the S-CSCF (received from HSS in the user profile via SAA) that determines when a SIP message should be forwarded to an Application Server. Each iFC has a Priority, Trigger Point (conditions on SIP method, headers, URI), AS URI, and Default Handling (session-continued or terminated if AS unreachable). The S-CSCF evaluates iFC for every SIP REGISTER, INVITE, or SUBSCRIBE passing through it, forking to the AS if conditions match via the ISC interface."
+    spec: "TS 23.218, TS 24.229"
+    simulator_trigger: "REGISTER command — S-CSCF evaluates iFC from user profile, triggers MTAS for MMTel service registration"
+    interview_context: "Tests service routing mechanism that connects IMS core to Application Servers for supplementary services"
+
+  - id: "q099"
+    domain: "ims"
+    subdomain: "ims-registration"
+    tags:
+      - "ims-register"
+      - "p-cscf"
+      - "s-cscf"
+      - "ims-epc"
+    level: "engineer"
+    question: "How does P-CSCF discovery work in LTE/VoLTE?"
+    answer: "P-CSCF discovery in LTE occurs during IMS PDN connection establishment via PCO (Protocol Configuration Options) in the PDN Connectivity Accept NAS message: the PGW inserts P-CSCF IPv4/IPv6 addresses into the PCO IE, provisioned per IMS APN. GSMA IR.92 mandates PCO-based discovery as the primary method; DNS-based discovery (NAPTR/SRV lookup) is a fallback. The MME forwards PCO transparently between UE and PGW; the UE stores the P-CSCF address for all subsequent SIP signaling."
+    spec: "TS 23.228 §5.1.1.1, GSMA IR.92"
+    simulator_trigger: "4G ATTACH command — PGW inserts P-CSCF address in PCO in the IMS APN Create Session Response"
+    interview_context: "Tests the EPC-IMS boundary knowledge of how the UE first learns where to send SIP signaling"
+
+  # ---------------------------------------------------------------------------
+  # IMS / VoLTE — Call Setup (q100–q104)
+  # ---------------------------------------------------------------------------
+
+  - id: "q100"
+    domain: "ims"
+    subdomain: "volte-call"
+    tags:
+      - "volte-call"
+      - "sip-invite"
+      - "sdp"
+      - "rx-interface"
+      - "qci1"
+      - "p-cscf"
+      - "s-cscf"
+      - "ims-epc"
+      - "volte-bearer"
+    level: "senior"
+    question: "Walk through the VoLTE Mobile Originated call setup procedure from SIP to QCI=1 bearer establishment."
+    answer: "UE-A sends SIP INVITE (with SDP offer) to P-CSCF-A, which forwards through S-CSCF-A (invoking MTAS for call features) to the terminating side; UE-B responds with 183 Session Progress containing an SDP answer. The P-CSCF on the terminating side sends Rx AAR (with media parameters from SDP) to PCRF, which creates a QCI=1 PCC rule and pushes it to PGW via Gx RAR, triggering GTPv2 Create Bearer Request through SGW → MME → eNB → UE for dedicated bearer establishment. QoS preconditions are confirmed, UE-B answers with 200 OK, and RTP voice flows over the QCI=1 GTP-U tunnel; a SIP BYE releases both the session and the QCI=1 bearer."
+    spec: "TS 23.228, TS 24.229, TS 29.214, TS 23.203"
+    simulator_trigger: "CALL command — end-to-end VoLTE flow from SIP INVITE through Rx/Gx to GTPv2 dedicated bearer"
+    interview_context: "End-to-end VoLTE architecture question combining SIP, IMS, PCRF, and EPC bearer knowledge"
+
+  - id: "q101"
+    domain: "ims"
+    subdomain: "volte-call"
+    tags:
+      - "volte-call"
+      - "sdp"
+      - "sip-invite"
+    level: "engineer"
+    question: "What is the SDP offer/answer model and what is its role in VoLTE codec negotiation?"
+    answer: "SDP (Session Description Protocol, RFC 4566) describes media sessions. In VoLTE, the SIP INVITE carries an SDP offer from the originating UE listing supported codecs (payload types), media IP address, UDP port for RTP, and bandwidth. The terminating UE responds with an SDP answer in the 183/200 OK, selecting one codec and providing its own IP/port for the reverse RTP stream. Key parameters include a=rtpmap (codec/rate), a=fmtp (codec parameters), a=ptime (packetization time, e.g., 20ms for AMR-WB), and a=curr:qos / a=des:qos for QoS preconditions."
+    spec: "TS 24.229, RFC 4566, RFC 3264, GSMA IR.92"
+    simulator_trigger: "CALL command — SDP offer/answer exchange in sip_sdp_handler.cpp driving codec and media IP negotiation"
+    interview_context: "Tests SDP offer/answer understanding needed for VoLTE codec selection and bearer TFT configuration"
+
+  - id: "q102"
+    domain: "ims"
+    subdomain: "volte-call"
+    tags:
+      - "rx-interface"
+      - "qci1"
+      - "volte-bearer"
+      - "ims-epc"
+      - "p-cscf"
+    level: "senior"
+    question: "What is the role of the Rx interface in VoLTE call setup?"
+    answer: "The Rx interface connects the P-CSCF (acting as an AF) to the PCRF, using Diameter (App-ID 16777236). After receiving the SDP answer, the P-CSCF extracts media parameters and sends an AA-Request (AAR) to the PCRF with service information (media type, bandwidth, flow descriptions). The PCRF creates a PCC rule for a QCI=1 GBR dedicated bearer and pushes it to the PGW via Gx RAR. The Rx↔Gx interaction is the bridge between IMS session management and EPC bearer management — ensuring a voice bearer is only created when an active IMS session justifies it."
+    spec: "TS 29.214, TS 23.203"
+    simulator_trigger: "CALL command — Rx AAR from P-CSCF to PCRF in rx_client.cpp after SDP answer received"
+    interview_context: "Tests understanding of the Rx/Gx bridge — the most commonly misunderstood interaction in VoLTE"
+
+  - id: "q103"
+    domain: "ims"
+    subdomain: "volte-call"
+    tags:
+      - "volte-call"
+      - "sip"
+      - "sip-invite"
+    level: "senior"
+    question: "What are early and late ringing modes in VoLTE, and what is a ghost ring?"
+    answer: "In early ringing mode, 180 Ringing is sent before the QCI=1 bearer is established on the originating side; if bearer setup subsequently fails, the phone rang but the call never connected — this is a ghost ring. In late ringing (precondition mode per RFC 3312), 180 Ringing is only sent after QCI=1 bearers on both sides are confirmed established. Late ringing is more reliable but has slightly higher call setup time; GSMA IR.92 recommends precondition mode with a target of ≤4 seconds call setup time."
+    spec: "TS 24.229, RFC 3312, GSMA IR.92"
+    simulator_trigger: "CALL command — simulator configures early_ringing=true to test ghost ring detection in call_setup_handler.cpp"
+    interview_context: "Tests VoLTE call setup quality understanding relevant to IMS troubleshooting and IR.92 compliance"
+
+  - id: "q104"
+    domain: "ims"
+    subdomain: "ims-epc"
+    tags:
+      - "ims-epc"
+      - "rx-interface"
+      - "qci1"
+      - "volte-bearer"
+      - "p-cscf"
+      - "gx"
+      - "pcrf"
+    level: "senior"
+    question: "How does IMS interact with EPC during a VoLTE call? Trace the full control-plane path."
+    answer: "IMS and EPC interact primarily through the P-CSCF → PCRF → PGW chain. EPC provides the QCI=5 default bearer for SIP signaling (no EPC involvement beyond IP transport for the registration step). During call setup, the P-CSCF sends Rx AAR with media flow info to the PCRF, which creates a PCC rule for QCI=1 GBR and sends Gx RAR to the PGW, which then sends a GTPv2 Create Bearer Request chain through SGW → MME → eNB → UE. On call teardown, SIP BYE triggers Rx STR to PCRF, which sends Gx RAR to PGW removing the rule, and the PGW initiates Delete Bearer Request. No SIP messages pass through MME, SGW, or PGW — those nodes only handle the GTP tunnel per policy."
+    spec: "TS 23.203, TS 29.214, TS 29.212, TS 23.401"
+    simulator_trigger: "CALL command — full cross-system trace from CALL command through SIP, Rx, Gx, GTPv2 to bearer"
+    interview_context: "Architect-level question requiring ability to trace a VoLTE call across both IMS and EPC simultaneously"
+
+  # ---------------------------------------------------------------------------
+  # IMS / VoLTE — CSCF Roles (q105–q109)
+  # ---------------------------------------------------------------------------
+
+  - id: "q105"
+    domain: "ims"
+    subdomain: "cscf-roles"
+    tags:
+      - "p-cscf"
+      - "ims-register"
+      - "rx-interface"
+    level: "engineer"
+    question: "What is the role of the P-CSCF in IMS?"
+    answer: "The P-CSCF (Proxy-CSCF) is the UE's first IMS contact point — all SIP signaling passes through it. Functions include SIP proxy (forwarding REGISTER and INVITE), IPSec/TLS termination for the UE security association, acting as Rx/AF (extracting SDP media parameters and signaling PCRF for bearer authorization), emergency session detection, network-initiated session release if UE loses connectivity, and optionally SigComp message compression. In roaming scenarios, the P-CSCF is located in the visited network."
+    spec: "TS 23.228 §4.6.1, TS 29.214"
+    simulator_trigger: "REGISTER command and CALL command — all SIP from UE simulator passes through p_cscf_node.cpp"
+    interview_context: "Core IMS node role knowledge tested at mid-level in any IMS/VoLTE engineering position"
+
+  - id: "q106"
+    domain: "ims"
+    subdomain: "cscf-roles"
+    tags:
+      - "i-cscf"
+      - "ims-register"
+      - "cx"
+      - "s-cscf"
+    level: "engineer"
+    question: "What is the role of the I-CSCF in IMS?"
+    answer: "The I-CSCF (Interrogating-CSCF) is the entry point for SIP requests into an operator's home network. For new registrations, it queries the HSS via Cx UAR/UAA to determine which S-CSCF to assign; for incoming calls, it queries HSS via Cx LIR/LIA to find the currently assigned S-CSCF for the destination subscriber. The I-CSCF can load-balance across multiple capable S-CSCFs based on HSS-returned capabilities, and its IP address is published in DNS as the domain's public SIP entry point."
+    spec: "TS 23.228 §4.6.2"
+    simulator_trigger: "REGISTER command — I-CSCF UAR/UAA exchange with HSS in i_cscf_node.cpp for S-CSCF selection"
+    interview_context: "Tests understanding of the I-CSCF entry-point role often overlooked when focusing only on S-CSCF"
+
+  - id: "q107"
+    domain: "ims"
+    subdomain: "cscf-roles"
+    tags:
+      - "s-cscf"
+      - "ims-register"
+      - "cx"
+      - "mtas"
+      - "hss"
+    level: "engineer"
+    question: "What is the role of the S-CSCF in IMS?"
+    answer: "The S-CSCF (Serving-CSCF) is the core service node — SIP registrar and session manager for registered users. Functions include registrar (accepting SIP REGISTER, maintaining IMPU-to-contact binding, notifying HSS via SAR), session control (all user SIP sessions pass through it with iFC-based AS invocation), routing (forwarding INVITE to terminating network or BGCF for PSTN), and charging (Rf/Ro interfaces). If the S-CSCF fails, the UE must re-register since S-CSCF holds the UE state."
+    spec: "TS 23.228 §4.6.3"
+    simulator_trigger: "REGISTER command and CALL command — s_cscf_node.cpp is the central IMS session manager"
+    interview_context: "Core S-CSCF role knowledge expected at mid-level in all IMS/VoLTE engineering roles"
+
+  - id: "q108"
+    domain: "ims"
+    subdomain: "cscf-roles"
+    tags:
+      - "mtas"
+      - "s-cscf"
+      - "cx"
+    level: "senior"
+    question: "What is the MTAS (or TAS) and how does it relate to the S-CSCF?"
+    answer: "The MTAS (Multimedia Telephony Application Server) provides MMTel supplementary services (call barring, call waiting, call forwarding, conferencing, CLID) via the ISC (IMS Service Control) interface with the S-CSCF. When the S-CSCF evaluates iFC and finds a matching trigger, it forks the SIP message to the MTAS's URI; the MTAS may redirect the call (e.g., voicemail), add features, or insert itself in the SIP dialog. The MTAS reads/writes user service data from HSS via the Sh interface (Diameter UDR/UDA)."
+    spec: "TS 23.228, TS 24.604, TS 29.329"
+    simulator_trigger: "CALL command — S-CSCF iFC evaluation triggers MTAS for MMTel call processing in mtas_node.cpp"
+    interview_context: "Tests MTAS/iFC/Sh understanding needed for supplementary service development and debugging"
+
+  - id: "q109"
+    domain: "ims"
+    subdomain: "cscf-roles"
+    tags:
+      - "mrfc"
+      - "s-cscf"
+      - "conferencing"
+    level: "senior"
+    question: "What is the MRFC/MRFP and when are they used in IMS?"
+    answer: "The MRFC (Multimedia Resource Function Controller) is a SIP UA that receives INVITE requests from S-CSCF or AS via the Mr interface (SIP) and controls the MRFP (Multimedia Resource Function Processor) via the Mp interface (H.248/MEGACO). The MRFP performs actual media handling: tone generation, media mixing for conferences, transcoding, and DTMF detection. Key use cases are 3-party conference (MRFP mixes media streams), IVR/announcements, and transcoding between incompatible codecs."
+    spec: "TS 23.228 §4.7, TS 23.333"
+    simulator_trigger: "CALL command with conferencing=true — MRFC invoked by MTAS for conference bridge setup in mrfc_node.cpp"
+    interview_context: "Tests MRFC/MRFP architecture knowledge required for 3-party conferencing implementation"
+
+  # ---------------------------------------------------------------------------
+  # IMS / VoLTE — Supplementary Services (q110–q112)
+  # ---------------------------------------------------------------------------
+
+  - id: "q110"
+    domain: "ims"
+    subdomain: "supplementary"
+    tags:
+      - "call-barring"
+      - "mtas"
+      - "s-cscf"
+      - "sip"
+    level: "senior"
+    question: "How does call barring work in IMS/VoLTE?"
+    answer: "Call barring in IMS is implemented by the MTAS as a MMTel service (TS 24.611). Barring programs (OCB, BAIC, etc.) are stored in the HSS and downloaded to the MTAS via the Sh interface. When a call is initiated, the S-CSCF routes the INVITE to the MTAS via iFC; the MTAS checks caller/callee barring programs against call direction and type. If barred, the MTAS rejects the INVITE with 403 Forbidden; users can manage barring via the Ut interface (XCAP over HTTP) modifying XML documents in an XDMS."
+    spec: "TS 24.611, TS 24.623"
+    simulator_trigger: "CALL command with barring test — MTAS returns 403 Forbidden when barring subscription active"
+    interview_context: "Tests supplementary service implementation knowledge across IMS, MTAS, HSS, and Sh interface"
+
+  - id: "q111"
+    domain: "ims"
+    subdomain: "supplementary"
+    tags:
+      - "call-waiting"
+      - "mtas"
+      - "sip"
+    level: "senior"
+    question: "How is call waiting implemented in IMS/VoLTE?"
+    answer: "When a UE is in an active call, an incoming INVITE is routed to the MTAS via iFC; the MTAS checks the called subscriber's call waiting status from HSS via Sh. If active, the MTAS forwards the INVITE to the UE, which plays a waiting tone locally. The UE may accept the new call (200 OK, holding the active call via SIP re-INVITE with a=sendonly) or reject it (486 Busy Here); if call waiting is inactive, the MTAS returns 486 Busy Here for the waiting call."
+    spec: "TS 24.615"
+    simulator_trigger: "CALL command to busy UE — MTAS CW logic in mtas_cw_handler.cpp determines hold vs reject"
+    interview_context: "Tests supplementary service SIP signaling flow involving hold/resume and MTAS state management"
+
+  - id: "q112"
+    domain: "ims"
+    subdomain: "supplementary"
+    tags:
+      - "conferencing"
+      - "mrfc"
+      - "mtas"
+      - "sip"
+    level: "senior"
+    question: "How is 3-party conferencing established in IMS/VoLTE?"
+    answer: "Party-A calls Party-B normally, then calls Party-C in a new SIP dialog; Party-A's MTAS detects the conference request and involves the MRFC by sending a SIP INVITE to it. The MRFC instructs the MRFP (via H.248) to create a mixing conference bridge; both Party-B and Party-C's media streams are directed to the MRFP, which mixes them and sends the combined stream back to each party. SIP signaling follows the conference factory URI model (RFC 4579) triggered via MTAS based on iFC."
+    spec: "TS 24.605, TS 23.228, RFC 4579"
+    simulator_trigger: "CALL command with add_party — MTAS invokes MRFC conference bridge in mrfc_conference_handler.cpp"
+    interview_context: "Tests 3-party conference architecture combining MTAS, MRFC, MRFP, and SIP dialog forking"
+
+  # ---------------------------------------------------------------------------
+  # IMS / VoLTE — IR.92 & Codecs (q113–q114)
+  # ---------------------------------------------------------------------------
+
+  - id: "q113"
+    domain: "ims"
+    subdomain: "ir92"
+    tags:
+      - "volte-call"
+      - "qci1"
+      - "volte-bearer"
+      - "sip"
+    level: "senior"
+    question: "What is GSMA IR.92 and what are its key mandatory requirements for VoLTE?"
+    answer: "GSMA IR.92 (IMS Profile for Voice and SMS) defines the minimum mandatory feature set for interoperable VoLTE deployment. Key requirements: QCI=5 default bearer for IMS signaling, QCI=1 GBR dedicated bearer for voice, QCI=9 for internet data; AMR-WB (HD Voice) and AMR-NB codecs; SIP extensions PRACK (100rel), preconditions (RFC 3312), UPDATE, and session timers; PCO-based P-CSCF discovery; SMS over IMS (IP-SM-GW); SRVCC; and 20ms packetization time for AMR-WB. Late ringing (precondition mode) is recommended with ≤4 second call setup target."
+    spec: "GSMA IR.92 v20.0 (2024), TS 26.114"
+    simulator_trigger: "CALL command — simulator validates IR.92 compliance including codec negotiation, PRACK, and preconditions"
+    interview_context: "Tests IR.92 profile knowledge required for VoLTE interoperability and commercial deployment roles"
+
+  - id: "q114"
+    domain: "ims"
+    subdomain: "ir92"
+    tags:
+      - "volte-call"
+      - "sdp"
+    level: "engineer"
+    question: "What codecs are mandatory in IR.92 and why is AMR-WB significant for VoLTE?"
+    answer: "IR.92 mandates AMR-WB (Adaptive Multi-Rate Wideband, G.722.2) as the primary codec for VoLTE and AMR-NB as fallback for 2G/3G interoperability. AMR-WB operates at 16kHz sampling rate delivering HD Voice quality; it supports multiple bitrate modes (6.60–23.85kbps) with 12.65kbps most commonly deployed, and uses DTX with Comfort Noise Generation during silence. Later IR.92 versions also mandate EVS (Enhanced Voice Services) supporting 32kHz super-wideband and 48kHz fullband. Codec negotiation occurs in SDP offer/answer during call setup."
+    spec: "TS 26.114, TS 26.445, GSMA IR.92"
+    simulator_trigger: "CALL command — SDP offer from UE simulator lists AMR-WB/EVS codecs; answer selects AMR-WB 12.65kbps"
+    interview_context: "Tests codec knowledge relevant to VoLTE audio quality analysis and IR.92 certification"
+
+  # ---------------------------------------------------------------------------
+  # IMS / VoLTE — SIP Methods (q115–q117)
+  # ---------------------------------------------------------------------------
+
+  - id: "q115"
+    domain: "ims"
+    subdomain: "sip-methods"
+    tags:
+      - "sip"
+      - "sip-invite"
+      - "sip-register"
+      - "prack"
+    level: "engineer"
+    question: "What is the purpose of each key SIP method in VoLTE: INVITE, REGISTER, BYE, CANCEL, OPTIONS, PRACK, UPDATE?"
+    answer: "REGISTER registers the UE's IMPU-to-IP binding and initiates IMS-AKA; INVITE initiates a call with an SDP offer and can re-INVITE for hold or codec change; BYE terminates an established call and triggers QCI=1 bearer teardown; CANCEL cancels a pending unanswered INVITE. OPTIONS queries SIP entity capabilities and is used for P-CSCF keep-alive in LTE; PRACK (provisional ACK per 100rel) acknowledges 1xx provisional responses like 183 Session Progress — mandatory per IR.92; UPDATE modifies session parameters mid-call (e.g., precondition status) without changing dialog state."
+    spec: "RFC 3261, RFC 3262, RFC 3311, TS 24.229"
+    simulator_trigger: "CALL command — INVITE/PRACK/UPDATE/BYE sequence visible in sip_call_flow_tracer.cpp"
+    interview_context: "Tests comprehensive SIP method knowledge across the full VoLTE call lifecycle"
+
+  - id: "q116"
+    domain: "ims"
+    subdomain: "sip-methods"
+    tags:
+      - "sip"
+      - "sip-invite"
+      - "prack"
+      - "sdp"
+    level: "engineer"
+    question: "What is the difference between SIP 180 Ringing and 183 Session Progress in VoLTE?"
+    answer: "Both are 1xx provisional responses from the terminating side. 180 Ringing indicates the remote UA is alerting the called party but carries no SDP — in early ringing mode it is sent before bearers are established. 183 Session Progress carries an SDP answer with media parameters and is used when early media or precondition status updates are needed; in VoLTE with preconditions, the 183 triggers bearer establishment on both sides before 180 Ringing is sent. PRACK (if 100rel is required) acknowledges the 183."
+    spec: "RFC 3261, TS 24.229, GSMA IR.92"
+    simulator_trigger: "CALL command — 183 Session Progress triggers Rx AAR in p_cscf_node.cpp for QCI=1 bearer setup"
+    interview_context: "Tests understanding of the SIP provisional response role in VoLTE bearer establishment ordering"
+
+  - id: "q117"
+    domain: "ims"
+    subdomain: "sip-methods"
+    tags:
+      - "sip"
+      - "subscribe"
+      - "notify"
+      - "ims-register"
+    level: "senior"
+    question: "Explain SIP SUBSCRIBE/NOTIFY and their role in IMS/VoLTE."
+    answer: "SIP SUBSCRIBE allows a UA to subscribe to event notifications from another entity; SIP NOTIFY is the server-sent event notification. In IMS, key uses include the reg event package (UE subscribes to own registration status; S-CSCF sends NOTIFY with registration state for all IMPUs in the implicit set), presence (UE subscribes to contact presence; AS sends NOTIFY with presence documents), and MWI (voicemail Message Waiting Indicator). SUBSCRIBEs establish SIP dialogs; NOTIFYs are sent within those dialogs."
+    spec: "RFC 3265, TS 24.229, TS 24.615"
+    simulator_trigger: "REGISTER command — UE sends SUBSCRIBE to reg event package after 200 OK; S-CSCF sends NOTIFY"
+    interview_context: "Tests event notification mechanism knowledge needed for IMS presence and voicemail integration"
+
+  # ---------------------------------------------------------------------------
+  # IMS / VoLTE — Cx/Rx Interfaces (q118–q119)
+  # ---------------------------------------------------------------------------
+
+  - id: "q118"
+    domain: "ims"
+    subdomain: "cx-interface"
+    tags:
+      - "cx"
+      - "diameter"
+      - "s-cscf"
+      - "i-cscf"
+      - "hss"
+      - "ims-register"
+    level: "senior"
+    question: "List and describe the Diameter Cx interface commands between CSCF and HSS."
+    answer: "The Cx interface (App-ID 16777216) uses: UAR/UAA (User-Authorization-Request/Answer) — I-CSCF queries HSS for S-CSCF address or capabilities; SAR/SAA (Server-Assignment-Request/Answer) — S-CSCF registers S-CSCF assignment and downloads user profile (iFC); LIR/LIA (Location-Info-Request/Answer) — I-CSCF finds assigned S-CSCF for routing incoming SIP; MAR/MAA (Multimedia-Auth-Request/Answer) — S-CSCF fetches IMS authentication vectors; RTR/RTA (Registration-Termination) — HSS-initiated deregistration; PPR/PPA (Push-Profile) — HSS pushes updated user profile to S-CSCF."
+    spec: "TS 29.228, TS 29.229"
+    simulator_trigger: "REGISTER command — Cx MAR/MAA for auth vectors; SAR/SAA for profile download in cx_client.cpp"
+    interview_context: "Tests detailed Cx interface knowledge needed for HSS/S-CSCF integration debugging"
+
+  - id: "q119"
+    domain: "ims"
+    subdomain: "rx-interface"
+    tags:
+      - "rx-interface"
+      - "diameter"
+      - "p-cscf"
+      - "pcrf"
+      - "qci1"
+      - "volte-bearer"
+    level: "senior"
+    question: "What Diameter commands are used on the Rx interface and for what purpose?"
+    answer: "The Rx interface (App-ID 16777236) uses: AAR/AAA (AA-Request/Answer) — P-CSCF provides SDP-derived media information and requests QoS authorization, sent at call setup on both MO and MT sides; RAR/RAA (Re-Auth) — PCRF triggers media/flow updates mid-session; STR/STA (Session-Termination) — P-CSCF terminates the Rx session on SIP BYE, triggering bearer teardown; ASR/ASA (Abort-Session) — PCRF-initiated session abort (e.g., policy violation). The AAR carries Media-Component-Description AVPs with SDP-derived flow info."
+    spec: "TS 29.214, TS 23.203"
+    simulator_trigger: "CALL command — Rx AAR from p_cscf_node.cpp to PCRF; Rx STR on SIP BYE to release QCI=1 bearer"
+    interview_context: "Tests Rx interface command knowledge critical for VoLTE bearer lifecycle debugging"
+
+  # ---------------------------------------------------------------------------
+  # IMS / VoLTE — Emergency Calls (q120–q122)
+  # ---------------------------------------------------------------------------
+
+  - id: "q120"
+    domain: "ims"
+    subdomain: "emergency"
+    tags:
+      - "sip"
+      - "p-cscf"
+      - "s-cscf"
+      - "ims-epc"
+    level: "senior"
+    question: "Describe the IMS emergency call architecture. What are the E-CSCF and LRF?"
+    answer: "IMS emergency calls use two additional elements beyond normal IMS. The E-CSCF (Emergency CSCF) routes emergency SIP sessions to the correct PSAP (Public Safety Answering Point) — when P-CSCF detects an emergency URN (urn:service:sos), it routes the INVITE to the E-CSCF, which retrieves UE location from the LRF and forwards to the correct PSAP. The LRF (Location Retrieval Function) retrieves UE location (GPS, Cell-ID) and uses the RDF (Routing Determination Function) to map location to the correct PSAP, providing an ESQK in North America."
+    spec: "TS 23.167, TS 24.229"
+    simulator_trigger: "CALL command with emergency=true — P-CSCF routes to E-CSCF simulator for PSAP lookup"
+    interview_context: "Tests emergency IMS architecture knowledge required for regulatory compliance testing"
+
+  - id: "q121"
+    domain: "ims"
+    subdomain: "emergency"
+    tags:
+      - "sip"
+      - "ims-register"
+      - "p-cscf"
+      - "ims-epc"
+    level: "senior"
+    question: "What are the procedures for a UE initiating a VoLTE emergency call when not IMS-registered?"
+    answer: "An unregistered UE performs emergency attach (even without a valid SIM in some regions), then IMS APN PDN connection for emergency. If the UE has credentials it performs emergency IMS registration with an sos indication in the Contact header; if not, it sends an anonymous SIP INVITE directly to P-CSCF with the sos URN — no registration required, as P-CSCF routes directly to E-CSCF. The QCI=1 emergency bearer uses ARP priority 1 with preemption capability to guarantee resources under congestion; if IMS emergency fails, the UE must retry via CS domain (CSFB)."
+    spec: "TS 23.167 §7.1, TS 24.229"
+    simulator_trigger: "CALL command with emergency=true and unregistered UE — anonymous SIP INVITE to E-CSCF path"
+    interview_context: "Tests IMS emergency call edge cases required for regional regulatory compliance (e.g., FCC, OFCOM)"
+
+  - id: "q122"
+    domain: "ims"
+    subdomain: "emergency"
+    tags:
+      - "sip"
+      - "p-cscf"
+      - "s-cscf"
+    level: "senior"
+    question: "What SIP headers carry location information in an IMS emergency call?"
+    answer: "The Geolocation header (RFC 6442) contains a URI pointing to a PIDF-LO (Presence Information Data Format — Location Object) XML body attached to the SIP message or a dereferenceable HTTP URL; the PIDF-LO carries geodetic or civic location. The P-Access-Network-Info (PANI) header is inserted by the P-CSCF with access-network-specific location (e.g., 3GPP-E-UTRAN-FDD; utran-cell-id=<PLMN><TAC><CellID>); this is lower accuracy but always available. The E-CSCF provides the Geolocation reference to the LRF for precise PSAP routing."
+    spec: "TS 23.167, TS 24.229, RFC 6442, RFC 4119"
+    simulator_trigger: "CALL command emergency path — PANI header inserted by p_cscf_node.cpp; Geolocation header in SIP INVITE body"
+    interview_context: "Tests SIP emergency location header knowledge required for E911/emergency service implementation"
+
+  # ---------------------------------------------------------------------------
+  # IMS / VoLTE — IMS-EPC Interaction (q123–q130)
+  # ---------------------------------------------------------------------------
+
+  - id: "q123"
+    domain: "ims"
+    subdomain: "ims-epc"
+    tags:
+      - "ims-epc"
+      - "ims-register"
+      - "p-cscf"
+      - "s-cscf"
+    level: "senior"
+    question: "What is SGW relocation during a VoLTE call and how does it affect IMS?"
+    answer: "SGW relocation occurs during handover when the UE moves to a cell served by a different SGW; the PGW remains as the IP anchor so the UE's IP address and QCI=1 bearer are preserved and from the IMS perspective the SIP session is completely unaffected (P-CSCF sees the same UE IP throughout). The relocation involves a Create Session Request cycle establishing new S5/S8 tunnels between the new SGW and PGW. The critical point for VoLTE: the GBR QCI=1 bearer must be re-established on the new SGW with the same QoS parameters — if that fails, SRVCC may trigger."
+    spec: "TS 23.401 §5.3.3.1, TS 23.216"
+    simulator_trigger: "TAU with SGW relocation during active CALL — simulator verifies QCI=1 bearer is re-established on new SGW"
+    interview_context: "Tests understanding of IMS-EPC interaction under mobility — a real-world VoLTE drop root-cause scenario"
+
+  - id: "q124"
+    domain: "ims"
+    subdomain: "ir92"
+    tags:
+      - "volte-call"
+      - "sip"
+      - "ims-register"
+      - "sip-register"
+    level: "engineer"
+    question: "What is the re-registration requirement in IR.92, and why must the UE re-register before expiry?"
+    answer: "IR.92 requires the UE to re-register before the SIP registration expiry timer to maintain continuous IMS registration. If the UE fails to re-register before expiry, the S-CSCF removes the IMPU binding and the UE becomes unreachable for incoming calls — all incoming SIP INVITEs will return 480 Temporarily Unavailable. The UE typically re-registers at 50%–60% of the expiry time. Network restarts (e.g., S-CSCF failover) also require immediate re-registration since S-CSCF state is lost."
+    spec: "GSMA IR.92, TS 24.229"
+    simulator_trigger: "REGISTER command — simulator times re-registration at 60% of Expires value via registration_timer.cpp"
+    interview_context: "Tests IMS registration maintenance knowledge needed for UE registration robustness testing"
+
+  - id: "q125"
+    domain: "ims"
+    subdomain: "cx-interface"
+    tags:
+      - "cx"
+      - "s-cscf"
+      - "hss"
+      - "ims-register"
+    level: "senior"
+    question: "What is the RTR (Registration-Termination-Request) in the Cx interface and when is it sent?"
+    answer: "The RTR (Registration-Termination-Request) is an HSS-initiated Diameter Cx command sent to the S-CSCF to force deregistration of an IMS subscriber. It is sent when: the subscriber's service is removed or suspended by the operator; the HSS is migrated; or the subscription expires. The S-CSCF responds with RTA, deregisters the UE, sends a SIP NOTIFY to the UE (reg event package) informing it of deregistration, and sends SAR with assignment type TIMEOUT or USER_DEREGISTRATION to clean up the HSS binding. The UE will attempt re-registration after receiving the NOTIFY."
+    spec: "TS 29.228, TS 29.229"
+    simulator_trigger: "REGISTER command — HSS simulator sends RTR to S-CSCF when operator disables subscription during session"
+    interview_context: "Tests knowledge of HSS-initiated IMS deregistration flows important for subscriber lifecycle management"
+
+  - id: "q126"
+    domain: "ims"
+    subdomain: "ims-registration"
+    tags:
+      - "ims-register"
+      - "p-cscf"
+      - "s-cscf"
+      - "sip"
+    level: "engineer"
+    question: "What is an implicit registration set in IMS, and how does it affect SUBSCRIBE/NOTIFY?"
+    answer: "An implicit registration set is a group of IMPUs that are always registered and deregistered together as a unit — when one IMPU in the set is registered, all others are automatically registered simultaneously. The HSS stores the implicit registration set and delivers all IMPUs to the S-CSCF in the SAA user profile. After registration, when the UE subscribes to the reg event package, the S-CSCF sends a NOTIFY containing the registration status of all IMPUs in the implicit registration set — the UE learns all its registered identities in a single NOTIFY."
+    spec: "TS 23.228, TS 24.229"
+    simulator_trigger: "REGISTER command — S-CSCF sends NOTIFY with all IMPUs in implicit set after SAR/SAA completes"
+    interview_context: "Tests implicit registration set semantics often misunderstood in multi-IMPU subscriber scenarios"
+
+  - id: "q127"
+    domain: "ims"
+    subdomain: "sip-methods"
+    tags:
+      - "sip"
+      - "prack"
+      - "update"
+      - "sip-invite"
+      - "volte-call"
+    level: "senior"
+    question: "What is the role of SIP PRACK and UPDATE in VoLTE call setup, and why does IR.92 require them?"
+    answer: "PRACK (Provisional ACK, RFC 3262) provides reliable delivery of 1xx provisional responses (e.g., 183 Session Progress) — without it, the originating UE cannot confirm the terminating side's SDP answer was received and cannot safely proceed with QoS precondition establishment. UPDATE (RFC 3311) modifies session parameters (e.g., SDP for precondition status) mid-dialog without changing the dialog state or call direction. IR.92 requires both PRACK (100rel extension) and UPDATE to ensure reliable precondition negotiation and bearer confirmation before the phone rings, preventing ghost rings."
+    spec: "RFC 3262, RFC 3311, TS 24.229, GSMA IR.92"
+    simulator_trigger: "CALL command — PRACK sent by originating UE after 183; UPDATE sent to confirm QoS preconditions met"
+    interview_context: "Tests detailed SIP signaling knowledge for VoLTE precondition-based call setup reliability"
+
+  - id: "q128"
+    domain: "ims"
+    subdomain: "ims-epc"
+    tags:
+      - "ims-epc"
+      - "volte-bearer"
+      - "qci1"
+      - "rx-interface"
+      - "gx"
+    level: "senior"
+    question: "What is the IMS APN in LTE and what bearers does it carry?"
+    answer: "The IMS APN is a dedicated LTE APN (access point name) used exclusively for IMS signaling and media traffic, separate from the internet APN. When the UE connects to the IMS APN, a QCI=5 non-GBR default bearer is established immediately for SIP signaling (REGISTER, INVITE, BYE). During a VoLTE call, a dedicated QCI=1 GBR bearer is added to carry RTP voice media; for video calls a QCI=2 GBR bearer is added for video RTP. The IMS APN may be provisioned separately in the HSS with restricted MBR/AMBR values configured for IMS traffic only."
+    spec: "TS 23.203, GSMA IR.92"
+    simulator_trigger: "4G ATTACH command — UE connects to IMS APN establishing QCI=5 bearer; CALL command adds QCI=1 bearer"
+    interview_context: "Tests IMS APN and bearer coexistence model needed for VoLTE deployment and troubleshooting roles"
+
+  - id: "q129"
+    domain: "ims"
+    subdomain: "sip-methods"
+    tags:
+      - "sip"
+      - "sip-invite"
+      - "volte-call"
+    level: "engineer"
+    question: "What happens when a SIP INVITE receives a 486 Busy Here response in VoLTE?"
+    answer: "A 486 Busy Here response from the terminating UE or MTAS indicates the called party is busy and cannot accept the call. The originating S-CSCF forwards the 486 to the originating UE, which generates a SIP ACK to complete the three-way handshake for the failed INVITE (per RFC 3261, error responses to INVITE must be ACKed). No QCI=1 dedicated bearer is ever established; the originating UE may play a busy tone locally. If call waiting is not active on the terminating UE or the UE is truly occupied, the MTAS sends the 486."
+    spec: "RFC 3261, TS 24.229"
+    simulator_trigger: "CALL command to busy UE — 486 returned by MTAS; simulator verifies no QCI=1 bearer created on MO side"
+    interview_context: "Tests SIP error handling and bearer management knowledge in call rejection scenarios"
+
+  - id: "q130"
+    domain: "ims"
+    subdomain: "ims-registration"
+    tags:
+      - "ims-register"
+      - "p-cscf"
+      - "sip-register"
+      - "ims-epc"
+    level: "senior"
+    question: "What is network-initiated session release in IMS, and how does the P-CSCF detect UE loss of connectivity?"
+    answer: "Network-initiated session release occurs when the network detects the UE is unreachable and proactively terminates the SIP session. The P-CSCF detects UE loss of connectivity by: monitoring subscription to the reg event package (if the UE's registration expires without renewal); detecting bearer loss on the EPC side (the PGW/PCRF notifies P-CSCF via Rx ASR of PDN connection release); or missing SIP OPTIONS keep-alive responses. When detected, the P-CSCF sends a SIP BYE to the S-CSCF to clean up all active dialogs, and the S-CSCF sends SIP NOTIFY (deregistered) to any remaining subscriptions."
+    spec: "TS 23.228, TS 24.229, TS 29.214"
+    simulator_trigger: "CHAOS command — simulator kills UE bearer and verifies P-CSCF sends SIP BYE for active call cleanup"
+    interview_context: "Tests fault-handling knowledge needed for VoLTE session cleanup in network failure scenarios"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — Architecture (q131–q135)
+  # ---------------------------------------------------------------------------
+
+  - id: "q131"
+    domain: "5g"
+    subdomain: "sba-architecture"
+    tags:
+      - "5g-sba"
+      - "sbi"
+      - "http2"
+      - "nf-services"
+    level: "engineer"
+    question: "What is the Service-Based Architecture (SBA) in 5G Core, and how does it differ from 4G EPC?"
+    answer: "In 4G EPC, NFs communicate over fixed bilateral reference points (S11, S6a, Gx) where each pair has a dedicated bespoke interface. In 5G SBA, every NF exposes RESTful services over HTTP/2 (the SBI), so any authorized NF can discover and consume any other NF's service via the NRF without bilateral configuration. This makes the 5GC modular and loosely coupled — NFs can scale independently, deploy as containers, and upgrade without re-wiring every peer. The SBI uses JSON-encoded OpenAPI 3.0 specifications from the TS 29.5xx series."
+    spec: "TS 23.501 §4.2, TS 29.500"
+    simulator_trigger: "5G REG command — AMF calls AUSF over HTTP/2 SBI instead of Diameter used in 4G ATTACH"
+    interview_context: "Foundational 5G architecture question expected at beginner-to-engineer level in any 5GC role"
+
+  - id: "q132"
+    domain: "5g"
+    subdomain: "sba-architecture"
+    tags:
+      - "5g-sba"
+      - "nf-services"
+      - "sbi"
+      - "http2"
+      - "amf"
+      - "smf"
+      - "upf"
+      - "udm"
+      - "nrf"
+    level: "beginner"
+    question: "List the core Network Functions in the 5G Core and briefly describe each."
+    answer: "Key 5GC NFs include: AMF (Access and Mobility Management — NAS termination, registration, SEAF), SMF (Session Management — PDU session lifecycle, UPF control via PFCP), UPF (User Plane — packet forwarding, GTP-U, N3/N4/N6), UDM (Subscriber data, AKA credentials, SUCI de-concealment), AUSF (Authentication Server — 5G-AKA in HPLMN), PCF (Policy — PCC rules, replaces PCRF), NRF (NF registry and discovery), NSSF (Slice Selection), NEF (Network Exposure), UDR (Structured data store for UDM/PCF/NEF), and SEPP (Inter-PLMN roaming security proxy)."
+    spec: "TS 23.501 §6"
+    simulator_trigger: "5G REG command — simulator instantiates AMF, SMF, UPF, UDM, AUSF, NRF nodes for 5G standalone flow"
+    interview_context: "Entry-level 5GC NF survey question — every candidate at any level should know this list"
+
+  - id: "q133"
+    domain: "5g"
+    subdomain: "sba-architecture"
+    tags:
+      - "5g-sba"
+      - "sbi"
+      - "http2"
+    level: "engineer"
+    question: "What is the SBI (Service-Based Interface)? What protocols does it use?"
+    answer: "The SBI is the common communication bus used by all 5GC NFs for control-plane interactions, using HTTP/2 as transport (replacing Diameter and GTP-C from 4G), TLS 1.2/1.3 for security, and JSON encoding. API definitions follow OpenAPI 3.0, published by 3GPP in the TS 29.5xx series. Operations follow REST semantics: GET for retrieval (NF discovery), POST for create/invoke (session creation), PUT/PATCH for update, DELETE for removal."
+    spec: "TS 29.500, TS 29.501"
+    simulator_trigger: "5G REG command — HTTP/2 POST to AMF, GET to NRF for NF discovery, visible in http2_trace.log"
+    interview_context: "Tests SBI protocol knowledge needed for 5GC NF interface development and debugging"
+
+  - id: "q134"
+    domain: "5g"
+    subdomain: "sba-architecture"
+    tags:
+      - "5g-sba"
+      - "sbi"
+      - "http2"
+      - "amf"
+      - "smf"
+      - "upf"
+      - "n2"
+      - "ngap"
+      - "pfcp"
+      - "pdu-session"
+    level: "engineer"
+    question: "What are the 5G NR interfaces between gNB and 5GC? Describe N1, N2, N3, N4, N6, and N9."
+    answer: "N1 (UE ↔ AMF, NAS-5G) carries NAS signaling; N2 (gNB ↔ AMF, NGAP/SCTP) handles RAN-CN control (context setup, handover, paging); N3 (gNB ↔ UPF, GTP-U/UDP/IP) is the user-plane data path; N4 (SMF ↔ UPF, PFCP/UDP) is the UPF programming interface for PDRs, FARs, QERs; N6 (UPF ↔ Data Network, plain IP) connects to the internet or IMS; N9 (UPF ↔ UPF, GTP-U) is the inter-UPF tunnel used in home-routed roaming or distributed UPF deployments."
+    spec: "TS 23.501 §4.3"
+    simulator_trigger: "5G REG + PDU session commands — all six interfaces active in the full 5G standalone simulator topology"
+    interview_context: "Tests 5G interface vocabulary and protocol stack knowledge at the engineer level"
+
+  - id: "q135"
+    domain: "5g"
+    subdomain: "sba-architecture"
+    tags:
+      - "smf"
+      - "upf"
+      - "pfcp"
+      - "n4"
+      - "pdu-session"
+    level: "senior"
+    question: "What is CP-UP separation (CUPS) in 4G and how does 5G extend this concept?"
+    answer: "4G introduced CUPS in Release 14 by splitting SGW and PGW into control-plane (SGW-C/PGW-C) and user-plane (SGW-U/PGW-U) nodes communicating via Sxb/Sxa (PFCP precursor) — it was an optional extension. 5G makes CP-UP separation mandatory: SMF is always the pure control plane and UPF is always the pure user plane, communicating via the standardized N4/PFCP interface (TS 29.244). This allows UPFs to be deployed at the network edge (MEC) without SMF co-location, enabling ultra-low latency while the SMF remains centralized."
+    spec: "TS 23.501 §5.7, TS 29.244"
+    simulator_trigger: "5G PDU session command — SMF controls UPF via PFCP Session Establishment over N4 interface"
+    interview_context: "Tests 4G-to-5G architectural evolution understanding relevant to PGW migration projects"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — AMF (q136–q139)
+  # ---------------------------------------------------------------------------
+
+  - id: "q136"
+    domain: "5g"
+    subdomain: "amf"
+    tags:
+      - "amf"
+      - "5g-registration"
+      - "n2"
+      - "ngap"
+      - "5g-sba"
+    level: "engineer"
+    question: "What is the AMF, and what are its primary responsibilities in 5G?"
+    answer: "The AMF (Access and Mobility Management Function) is the primary NAS termination point for the UE, handling all control-plane signaling from UE and gNB. Its responsibilities include UE registration and deregistration, NAS security (ciphering and integrity), mobility management (handover, tracking area updates, paging), SMF selection for PDU session setup, acting as SEAF for UE authentication, and relaying N2 (NGAP) messages between gNB and other NFs. The AMF maintains UE context including the GUAMI and 5G-GUTI."
+    spec: "TS 23.501 §6.2.1"
+    simulator_trigger: "5G REG command — amf_node.cpp is the primary 5G control-plane orchestrator"
+    interview_context: "Foundational 5G AMF role question expected at beginner-to-engineer level"
+
+  - id: "q137"
+    domain: "5g"
+    subdomain: "amf"
+    tags:
+      - "amf"
+      - "5g-registration"
+      - "n2"
+      - "ngap"
+      - "5g-auth"
+      - "udm"
+      - "nrf"
+      - "suci"
+    level: "engineer"
+    question: "Describe the 5G Registration procedure step-by-step."
+    answer: "The UE sends a Registration Request (with SUCI or 5G-GUTI) to the gNB, which forwards an Initial UE Message to the AMF over N2/NGAP. The AMF initiates authentication via AUSF over N12 (SBI); AUSF contacts UDM over N13 for authentication vectors; 5G-AKA challenge-response completes over N1 (NAS). The AMF performs NAS Security Mode Command activating NAS ciphering, fetches subscriber data from UDM (Nudm_SDM_Get over N8), optionally contacts NSSF for slice selection, and returns Registration Accept (with 5G-GUTI, Allowed NSSAI, TAI list); the UE confirms with Registration Complete."
+    spec: "TS 23.502 §4.2.3, TS 24.501"
+    simulator_trigger: "5G REG command — full 10-step flow in 5g_registration_handler.cpp from NGAP Initial UE to Registration Accept"
+    interview_context: "5G equivalent of the LTE attach walkthrough — expected at engineer level"
+
+  - id: "q138"
+    domain: "5g"
+    subdomain: "amf"
+    tags:
+      - "amf"
+      - "5g-auth"
+      - "5g-registration"
+      - "suci"
+      - "supi"
+    level: "engineer"
+    question: "What is the difference between SUPI, SUCI, 5G-GUTI, and 5G-S-TMSI?"
+    answer: "SUPI (Subscription Permanent Identifier) is the permanent subscriber ID (equivalent to IMSI for 3GPP access) — never sent over the air. SUCI (Subscription Concealed Identifier) is an ECIES-encrypted version of the MSIN sent in initial registration before a 5G-GUTI is assigned. 5G-GUTI (Globally Unique Temporary Identifier) is a temporary ID assigned by AMF post-registration, used for all subsequent NAS signaling. 5G-S-TMSI is a shortened form of the 5G-GUTI used for paging over the radio interface to reduce air-interface overhead."
+    spec: "TS 23.003 §2.10, TS 33.501 §6.12"
+    simulator_trigger: "5G REG command — SUCI sent in first Registration Request; 5G-GUTI assigned in Registration Accept"
+    interview_context: "Tests 5G identity vocabulary expected at engineer level; contrasts with 4G IMSI/GUTI"
+
+  - id: "q139"
+    domain: "5g"
+    subdomain: "amf"
+    tags:
+      - "amf"
+      - "5g-registration"
+      - "tracking-area"
+      - "mobility"
+      - "udm"
+    level: "senior"
+    question: "What is the 5G Registration Update procedure (the 5G equivalent of TAU)?"
+    answer: "In 5G, the TAU equivalent is the Registration Update (Mobility Registration Update). When a UE moves to a cell not in its registered TA list, it sends Registration Request with type Mobility Registration Update. The AMF verifies the new TAI, may invoke NSSF for slice availability, and if the AMF changes, contacts the old AMF via N14 for UE context transfer (Namf_Communication_UEContextTransfer). Unlike 4G TAU, 5G does not need a separate session update — the AMF notifies SMF via SBI messaging if the UPF anchor needs to change."
+    spec: "TS 23.502 §4.2.4"
+    simulator_trigger: "5G TAU equivalent command — AMF inter-instance context transfer in 5g_registration_update.cpp"
+    interview_context: "Tests 5G mobility management knowledge including the 4G-to-5G TAU procedure mapping"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — UDM/AUSF (q140–q142)
+  # ---------------------------------------------------------------------------
+
+  - id: "q140"
+    domain: "5g"
+    subdomain: "udm"
+    tags:
+      - "udm"
+      - "ausf"
+      - "5g-auth"
+      - "suci"
+      - "supi"
+      - "5g-sba"
+    level: "engineer"
+    question: "What is the UDM in 5G, and how does it differ from the 4G HSS?"
+    answer: "The UDM (Unified Data Management) is the 5GC equivalent of the 4G HSS but architecturally separated. The UDM exposes SBI-based services (Nudm_*) whereas the HSS used Diameter (S6a). UDM provides AKA credential generation (via co-located ARPF), SUCI de-concealment (via co-located SIDF), subscriber data management, and serving NF registration tracking. Unlike the monolithic HSS, UDM reads/writes its data from a separate UDR (Unified Data Repository), making the data layer independently scalable."
+    spec: "TS 23.502 §5.2.3, TS 29.503"
+    simulator_trigger: "5G REG command — AMF calls Nudm_SDM_Get to UDM after authentication to fetch subscriber profile"
+    interview_context: "Tests HSS-to-UDM evolution knowledge essential for 5G core network migration roles"
+
+  - id: "q141"
+    domain: "5g"
+    subdomain: "ausf"
+    tags:
+      - "ausf"
+      - "5g-auth"
+      - "udm"
+      - "amf"
+      - "suci"
+    level: "senior"
+    question: "What is the AUSF, and what is its role in 5G authentication?"
+    answer: "The AUSF (Authentication Server Function) resides in the HPLMN and handles UE authentication for 3GPP and non-3GPP access. When SEAF (in AMF) requests authentication, AUSF contacts UDM for the 5G HE AV, computes HXRES* (hashed expected response), and sends the 5G SE AV (with RAND, AUTN, HXRES*) to SEAF. Only after SEAF confirms HRES* = HXRES* and forwards RES* does AUSF verify RES* = XRES* and send K_SEAF + SUPI to the serving network. This dual confirmation prevents a rogue serving network from falsely claiming authentication success."
+    spec: "TS 33.501 §6.1, TS 29.509"
+    simulator_trigger: "5G REG command — AUSF receives SUCI from AMF, contacts UDM, returns 5G SE AV in ausf_node.cpp"
+    interview_context: "Tests 5G-AKA two-phase verification understanding — the most architecturally distinct 5G security feature"
+
+  - id: "q142"
+    domain: "5g"
+    subdomain: "udm"
+    tags:
+      - "udm"
+      - "ausf"
+      - "5g-auth"
+      - "suci"
+      - "supi"
+    level: "senior"
+    question: "What are the ARPF and SIDF, and where do they reside in 5G?"
+    answer: "The ARPF (Authentication credential Repository and Processing Function) stores the long-term subscriber key (K) and SQN, and performs AKA cryptographic computations generating RAND, AUTN, XRES*, CK, IK, and K_AUSF. The SIDF (Subscription Identifier De-concealing Function) holds the Home Network private key and uses it to decrypt SUCI back to SUPI using ECIES. Both are logical functions co-located within the UDM node — not deployed as separate network elements — ensuring the home network retains exclusive control of subscriber credentials."
+    spec: "TS 33.501 §5.2.5, §6.12.2"
+    simulator_trigger: "5G REG command — UDM/ARPF generates 5G HE AV; UDM/SIDF decrypts SUCI to SUPI in udm_node.cpp"
+    interview_context: "Tests UDM internal functional decomposition knowledge expected at senior security engineering level"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — SMF/UPF (q143–q146)
+  # ---------------------------------------------------------------------------
+
+  - id: "q143"
+    domain: "5g"
+    subdomain: "smf"
+    tags:
+      - "smf"
+      - "upf"
+      - "pfcp"
+      - "n4"
+      - "pdu-session"
+      - "5g-sba"
+    level: "engineer"
+    question: "What is the SMF in 5G, and what are its key responsibilities?"
+    answer: "The SMF (Session Management Function) manages the full lifecycle of PDU sessions from establishment through modification to release. Its responsibilities include selecting and controlling UPF(s) via N4/PFCP; fetching SM subscription data from UDM; obtaining PCC rules from PCF; orchestrating GTP-U tunnel endpoint assignments between gNB and UPF; UE IP address allocation; enforcing QoS via QER installation in UPF; and SSC mode management. The SMF corresponds to 4G's SGW-C + PGW-C combined, but exposes services via RESTful SBI (Nsmf_PDUSession)."
+    spec: "TS 23.501 §6.2.2, TS 23.502 §4.3"
+    simulator_trigger: "5G PDU session command — smf_node.cpp orchestrates PFCP, UDM, PCF, and NGAP interactions for session setup"
+    interview_context: "Core SMF role question expected at engineer level in any 5GC development role"
+
+  - id: "q144"
+    domain: "5g"
+    subdomain: "smf"
+    tags:
+      - "smf"
+      - "upf"
+      - "pfcp"
+      - "n4"
+      - "pdu-session"
+      - "ngap"
+      - "amf"
+    level: "senior"
+    question: "Walk through the 5G PDU Session Establishment procedure (16 steps)."
+    answer: "The UE sends PDU Session Establishment Request (NAS); AMF invokes Nsmf_PDUSession_CreateSMContext (HTTP/2 POST); SMF fetches SM subscription from UDM and PCC rules from PCF; SMF sends PFCP Session Establishment Request to UPF with PDRs, FARs, QERs, URRs, and gets UPF F-TEID; SMF returns context to AMF, which sends NGAP PDU Session Resource Setup Request to gNB; gNB configures DRB and responds with gNB F-TEID; AMF forwards gNB tunnel info to SMF, which sends PFCP Session Modification Request to UPF updating the FAR's downlink F-TEID. After step 16, GTP-U tunnels are fully established."
+    spec: "TS 23.502 §4.3.2, TS 24.501 §6.4, TS 29.244"
+    simulator_trigger: "5G PDU session command — 16-step flow traced in 5g_pdu_session_handler.cpp"
+    interview_context: "5G equivalent of the LTE Create Session walkthrough — senior-level expectation in any SMF/UPF role"
+
+  - id: "q145"
+    domain: "5g"
+    subdomain: "smf"
+    tags:
+      - "smf"
+      - "pdu-session"
+      - "upf"
+    level: "senior"
+    question: "What are the three SSC (Session and Service Continuity) modes in 5G?"
+    answer: "SSC Mode 1: the UPF anchor never changes for the PDU session lifetime — use for VoNR and enterprise VPN requiring a stable IP. SSC Mode 2: the network releases the old session and creates a new one (break-before-make) — for best-effort internet browsing. SSC Mode 3: the network creates a new session before releasing the old (make-before-break) — for video streaming or gaming requiring minimal interruption. SSC mode is negotiated at session establishment; UDM subscription data may restrict allowed modes per DNN."
+    spec: "TS 23.501 §5.6.9, TS 23.502 §4.3.3"
+    simulator_trigger: "5G PDU session command — simulator tests SSC Mode 1/2/3 behavior during UPF relocation in mobility scenarios"
+    interview_context: "Tests 5G session continuity model knowledge that has no direct 4G equivalent"
+
+  - id: "q146"
+    domain: "5g"
+    subdomain: "upf"
+    tags:
+      - "upf"
+      - "pfcp"
+      - "n4"
+      - "smf"
+      - "pdu-session"
+    level: "senior"
+    question: "What are PDRs, FARs, QERs, and URRs in PFCP? What does each do?"
+    answer: "PDR (Packet Detection Rule) matches incoming packets using criteria such as source interface, SDF filter (IP 5-tuple), or TEID — each PDR has a precedence and points to a FAR. FAR (Forwarding Action Rule) specifies what to do with matched packets: forward (with destination IP/TEID), drop, buffer (for idle UE), or duplicate — updated when the gNB TEID becomes known. QER (QoS Enforcement Rule) enforces MBR, GBR, and gate status per QoS flow via token-bucket policing. URR (Usage Reporting Rule) triggers volume/time/event-based usage reports to SMF for CHF charging."
+    spec: "TS 29.244 §7.5–7.8"
+    simulator_trigger: "5G PDU session command — PFCP rules installed in UPF simulator via N4 in pfcp_session_manager.cpp"
+    interview_context: "Tests PFCP rule knowledge essential for UPF implementation and N4 interface debugging"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — NRF (q147–q148)
+  # ---------------------------------------------------------------------------
+
+  - id: "q147"
+    domain: "5g"
+    subdomain: "nrf"
+    tags:
+      - "nrf"
+      - "nf-discovery"
+      - "5g-sba"
+      - "http2"
+    level: "engineer"
+    question: "What is the NRF in 5G, and what services does it provide?"
+    answer: "The NRF (Network Repository Function) is the service registry and discovery broker for the 5GC. NFs register their NF Profile (type, instance ID, PLMN ID, supported services, capacity, IP/FQDN) at startup. When an NF consumer needs a service, it sends Nnrf_NFDiscovery_Request specifying target NF type and optional S-NSSAI/DNN filters; NRF returns matching NF instances. The NRF also supports subscription notifications — NFs subscribe to topology change events without polling. In slicing deployments, multiple NRFs may be hierarchically deployed at PLMN, shared-slice, and slice-specific levels."
+    spec: "TS 23.501 §6.2.6, TS 29.510"
+    simulator_trigger: "5G REG command — all NF registrations and discovery calls logged in nrf_node.cpp"
+    interview_context: "Tests NRF registry/discovery mechanism central to all 5GC NF interactions"
+
+  - id: "q148"
+    domain: "5g"
+    subdomain: "nrf"
+    tags:
+      - "nrf"
+      - "oauth2"
+      - "5g-sba"
+      - "http2"
+    level: "senior"
+    question: "How does OAuth2-based authorization work for NF service access in 5G?"
+    answer: "3GPP uses OAuth 2.0 client credentials grant for SBI authorization. An NF consumer obtains an access token from NRF via POST to Nnrf_AccessToken_Get, specifying its NF type, target NF type, and required service scope; the NRF verifies the requester's identity via mutual TLS and issues a signed JWT. The consumer includes this bearer token in the Authorization HTTP header of every service request; the producer validates the token signature and scope before processing. This prevents unauthorized NFs from calling any service and enables fine-grained access control."
+    spec: "TS 29.510 §5.22, TS 33.501 §13.3"
+    simulator_trigger: "5G REG command — NRF issues JWT access tokens used in all Nudm, Nausf, Nsmf calls in 5g_oauth_handler.cpp"
+    interview_context: "Tests OAuth2/SBI authorization knowledge needed for 5GC security hardening and zero-trust deployments"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — NSSF / Network Slicing (q149–q151)
+  # ---------------------------------------------------------------------------
+
+  - id: "q149"
+    domain: "5g"
+    subdomain: "nssf"
+    tags:
+      - "nssf"
+      - "network-slicing"
+      - "nssai"
+      - "sst"
+      - "5g-sba"
+      - "amf"
+    level: "engineer"
+    question: "What is the NSSF, and what is NSSAI in 5G?"
+    answer: "The NSSF (Network Slice Selection Function) selects appropriate Network Slice instances to serve a UE based on subscription, requested S-NSSAIs, UE location, and operator policy. NSSAI (Network Slice Selection Assistance Information) is a collection of S-NSSAIs; each S-NSSAI has an SST (Slice/Service Type, 8-bit: 1=eMBB, 2=URLLC, 3=MIoT) and an optional SD (Slice Differentiator, 24-bit, distinguishing multiple slices of the same SST). The UE includes Requested NSSAI in the Registration Request; the NSSF determines Allowed NSSAI and may select a specific AMF Set."
+    spec: "TS 23.501 §5.15, TS 29.531"
+    simulator_trigger: "5G REG command with slice_id — AMF contacts NSSF for slice selection in nssf_client.cpp"
+    interview_context: "Tests 5G network slicing entry-level knowledge — NSSAI vocabulary is expected at the engineer level"
+
+  - id: "q150"
+    domain: "5g"
+    subdomain: "network-slicing"
+    tags:
+      - "network-slicing"
+      - "nssai"
+      - "sst"
+      - "nssf"
+      - "5g-sba"
+    level: "senior"
+    question: "Explain end-to-end network slicing in 5G — how do RAN, Core, and Transport slices work together?"
+    answer: "End-to-end slicing isolates networks logically on shared physical infrastructure across three domains: RAN uses S-NSSAI-based scheduler differentiation, dedicated bandwidth parts, or dedicated DRBs per slice; the 5GC deploys dedicated or shared NF instances per S-NSSAI with per-slice NF registration in the NRF; and the transport network uses DSCP or FlexE/VLAN-based isolation in backhaul and fronthaul. The NSSF orchestrates core slice selection; Allowed NSSAI in the Registration Accept propagates RAN-level slice awareness via NGAP. IETF/3GPP transport slicing maps 5QI values to DSCP/CoS markings."
+    spec: "TS 23.501 §5.15, TR 28.530"
+    simulator_trigger: "network-slicing command — simulator validates end-to-end slice isolation across RAN, CN, and transport simulators"
+    interview_context: "Tests architect-level understanding of end-to-end slicing — needed for network slice design roles"
+
+  - id: "q151"
+    domain: "5g"
+    subdomain: "network-slicing"
+    tags:
+      - "network-slicing"
+      - "nssai"
+      - "sst"
+      - "nssf"
+    level: "senior"
+    question: "What are the security isolation challenges unique to 5G network slicing?"
+    answer: "Slices share physical infrastructure, enabling cross-slice resource exhaustion attacks where a UE flooding one slice can degrade another if shared NFs like AMF are not slice-aware rate-limited. Authentication credentials (SUPI, AUSF) are shared across slices, so slice isolation must be enforced at NF and data plane level rather than at the identity level. Misconfigured NSSAI mapping could allow a low-security IoT slice subscriber to access a high-security URLLC slice's NFs. The NRF's slice-specific deployment must prevent NF producers in one slice from being discoverable by consumers in another."
+    spec: "TS 33.501 §9, TS 23.501 §5.15.6"
+    simulator_trigger: "network-slicing command with cross_slice_attack=true — simulator verifies AMF rate-limiting and NRF slice isolation"
+    interview_context: "Architect-level question testing ability to reason about security invariants across slice boundaries"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — SUCI/SUPI & Security (q152–q156)
+  # ---------------------------------------------------------------------------
+
+
+  - id: "q152"
+    domain: "5g"
+    subdomain: "security"
+    tags:
+      - "suci"
+      - "supi"
+      - "5g-auth"
+      - "ecies"
+      - "privacy"
+      - "udm"
+    level: "engineer"
+    question: "What is SUPI, and why was SUCI introduced in 5G?"
+    answer: "SUPI (Subscription Permanent Identifier) is the 5G successor to 4G IMSI — a permanent, globally unique subscriber identifier stored in the USIM and used internally by the 5GC, never transmitted over the air. 5G introduced SUCI (Subscription Concealed Identifier) as the ECIES-encrypted form of the MSIN component of SUPI, so any over-the-air Registration Request reveals only an ephemeral ciphertext rather than the real identity. This directly eliminates the IMSI-catcher (Stingray) attack vector that plagued 2G–4G networks. Only the SIDF function within UDM holds the Home Network private key and can decrypt SUCI back to SUPI."
+    spec: "TS 23.003 §2.10.1, TS 33.501 §5.2.5 and §6.12"
+    simulator_trigger: "REG command step 1 — SUCI sent by gNB to AMF in Initial UE Message"
+    interview_context: "Tests understanding of subscriber privacy — a key 5G security improvement over 4G"
+
+  - id: "q153"
+    domain: "5g"
+    subdomain: "security"
+    tags:
+      - "suci"
+      - "ecies"
+      - "5g-auth"
+      - "udm"
+      - "key-hierarchy"
+    level: "senior"
+    question: "Describe how SUCI is constructed from SUPI using ECIES. What are the cryptographic steps?"
+    answer: "The USIM generates a fresh ephemeral ECC key pair for each SUCI, computes a shared secret with the Home Network's provisioned public key (Curve25519 or secp256r1), then derives an encryption key and MAC key from the shared secret using ANSI-X9.63-KDF. The MSIN portion of SUPI is encrypted with AES-128-CTR and a MAC is appended; MCC and MNC remain in cleartext for routing. The resulting SUCI bundles the ephemeral public key, ciphertext, MAC tag, protection scheme ID, and routing indicator. Only SIDF inside UDM, holding the Home Network private key, can invert this ECIES operation and recover the original SUPI."
+    spec: "TS 33.501 Annex C.3"
+    simulator_trigger: "REG command step 1 — SUCI construction in UE USIM module"
+    interview_context: "Tests cryptographic depth for senior security engineers; commonly asked at Qualcomm, Ericsson, Nokia"
+
+  - id: "q154"
+    domain: "5g"
+    subdomain: "security"
+    tags:
+      - "5g-aka"
+      - "ausf"
+      - "udm"
+      - "5g-auth"
+      - "key-hierarchy"
+      - "suci"
+    level: "senior"
+    question: "Describe the complete 5G-AKA procedure. What is HXRES* and why does it exist?"
+    answer: "After receiving SUCI, SEAF asks AUSF, which asks UDM/ARPF for a 5G HE AV (RAND, AUTN, XRES*, K_AUSF). AUSF computes HXRES* = SHA-256(XRES* || RAND) and sends the 5G SE AV (RAND, AUTN, HXRES*) to SEAF, keeping XRES* hidden from the serving network. When the UE responds with RES*, SEAF computes HRES* = SHA-256(RES* || RAND) and verifies it equals HXRES* — confirming serving-network-level success — then forwards RES* to AUSF for home-network-level verification against XRES*. This two-step confirmation prevents a rogue serving network from falsely claiming authentication success, because the home network always performs final XRES* verification."
+    spec: "TS 33.501 §6.1.3"
+    simulator_trigger: "REG command steps 3–5 — Authentication challenge/response between AMF/AUSF/UDM"
+    interview_context: "Tests depth of 5G security architecture; the dual-confirmation design is a popular senior interview point"
+
+  - id: "q155"
+    domain: "5g"
+    subdomain: "security"
+    tags:
+      - "key-hierarchy"
+      - "5g-aka"
+      - "5g-auth"
+      - "amf"
+      - "ausf"
+    level: "senior"
+    question: "Explain the 5G key hierarchy from root key K down to NAS and AS session keys."
+    answer: "The root key K in the USIM generates K_AUSF via 5G-AKA (or via EAP-AKA' using CK'/IK'), from which K_SEAF is derived bound to the serving network name, and then K_AMF is derived bound to ngKSI and the ABBA anti-bidding-down parameter. From K_AMF the NAS keys K_NASenc and K_NASint are derived, and K_gNB is derived for the RAN, from which K_RRCenc/K_RRCint and K_UPenc/K_UPint are further derived at the gNB. Each layer of binding (SN-name into K_SEAF, ABBA into K_AMF) prevents a compromised node at one layer from impersonating another network or downgrading to weaker security. All root keys are 256-bit; algorithms use the 128 least-significant bits."
+    spec: "TS 33.501 §A.2, §A.7, §A.8"
+    simulator_trigger: "REG command step 6 — NAS Security Mode Command issued by AMF"
+    interview_context: "Architect-level question on key derivation; tests ability to trace a security breach impact across the hierarchy"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — N2/NGAP vs S1AP (q156–q157)
+  # ---------------------------------------------------------------------------
+
+  - id: "q156"
+    domain: "5g"
+    subdomain: "ngap"
+    tags:
+      - "amf"
+      - "ngap"
+      - "n2"
+      - "5g-registration"
+      - "5g-sba"
+    level: "engineer"
+    question: "What is NGAP, and what are the key differences from S1AP?"
+    answer: "NGAP (TS 38.413) is the control-plane protocol on the N2 interface between gNB and AMF, replacing S1AP (TS 36.413) on the S1-MME interface. Both use SCTP for reliable transport, but NGAP supports both 3GPP and non-3GPP access types (e.g., N3IWF), uses PDU session and QoS flow granularity instead of EPS bearers, and carries NAS-5G rather than NAS-EPS. NGAP paging uses 5G-S-TMSI and supports network slicing metadata (S-NSSAI) in resource setup messages. Handovers in 5G use Xn-AP (direct gNB-to-gNB) analogous to X2AP, with NGAP used only for inter-AMF handover coordination."
+    spec: "TS 38.413, TS 36.413"
+    simulator_trigger: "REG command step 2 — Initial UE Message sent by gNB to AMF over N2/NGAP"
+    interview_context: "Tests RAN-core interface knowledge; asked to assess transition readiness from 4G to 5G"
+
+  - id: "q157"
+    domain: "5g"
+    subdomain: "ngap"
+    tags:
+      - "amf"
+      - "ngap"
+      - "n2"
+      - "5g-sba"
+      - "5g-registration"
+    level: "engineer"
+    question: "What is the NG Setup procedure, and why is it required before any UE-level signaling?"
+    answer: "NG Setup is the first control-plane exchange between a gNB and an AMF, where the gNB sends NGSetupRequest with its Global RAN Node ID, supported TAC list, and capabilities, and the AMF responds with NGSetupResponse containing AMF Name, GUAMI list, PLMN support, and Allowed NSSAI. Without a successful NG Setup, the gNB does not know which slices or PLMNs the AMF serves, so it cannot route Initial UE Messages to the correct AMF. It is analogous to the S1 Setup procedure in 4G and must succeed before any UE-associated NGAP procedure can proceed. The AMF returns NGSetupFailure with a cause IE if it cannot serve the gNB's reported TACs."
+    spec: "TS 38.413 §8.7.1"
+    simulator_trigger: "Simulator startup — NG Setup handshake between simulated gNB and AMF before first REG command"
+    interview_context: "Asked to test understanding of RAN-CN initialization and AMF pool selection"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — Roaming (q158–q160)
+  # ---------------------------------------------------------------------------
+
+  - id: "q158"
+    domain: "5g"
+    subdomain: "roaming"
+    tags:
+      - "5g-sba"
+      - "nf-services"
+      - "http2"
+      - "5g-auth"
+    level: "senior"
+    question: "What is the SEPP, and why was it needed in 5G roaming?"
+    answer: "The Security Edge Protection Proxy (SEPP) sits at the PLMN boundary and secures all inter-PLMN HTTP/2 control-plane signaling in roaming scenarios. In 4G, inter-PLMN Diameter messages traversed IPX networks without application-layer security, allowing IPX providers to read or modify all signaling — enabling SS7/Diameter attacks. In 5G the SEPP provides topology hiding (concealing internal NF addresses), message filtering, and cryptographic protection via TLS (N32-c negotiation) or PRINS (N32-f with IPX providers). Every inter-PLMN SBI request passes through both a vSEPP in the visited PLMN and an hSEPP in the home PLMN."
+    spec: "TS 33.501 §13, TS 29.573"
+    simulator_trigger: "ROAM command — vSEPP/hSEPP PRINS message exchange on N32-f between VPLMN and HPLMN"
+    interview_context: "Tests 5G roaming security design; asked at Nokia/Ericsson for network security architecture roles"
+
+  - id: "q159"
+    domain: "5g"
+    subdomain: "roaming"
+    tags:
+      - "5g-sba"
+      - "nf-services"
+      - "http2"
+      - "smf"
+      - "upf"
+    level: "senior"
+    question: "What is the difference between Home-Routed and Local Breakout roaming in 5G?"
+    answer: "In Home-Routed roaming, user-plane traffic flows from the UE through a V-UPF to an N9 GTP-U tunnel ending at the H-UPF, and session management is handled by an H-SMF in the home PLMN — all internet traffic is backhauled to the home PLMN, adding latency. In Local Breakout, the V-SMF manages the PDU session and a V-UPF anchors the session in the visited PLMN, so internet traffic exits locally without backhaul — lower latency but more complex inter-PLMN charging. Home-routed is mandatory for IMS/VoNR because the IMS core is anchored in the HPLMN. Local Breakout is technically defined but operationally rare in early 5G deployments due to charging and policy complexity."
+    spec: "TS 23.501 §5.17, GSMA NG.113"
+    simulator_trigger: "ROAM command — SMF selection shows H-SMF (home-routed) vs V-SMF (LBO) path"
+    interview_context: "Tests roaming architecture trade-offs; asked for IMS and core engineering roles at major vendors"
+
+  - id: "q160"
+    domain: "5g"
+    subdomain: "roaming"
+    tags:
+      - "5g-sba"
+      - "http2"
+    level: "senior"
+    question: "What is the difference between N32-c and N32-f sub-interfaces of the SEPP?"
+    answer: "N32-c is a short-lived control sub-interface used for security capability negotiation between two SEPPs — they exchange supported security mechanisms (TLS-only or PRINS), PLMN IDs, and N32-f forwarding parameters over mutual TLS. N32-f is the long-lived forwarding sub-interface that carries actual NF service HTTP/2 messages between the VPLMN and HPLMN. When an IPX provider sits in the path, PRINS (Protocol for N32 Interconnect Security) is used on N32-f, applying JOSE-based application-layer signatures so SEPPs can cryptographically verify which modifications an IPX provider is permitted to make. Without PRINS, end-to-end TLS between SEPPs is used and IPX providers remain transparent."
+    spec: "TS 29.573 §4.2 and §6.2, TS 33.501 §13.2"
+    simulator_trigger: "ROAM command — N32-c handshake log showing PRINS capability negotiation"
+    interview_context: "Architect-level test on inter-PLMN security protocol details"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — 5G vs 4G & Cloud-Native (q161–q165)
+  # ---------------------------------------------------------------------------
+
+  - id: "q161"
+    domain: "5g"
+    subdomain: "architecture"
+    tags:
+      - "5g-sba"
+      - "nf-services"
+      - "sbi"
+      - "http2"
+      - "amf"
+      - "smf"
+      - "upf"
+    level: "engineer"
+    question: "What are the most important architectural differences between 5G Core and 4G EPC?"
+    answer: "5G Core replaces 4G's point-to-point reference interfaces (S11, Gx, S6a…) with a Service-Based Architecture where every NF exposes RESTful HTTP/2 services discoverable via the NRF. The 4G MME is split into AMF (mobility/NAS) and SMF (session management), while SGW+PGW user planes merge into a single UPF controlled by SMF via PFCP — control-user plane separation is mandatory, not optional. Network slicing via NSSAI is a first-class architectural feature rather than an overlay, and SUCI/ECIES replace plaintext IMSI to eliminate IMSI-catcher attacks. Deployment is cloud-native by design: NFs are containerized microservices orchestrated on Kubernetes rather than monolithic appliances."
+    spec: "TS 23.501 §4, TR 23.799"
+    simulator_trigger: "Any 5G command versus 4G ATTACH command — contrast the SBA service call graph versus point-to-point GTPv2-C messages"
+    interview_context: "Baseline question for any 5G engineering role — tests breadth of architectural knowledge"
+
+  - id: "q162"
+    domain: "5g"
+    subdomain: "architecture"
+    tags:
+      - "5g-sba"
+      - "nf-services"
+      - "http2"
+      - "amf"
+      - "smf"
+    level: "engineer"
+    question: "4G NF to 5G NF mapping: what replaces the MME, HSS, PCRF, PGW, and SGW in 5G?"
+    answer: "The 4G MME is replaced by AMF (access/mobility/NAS) and SMF (session management) combined. The HSS is replaced by three separate NFs: UDM (business logic and AKA), UDR (data repository), and AUSF (authentication server). The PCRF is replaced by PCF using HTTP/2 instead of Diameter. Both SGW-C and PGW-C collapse into SMF, while SGW-U and PGW-U collapse into UPF. The ePDG for untrusted Wi-Fi access becomes N3IWF, and SCEF (network exposure) becomes NEF."
+    spec: "TS 23.501 Annex B"
+    simulator_trigger: "5G REG and PDU commands — simulator node roles map to these NF equivalents"
+    interview_context: "Asked to test migration knowledge; interviewers want candidates to articulate the reasoning behind each split"
+
+  - id: "q163"
+    domain: "5g"
+    subdomain: "cloud-native"
+    tags:
+      - "kubernetes"
+      - "cnf"
+      - "cloud-native"
+      - "docker"
+    level: "senior"
+    question: "What is a Cloud-Native Network Function (CNF), and how does it differ from a VNF?"
+    answer: "A VNF (Virtual Network Function) runs as a VM image requiring a full OS and is managed by ETSI NFV-MANO frameworks; it typically scales by adding entire VM instances. A CNF is packaged as Linux containers (Docker/OCI), designed stateless, and orchestrated by Kubernetes — a single 5GC NF like SMF may decompose into multiple containers (session manager pod, PFCP handler pod, charging interface pod) that scale independently. CNFs follow 12-factor app methodology: configuration via ConfigMaps/Secrets, ephemeral storage, health probes for graceful restart. CNFs start faster, use less memory, and enable per-microservice horizontal scaling compared to VNFs, but require K8s expertise and careful NUMA/SR-IOV tuning for the UPF data plane."
+    spec: "ETSI GS NFV-SWA 001, 3GPP TR 21.917"
+    simulator_trigger: "Kubernetes deploy command in devops simulator — CNF pod lifecycle vs VM boot time"
+    interview_context: "Tests cloud-native infrastructure knowledge; asked for DevOps/platform engineering roles at 5GC vendors"
+
+  - id: "q164"
+    domain: "5g"
+    subdomain: "cloud-native"
+    tags:
+      - "kubernetes"
+      - "cnf"
+      - "cloud-native"
+    level: "senior"
+    question: "Why is Kubernetes used for 5G Core deployments, and which K8s features are most critical?"
+    answer: "Kubernetes provides horizontal scaling for stateless NFs (AMF, SMF, PCF) via Deployments and HPA, stateful per-pod identity for data-layer NFs (UDR) via StatefulSets, and service DNS names used as NRF-registered FQDNs via ClusterIP Services. Helm Charts package NF configurations as versioned deployable units enabling GitOps-style CI/CD rollouts; Istio/Envoy sidecars provide mTLS between NFs and implement the SCP (Service Communication Proxy) function for load balancing and circuit breaking. For the UPF, NUMA-aware scheduling with CPU Manager, Topology Manager, SR-IOV plugins, and hugepages are critical to achieve line-rate packet forwarding without kernel overhead. Network Policies enforce per-slice and per-NF isolation at the pod level."
+    spec: "3GPP TR 21.917, ETSI GS NFV-IFA 029"
+    simulator_trigger: "kubernetes command in devops simulator — shows K8s resource objects for each 5GC NF"
+    interview_context: "Tests DevOps depth for 5G cloud-native roles; expected at senior level for any CNF deployment position"
+
+  - id: "q165"
+    domain: "5g"
+    subdomain: "cloud-native"
+    tags:
+      - "kubernetes"
+      - "cnf"
+      - "upf"
+      - "pfcp"
+      - "n4"
+      - "cloud-native"
+    level: "architect"
+    question: "Why does the UPF require special Kubernetes configuration compared to control-plane NFs?"
+    answer: "The UPF is a dataplane NF with line-rate forwarding requirements (millions of PPS, microsecond latency), unlike stateless control-plane NFs that communicate over HTTP/2 at modest request rates. It requires kernel bypass via DPDK or SR-IOV (Single Root I/O Virtualization), CPU pinning and NUMA node affinity via Kubernetes CPU Manager and Topology Manager, hugepages for DPDK memory pools, and privileged container capabilities (NET_ADMIN) for direct NIC access. Operators often deploy the UPF on dedicated node pools separate from control-plane NF nodes, or even as a bare-metal function with a cloud-native control plane, to avoid interference with container networking overhead. This mixed deployment (cloud-native CP + bare-metal UP) is a common pattern at Nokia and Ericsson in production networks."
+    spec: "TS 23.501 §5.7, ETSI GS NFV-IFA 029"
+    simulator_trigger: "upf deploy command — simulator highlights UPF node pool annotations vs control-plane pod specs"
+    interview_context: "Architect-level question separating candidates who understand dataplane performance from those who do not"
+
+  # ---------------------------------------------------------------------------
+  # 5G Core — O-RAN (q166–q170)
+  # ---------------------------------------------------------------------------
+
+  - id: "q166"
+    domain: "5g"
+    subdomain: "o-ran"
+    tags:
+      - "o-ran"
+      - "ric"
+      - "xapp"
+      - "e2-interface"
+    level: "engineer"
+    question: "What is O-RAN, and how does it differ from traditional monolithic RAN?"
+    answer: "O-RAN (Open RAN) is an O-RAN Alliance architecture that disaggregates the RAN into open, standardized, interoperable components: O-RU (Radio Unit), O-DU (Distributed Unit), and O-CU (Centralized Unit, split into O-CU-CP and O-CU-UP), with open fronthaul based on the WG4 7.2x functional split. Traditional monolithic RAN tightly couples RRU, BBU, and software from a single vendor behind proprietary interfaces, making multi-vendor mixing impossible. O-RAN adds RAN Intelligent Controllers (near-RT RIC and non-RT RIC) that provide AI/ML-driven optimization layers above the base station using standardized E2 and A1 interfaces. In practice, operators can mix vendors and deploy third-party xApps on the near-RT RIC for use-case-specific radio optimization."
+    spec: "O-RAN Alliance Architecture Description WG1.OAD"
+    simulator_trigger: "O-RAN simulator — shows O-RU/O-DU/O-CU functional split and RIC control loops"
+    interview_context: "Baseline O-RAN question for RAN/core integration roles; validates vocabulary and functional split knowledge"
+
+  - id: "q167"
+    domain: "5g"
+    subdomain: "o-ran"
+    tags:
+      - "o-ran"
+      - "ric"
+      - "xapp"
+      - "e2-interface"
+    level: "senior"
+    question: "What is the difference between the near-RT RIC and the non-RT RIC in O-RAN?"
+    answer: "The non-RT RIC (part of the SMO — Service Management and Orchestration) operates on control loops longer than 1 second, running rApps for AI/ML model training, long-term radio policy management, and trained model distribution; it communicates with the near-RT RIC via the A1 interface. The near-RT RIC operates on 10 ms to 1 second control loops, running xApps that subscribe to real-time RAN metrics via E2 and inject per-UE control actions (handover decisions, PRB allocation adjustments) via E2 Control messages to O-DU/O-CU. Neither RIC controls the sub-10 ms real-time scheduler (HARQ, beamforming) — that remains exclusively in the O-DU. The two-tier design allows long-horizon ML training to remain decoupled from latency-sensitive per-UE decisions."
+    spec: "O-RAN.WG2.A1AP, O-RAN.WG3.E2AP"
+    simulator_trigger: "O-RAN RIC simulator — near-RT RIC subscription shows 100 ms E2 indication period vs non-RT 60 s policy push via A1"
+    interview_context: "Tests RIC architecture depth; candidates confusing the two tiers signal insufficient O-RAN background"
+
+  - id: "q168"
+    domain: "5g"
+    subdomain: "o-ran"
+    tags:
+      - "o-ran"
+      - "ric"
+      - "xapp"
+      - "e2-interface"
+    level: "senior"
+    question: "What is an xApp, and how does it use the E2 interface to control the RAN?"
+    answer: "An xApp is a microservice on the near-RT RIC that implements one specific RAN optimization use case; it subscribes to E2 reports (e.g., PRB utilization, RSRP, handover events) from O-DU/O-CU via E2 Subscription messages using a standardized E2 Service Model (E2SM). The O-DU sends periodic or event-triggered E2 Indication messages carrying the subscribed KPIs; the xApp processes these, runs its optimization logic, and sends E2 Control messages back to the O-DU/O-CU to adjust scheduler weights, trigger handovers, or change PRB allocations. Standardized E2SMs include E2SM-KPM (metrics), E2SM-RC (RAN control), E2SM-CCC (cell configuration), and E2SM-NI (network interface). The E2 interface uses SCTP transport and the E2AP ASN.1 message format."
+    spec: "O-RAN.WG3.E2AP, O-RAN.WG3.E2SM-KPM, O-RAN.WG3.E2SM-RC"
+    simulator_trigger: "xApp deploy command in O-RAN simulator — E2 Subscription → Indication → Control message flow"
+    interview_context: "Tests xApp lifecycle knowledge; commonly asked for O-RAN platform and integration engineer roles"
+
+  - id: "q169"
+    domain: "5g"
+    subdomain: "o-ran"
+    tags:
+      - "o-ran"
+      - "ric"
+      - "e2-interface"
+    level: "senior"
+    question: "What are the A1 and O1 interfaces in O-RAN?"
+    answer: "The A1 interface connects the non-RT RIC to the near-RT RIC and carries three message types: policy intents downward (e.g., handover guidance based on UE RSRP thresholds), AI/ML model deployments downward to xApps, and enrichment information upward (aggregated KPIs for model training). The O1 interface is the management interface between the SMO and all O-RAN managed elements (O-RU, O-DU, O-CU, near-RT RIC), providing FCAPS management using NETCONF/YANG for configuration and REST APIs or file-based mechanisms for performance data collection. O1 is analogous to the traditional OAM interface but standardized across all O-RAN vendors, enabling multi-vendor FCAPS from a single SMO platform. Without O1, operators would need vendor-specific NMS systems for each component."
+    spec: "O-RAN.WG2.A1AP, O-RAN.WG1.O1-Interface specification"
+    simulator_trigger: "O-RAN simulator management plane — O1 NETCONF config push and A1 policy intent log"
+    interview_context: "Tests O-RAN management plane awareness; important for system integration and OSS/BSS alignment roles"
+
+  - id: "q170"
+    domain: "5g"
+    subdomain: "o-ran"
+    tags:
+      - "o-ran"
+      - "ric"
+      - "xapp"
+      - "e2-interface"
+      - "network-slicing"
+      - "5g-sba"
+    level: "architect"
+    question: "How do O-RAN xApps interact with 5GC network slicing for slice-aware radio resource management?"
+    answer: "An xApp can use E2SM-RC control messages to influence the O-DU/O-CU scheduler to enforce per-slice PRB budgets based on S-NSSAI, ensuring that URLLC slice traffic receives preferential scheduling over eMBB slice traffic during congestion. The near-RT RIC receives slice membership information (S-NSSAI per UE) via E2SM-KPM reports and uses this to run slice-aware load balancing or handover optimization xApps. The non-RT RIC can push per-slice policy intents via A1 (e.g., minimum guaranteed PRBs per SST=2 URLLC slice), which the near-RT RIC translates into E2 Control actions. End-to-end slice QoS alignment requires coordination between the 5GC PCF (which enforces 5QI/GBR policy on SMF/UPF) and the near-RT RIC xApp (which enforces radio scheduler policy) — currently an active standardization area in 3GPP and O-RAN Alliance Release 3."
+    spec: "TS 23.501 §5.15, O-RAN.WG3.E2SM-RC, O-RAN Alliance Release 3"
+    simulator_trigger: "network-slicing + O-RAN combined command — shows S-NSSAI-tagged PRB scheduler decisions in E2 Control messages"
+    interview_context: "Architect-level integration question testing end-to-end slice awareness from radio to core"
+
+  # =============================================================================
+  # TAG RULES — Valid tag vocabulary grouped by domain
+  # (This section documents all valid tags for reference and IDE autocomplete)
+  # =============================================================================
+
+tag_rules:
+  cpp:
+    oop:
+      - "cpp-oop"
+      - "virtual"
+      - "polymorphism"
+      - "abstract-class"
+      - "override"
+      - "friend"
+      - "operator-overload"
+      - "vtable"
+      - "crtp"
+    memory:
+      - "cpp-memory"
+      - "raii"
+      - "smart-ptr"
+      - "move-semantics"
+      - "unique-ptr"
+      - "shared-ptr"
+      - "weak-ptr"
+      - "copy-elision"
+      - "rule-of-five"
+      - "stack-heap"
+    concurrency:
+      - "cpp-concurrency"
+      - "mutex"
+      - "shared-mutex"
+      - "atomic"
+      - "thread-pool"
+      - "condition-variable"
+      - "deadlock"
+      - "lock-free"
+      - "memory-ordering"
+      - "ue-store"
+    stl:
+      - "cpp-stl"
+      - "vector"
+      - "map"
+      - "iterator"
+      - "iterator-invalidation"
+      - "custom-comparator"
+      - "emplace"
+    cpp17:
+      - "cpp17"
+      - "optional"
+      - "variant"
+      - "structured-bindings"
+      - "if-constexpr"
+      - "fold-expressions"
+      - "ctad"
+    design_patterns:
+      - "design-pattern"
+      - "singleton"
+      - "factory"
+      - "observer"
+      - "strategy"
+      - "flyweight"
+    system_design:
+      - "system-design"
+      - "scalability"
+      - "server"
+      - "producer-consumer"
+      - "connection-pool"
+      - "lru-cache"
+      - "fault-tolerance"
+      - "resilience"
+
+  4g:
+    attach:
+      - "4g-attach"
+      - "s1ap"
+      - "nas"
+      - "emm"
+      - "guti"
+    auth:
+      - "4g-auth"
+      - "aka"
+      - "diameter"
+      - "s6a"
+      - "kasme"
+      - "hss"
+      - "nas-smc"
+      - "as-smc"
+    bearer:
+      - "4g-bearer"
+      - "qci"
+      - "gtpv2"
+      - "sgw"
+      - "pgw"
+      - "gbr"
+      - "ambr"
+      - "arp"
+      - "tft"
+      - "default-bearer"
+      - "dedicated-bearer"
+    handover:
+      - "4g-handover"
+      - "x2"
+      - "s1-ho"
+      - "path-switch"
+      - "srvcc"
+      - "inter-mme"
+    tau:
+      - "4g-tau"
+      - "tracking-area"
+      - "mobility"
+      - "emm-idle"
+      - "emm-connected"
+    interfaces:
+      - "s1-mme"
+      - "s6a"
+      - "s11"
+      - "s5s8"
+      - "gx"
+      - "gy"
+    nodes:
+      - "mme"
+      - "sgw"
+      - "pgw"
+      - "pcrf"
+      - "hss"
+    gtpv2:
+      - "gtpv2"
+      - "teid"
+      - "tunnel"
+      - "gtp-echo"
+    diameter:
+      - "diameter"
+      - "avp"
+      - "command-code"
+      - "dra"
+      - "session-id"
+
+  ims:
+    registration:
+      - "ims-register"
+      - "sip-register"
+      - "cx"
+      - "p-cscf"
+      - "s-cscf"
+      - "i-cscf"
+      - "impi"
+      - "impu"
+      - "ifc"
+      - "pcscf-discovery"
+    call_setup:
+      - "volte-call"
+      - "sip-invite"
+      - "sdp"
+      - "rx-interface"
+      - "qci1"
+      - "early-ringing"
+      - "precondition"
+      - "prack"
+    cscf_roles:
+      - "mtas"
+      - "mrfc"
+      - "mrfp"
+      - "sbc"
+    supplementary:
+      - "call-barring"
+      - "call-waiting"
+      - "conferencing"
+      - "mmtel"
+    sip_methods:
+      - "sip"
+      - "update"
+      - "subscribe"
+      - "notify"
+      - "prack"
+      - "bye"
+      - "cancel"
+      - "options"
+      - "180-ringing"
+      - "183-session-progress"
+    ims_epc:
+      - "ims-epc"
+      - "rx"
+      - "volte-bearer"
+      - "sgw-relocation"
+    ir92:
+      - "ir92"
+      - "amr-wb"
+      - "evs"
+      - "srvcc"
+    emergency:
+      - "ims-emergency"
+      - "e-cscf"
+      - "lrf"
+      - "ecrf"
+    cx_rx:
+      - "uar"
+      - "sar"
+      - "mar"
+      - "lir"
+      - "rtr"
+      - "aar"
+      - "str"
+      - "asr"
+
+  5g:
+    architecture:
+      - "5g-sba"
+      - "nf-services"
+      - "sbi"
+      - "http2"
+      - "cups"
+    amf:
+      - "amf"
+      - "5g-registration"
+      - "ngap"
+      - "n2"
+      - "seaf"
+      - "5g-guti"
+      - "registration-update"
+    udm_ausf:
+      - "udm"
+      - "ausf"
+      - "5g-auth"
+      - "suci"
+      - "supi"
+      - "arpf"
+      - "sidf"
+      - "udr"
+    smf_upf:
+      - "smf"
+      - "upf"
+      - "pdu-session"
+      - "pfcp"
+      - "n4"
+      - "pdr"
+      - "far"
+      - "qer"
+      - "urr"
+      - "ssc"
+      - "qos-flow"
+      - "5qi"
+      - "rqos"
+    nrf:
+      - "nrf"
+      - "nf-discovery"
+      - "oauth2"
+      - "scp"
+    slicing:
+      - "network-slicing"
+      - "nssai"
+      - "sst"
+      - "nssf"
+    security:
+      - "5g-aka"
+      - "eap-aka"
+      - "ecies"
+      - "key-hierarchy"
+      - "privacy"
+    ngap:
+      - "n2"
+      - "ng-setup"
+    roaming:
+      - "sepp"
+      - "n32"
+      - "prins"
+      - "home-routed"
+      - "local-breakout"
+    o_ran:
+      - "o-ran"
+      - "ric"
+      - "xapp"
+      - "e2-interface"
+      - "a1-interface"
+      - "o1-interface"
+      - "rapp"
+    cloud_native:
+      - "kubernetes"
+      - "cnf"
+      - "cloud-native"
+      - "docker"
+      - "dpdk"
+      - "sr-iov"
+      - "helm"

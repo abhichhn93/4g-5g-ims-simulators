@@ -1,0 +1,195 @@
+- id: q011
+  domain: cpp
+  subdomain: memory
+  tags:
+  - cpp-memory
+  - raii
+  level: beginner
+  question: What is the difference between stack and heap allocation in C++?
+  answer: Stack memory is allocated and deallocated automatically when functions are
+    entered and exited; it is very fast but limited in size (~1–8 MB). Heap memory
+    is dynamically allocated with new/delete, can be as large as available RAM, but
+    is slower due to allocator overhead and must be explicitly managed. Modern C++
+    prefers smart pointers and containers over raw new/delete.
+  spec: null
+  simulator_trigger: Simulator UE context objects — large UE stores use heap allocation
+    while per-function state uses the stack
+  interview_context: Baseline memory model check for any systems C++ role
+- id: q012
+  domain: cpp
+  subdomain: memory
+  tags:
+  - cpp-memory
+  - raii
+  - smart-ptr
+  level: engineer
+  question: What is RAII, and why does it matter in C++?
+  answer: 'RAII (Resource Acquisition Is Initialization) ties a resource''s lifetime
+    to an object''s: the constructor acquires the resource and the destructor releases
+    it. Because the C++ runtime guarantees destructors run when objects go out of
+    scope, even during exception unwinding, RAII provides automatic exception-safe
+    cleanup without manual try-finally blocks. Examples include unique_ptr (heap memory),
+    lock_guard (mutex), and fstream (file handle).'
+  spec: null
+  simulator_trigger: RAII in socket_wrapper.h — socket file descriptor acquired in
+    constructor, released in destructor
+  interview_context: Core C++ idiom check; essential for writing safe telecom code
+- id: q013
+  domain: cpp
+  subdomain: memory
+  tags:
+  - cpp-memory
+  - raii
+  - smart-ptr
+  level: senior
+  question: Compare unique_ptr, shared_ptr, and weak_ptr. When do you use each?
+  answer: unique_ptr represents exclusive single ownership; it cannot be copied, only
+    moved, and has zero overhead — it is the default choice. shared_ptr provides shared
+    ownership through an atomic reference count; the object is deleted when the last
+    owner goes out of scope — use it only when multiple components genuinely co-own
+    the same object. weak_ptr is a non-owning observer that does not increment the
+    count; call lock() to get a temporary shared_ptr — use it to break cyclic references
+    and in caches.
+  spec: null
+  simulator_trigger: unique_ptr in simulator node factories; shared_ptr for shared
+    UE context accessed across MME and SGW simulators
+  interview_context: Tests ownership reasoning critical for memory-safe telecom node
+    simulation
+- id: q014
+  domain: cpp
+  subdomain: memory
+  tags:
+  - cpp-memory
+  - move-semantics
+  level: senior
+  question: What is the difference between std::move and std::forward?
+  answer: std::move unconditionally casts its argument to an rvalue reference, signaling
+    that the object's resources may be transferred rather than copied — it does not
+    actually move anything itself. std::forward is used inside template functions
+    to perform perfect forwarding, conditionally casting to lvalue or rvalue depending
+    on the original value category of the caller's argument. Use move for explicit
+    ownership transfer; use forward in forwarding-reference templates.
+  spec: null
+  simulator_trigger: Simulator message passing — moving PDU buffers into packet queues
+    to avoid deep copies on the hot path
+  interview_context: Tests understanding of value categories and their performance
+    implications in message pipelines
+- id: q015
+  domain: cpp
+  subdomain: memory
+  tags:
+  - cpp-memory
+  - move-semantics
+  - raii
+  level: senior
+  question: What are move semantics and how do you implement a move constructor?
+  answer: Move semantics allow resources to be transferred from a temporary (rvalue)
+    object to a new one without a deep copy, by stealing the internal pointer and
+    leaving the source in a valid-but-empty state. A move constructor is declared
+    as MyClass(MyClass&& other) noexcept and typically steals other's resources then
+    nulls out other. Marking move operations noexcept is critical — it allows std::vector
+    to use moves instead of copies during reallocation.
+  spec: null
+  simulator_trigger: SimulatorEvent move constructors in the event queue — noexcept
+    required for safe push_back into vectors
+  interview_context: Tests practical move semantics knowledge relevant to high-throughput
+    event queues
+- id: q016
+  domain: cpp
+  subdomain: memory
+  tags:
+  - cpp-memory
+  - raii
+  - smart-ptr
+  level: senior
+  question: What is the Rule of Five, and what is the Rule of Zero?
+  answer: 'If a class manually manages a resource, you must define or explicitly delete
+    all five special members: destructor, copy constructor, copy assignment, move
+    constructor, and move assignment — because the compiler-generated defaults will
+    cause double-frees or leaks. The Rule of Zero says prefer RAII types (smart pointers,
+    containers) so your class needs no custom resource management and the compiler
+    can generate all five correctly by default.'
+  spec: null
+  simulator_trigger: Simulator node base classes managing raw socket/file descriptors
+    — must apply Rule of Five explicitly
+  interview_context: Tests resource management discipline essential for long-running
+    telecom daemon code
+- id: q017
+  domain: cpp
+  subdomain: memory
+  tags:
+  - cpp-memory
+  - cpp17
+  level: senior
+  question: What is copy elision and Named Return Value Optimization (NRVO)?
+  answer: 'Copy elision is a compiler optimization that eliminates unnecessary copy
+    or move constructor calls by constructing an object directly in its destination
+    memory. NRVO is the most common form: when a function returns a named local object,
+    the compiler may construct it directly in the caller''s stack frame. In C++17,
+    copy elision from a prvalue (return MyClass{args}) is guaranteed and cannot be
+    suppressed.'
+  spec: null
+  simulator_trigger: Simulator factory functions returning large node configuration
+    objects — NRVO eliminates unnecessary copies
+  interview_context: Tests awareness of zero-cost abstractions relevant to simulation
+    performance
+- id: q018
+  domain: cpp
+  subdomain: memory
+  tags:
+  - cpp-memory
+  - raii
+  - smart-ptr
+  level: engineer
+  question: How do you detect and prevent memory leaks in C++?
+  answer: Prevent leaks by using smart pointers (unique_ptr, shared_ptr) instead of
+    raw new/delete, applying RAII for all resources, and preferring STL containers
+    over manual dynamic arrays. Detection tools include Valgrind, AddressSanitizer
+    (-fsanitize=address), and Visual Studio's CRT debug heap. Cyclic shared_ptr references
+    are a subtle source of leaks — break cycles with weak_ptr.
+  spec: null
+  simulator_trigger: Simulator long-run stress tests where ASAN or Valgrind is run
+    to detect UE context leaks
+  interview_context: Tests practical debugging skills essential for maintaining stable
+    telecom simulator daemons
+- id: q019
+  domain: cpp
+  subdomain: memory
+  tags:
+  - cpp-concurrency
+  - mutex
+  - atomic
+  level: senior
+  question: What is a race condition, and how do you prevent it in C++?
+  answer: A race condition occurs when two or more threads access shared mutable state,
+    at least one access is a write, and the accesses are unsynchronized — the result
+    depends on unpredictable thread scheduling. Prevention strategies include mutual
+    exclusion via std::mutex, atomic operations via std::atomic for single-variable
+    updates, immutable data structures, and thread-local storage. For complex invariants
+    spanning multiple variables a mutex is correct; for simple counters std::atomic
+    avoids lock overhead.
+  spec: null
+  simulator_trigger: BULK command execution — concurrent UE context reads and writes
+    in mme_node.cpp
+  interview_context: Tests concurrency fundamentals critical for any multi-threaded
+    simulator component
+- id: q020
+  domain: cpp
+  subdomain: memory
+  tags:
+  - cpp-concurrency
+  - mutex
+  - shared-mutex
+  - ue-store
+  level: senior
+  question: Why use shared_mutex instead of mutex for the UE store in the MME simulator?
+  answer: shared_mutex allows multiple simultaneous readers while blocking only on
+    writes — fitting the UE store access pattern where hundreds of concurrent reads
+    occur during active calls (paging, bearer queries) while writes are rare (new
+    attach, detach). A regular mutex would serialize all reads even though they cannot
+    conflict, creating unnecessary latency. Use shared_lock for read operations and
+    unique_lock for writes on the shared_mutex.
+  spec: null
+  simulator_trigger: BULK command execution, ue_context_store_ lookup in mme_node.cpp
+  interview_context: Asked to test understanding of reader-writer concurrency patterns
+    in telecom control-plane stores

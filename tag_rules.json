@@ -1,0 +1,272 @@
+{
+  "message_patterns": [
+    {
+      "pattern": "Diameter AIR",
+      "auto_tags": ["diameter", "s6a", "4g-auth", "hss", "command-code"]
+    },
+    {
+      "pattern": "S1AP InitialUEMessage",
+      "auto_tags": ["s1ap", "4g-attach", "nas", "mme", "emm"]
+    },
+    {
+      "pattern": "GTPv2 Create Session",
+      "auto_tags": ["gtpv2", "4g-bearer", "sgw", "pgw", "teid"]
+    },
+    {
+      "pattern": "SIP REGISTER",
+      "auto_tags": ["sip", "ims-register", "p-cscf", "s-cscf", "cx"]
+    },
+    {
+      "pattern": "SIP INVITE",
+      "auto_tags": ["sip", "volte-call", "sdp", "sip-invite", "p-cscf"]
+    },
+    {
+      "pattern": "Diameter CCR",
+      "auto_tags": ["diameter", "rx-interface", "gx", "pcrf", "qci1"]
+    },
+    {
+      "pattern": "HTTP NRF Register",
+      "auto_tags": ["nrf", "5g-sba", "nf-services", "http2"]
+    },
+    {
+      "pattern": "HTTP AMF Register",
+      "auto_tags": ["amf", "5g-registration", "n2", "ngap"]
+    },
+    {
+      "pattern": "PFCP Session",
+      "auto_tags": ["pfcp", "smf", "upf", "n4", "pdu-session"]
+    },
+    {
+      "pattern": "shared_mutex",
+      "auto_tags": ["cpp-concurrency", "shared-mutex", "ue-store"]
+    },
+    {
+      "pattern": "thread_pool",
+      "auto_tags": ["cpp-concurrency", "thread-pool", "system-design"]
+    },
+    {
+      "pattern": "unique_ptr",
+      "auto_tags": ["cpp-memory", "smart-ptr", "raii"]
+    },
+    {
+      "pattern": "BULK",
+      "auto_tags": ["cpp-concurrency", "system-design", "scalability", "thread-pool"]
+    },
+    {
+      "pattern": "CHAOS",
+      "auto_tags": ["system-design", "fault-tolerance", "resilience"]
+    },
+    {
+      "pattern": "HO",
+      "auto_tags": ["4g-handover", "x2", "s1-ho", "path-switch"]
+    },
+    {
+      "pattern": "TAU",
+      "auto_tags": ["4g-tau", "tracking-area", "mobility", "mme"]
+    },
+    {
+      "pattern": "SUCI",
+      "auto_tags": ["suci", "5g-auth", "ecies", "privacy", "udm"]
+    },
+    {
+      "pattern": "network-slicing",
+      "auto_tags": ["network-slicing", "nssai", "sst", "nssf", "5g-sba"]
+    },
+    {
+      "pattern": "xApp",
+      "auto_tags": ["o-ran", "ric", "xapp", "e2-interface"]
+    },
+    {
+      "pattern": "Diameter ULR",
+      "auto_tags": ["diameter", "s6a", "4g-attach", "hss", "mme"]
+    },
+    {
+      "pattern": "GTPv2 Delete Bearer",
+      "auto_tags": ["gtpv2", "4g-bearer", "teid", "pgw", "sgw"]
+    },
+    {
+      "pattern": "GTPv2 Create Bearer",
+      "auto_tags": ["gtpv2", "4g-bearer", "dedicated-bearer", "qci1", "volte-bearer"]
+    },
+    {
+      "pattern": "GTPv2 Modify Bearer",
+      "auto_tags": ["gtpv2", "4g-bearer", "teid", "path-switch", "4g-handover"]
+    },
+    {
+      "pattern": "S1AP HandoverRequired",
+      "auto_tags": ["s1ap", "4g-handover", "s1-ho", "mme", "inter-mme"]
+    },
+    {
+      "pattern": "S1AP PathSwitchRequest",
+      "auto_tags": ["s1ap", "4g-handover", "x2", "path-switch", "teid"]
+    },
+    {
+      "pattern": "Diameter MAR",
+      "auto_tags": ["diameter", "cx", "s-cscf", "hss", "ims-register"]
+    },
+    {
+      "pattern": "Diameter SAR",
+      "auto_tags": ["diameter", "cx", "s-cscf", "hss", "ims-register", "ifc"]
+    },
+    {
+      "pattern": "Diameter AAR",
+      "auto_tags": ["diameter", "rx-interface", "p-cscf", "pcrf", "qci1", "volte-call"]
+    },
+    {
+      "pattern": "SIP BYE",
+      "auto_tags": ["sip", "volte-call", "bye", "rx-interface", "qci1"]
+    },
+    {
+      "pattern": "SIP PRACK",
+      "auto_tags": ["sip", "prack", "volte-call", "precondition", "ir92"]
+    },
+    {
+      "pattern": "SIP SUBSCRIBE",
+      "auto_tags": ["sip", "subscribe", "notify", "ims-register"]
+    },
+    {
+      "pattern": "SIP UPDATE",
+      "auto_tags": ["sip", "update", "volte-call", "precondition", "sdp"]
+    },
+    {
+      "pattern": "NGAP InitialUEMessage",
+      "auto_tags": ["ngap", "n2", "amf", "5g-registration", "suci"]
+    },
+    {
+      "pattern": "NGAP PDUSessionResourceSetup",
+      "auto_tags": ["ngap", "n2", "amf", "smf", "pdu-session"]
+    },
+    {
+      "pattern": "PFCP EstablishmentRequest",
+      "auto_tags": ["pfcp", "smf", "upf", "n4", "pdr", "far", "qer"]
+    },
+    {
+      "pattern": "HTTP UDM Authentication",
+      "auto_tags": ["udm", "ausf", "5g-auth", "suci", "supi"]
+    },
+    {
+      "pattern": "HTTP AUSF Authentication",
+      "auto_tags": ["ausf", "5g-aka", "5g-auth", "hxres", "key-hierarchy"]
+    },
+    {
+      "pattern": "HTTP NRF Discovery",
+      "auto_tags": ["nrf", "nf-discovery", "5g-sba", "http2"]
+    },
+    {
+      "pattern": "HTTP PCF SMPolicy",
+      "auto_tags": ["smf", "pdu-session", "5qi", "network-slicing", "nssai"]
+    },
+    {
+      "pattern": "N32 PRINS",
+      "auto_tags": ["sepp", "n32", "prins", "5g-sba", "roaming"]
+    },
+    {
+      "pattern": "E2 Subscription",
+      "auto_tags": ["o-ran", "ric", "xapp", "e2-interface"]
+    },
+    {
+      "pattern": "E2 Indication",
+      "auto_tags": ["o-ran", "ric", "xapp", "e2-interface"]
+    },
+    {
+      "pattern": "E2 Control",
+      "auto_tags": ["o-ran", "xapp", "e2-interface", "ric"]
+    },
+    {
+      "pattern": "A1 Policy",
+      "auto_tags": ["o-ran", "ric", "a1-interface"]
+    },
+    {
+      "pattern": "NSSAI",
+      "auto_tags": ["network-slicing", "nssai", "sst", "nssf", "5g-registration"]
+    },
+    {
+      "pattern": "5G-GUTI",
+      "auto_tags": ["amf", "5g-registration", "5g-guti", "supi"]
+    },
+    {
+      "pattern": "GTP Echo",
+      "auto_tags": ["gtpv2", "teid", "tunnel", "gtp-echo", "sgw"]
+    },
+    {
+      "pattern": "Diameter DRA",
+      "auto_tags": ["diameter", "dra", "s6a", "hss", "mme"]
+    },
+    {
+      "pattern": "REG",
+      "auto_tags": ["5g-registration", "amf", "suci", "ngap", "5g-aka"]
+    },
+    {
+      "pattern": "ATTACH",
+      "auto_tags": ["4g-attach", "s1ap", "nas", "mme", "emm", "gtpv2"]
+    },
+    {
+      "pattern": "CALL",
+      "auto_tags": ["volte-call", "sip-invite", "sdp", "rx-interface", "qci1"]
+    },
+    {
+      "pattern": "std::atomic",
+      "auto_tags": ["cpp-concurrency", "atomic", "mutex"]
+    },
+    {
+      "pattern": "std::mutex",
+      "auto_tags": ["cpp-concurrency", "mutex", "deadlock"]
+    },
+    {
+      "pattern": "std::shared_ptr",
+      "auto_tags": ["cpp-memory", "smart-ptr", "shared-ptr", "raii"]
+    },
+    {
+      "pattern": "condition_variable",
+      "auto_tags": ["cpp-concurrency", "condition-variable", "producer-consumer"]
+    },
+    {
+      "pattern": "std::optional",
+      "auto_tags": ["cpp17", "optional"]
+    },
+    {
+      "pattern": "std::variant",
+      "auto_tags": ["cpp17", "variant"]
+    },
+    {
+      "pattern": "structured_bindings",
+      "auto_tags": ["cpp17", "structured-bindings"]
+    },
+    {
+      "pattern": "Singleton",
+      "auto_tags": ["design-pattern", "singleton", "cpp-concurrency"]
+    },
+    {
+      "pattern": "Observer",
+      "auto_tags": ["design-pattern", "observer"]
+    },
+    {
+      "pattern": "Factory",
+      "auto_tags": ["design-pattern", "factory"]
+    },
+    {
+      "pattern": "Strategy",
+      "auto_tags": ["design-pattern", "strategy"]
+    },
+    {
+      "pattern": "Flyweight",
+      "auto_tags": ["design-pattern", "flyweight"]
+    },
+    {
+      "pattern": "CRTP",
+      "auto_tags": ["design-pattern", "crtp", "cpp-oop", "virtual"]
+    },
+    {
+      "pattern": "LRU",
+      "auto_tags": ["system-design", "lru-cache", "cpp-concurrency", "shared-mutex"]
+    },
+    {
+      "pattern": "ConnectionPool",
+      "auto_tags": ["system-design", "connection-pool", "cpp-concurrency"]
+    },
+    {
+      "pattern": "ProducerConsumer",
+      "auto_tags": ["system-design", "producer-consumer", "cpp-concurrency", "condition-variable"]
+    }
+  ]
+}

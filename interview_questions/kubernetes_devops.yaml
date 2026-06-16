@@ -1,0 +1,602 @@
+- id: q222
+  domain: kubernetes
+  subdomain: core_concepts
+  tags:
+  - kubernetes
+  - pod
+  - deployment
+  level: engineer
+  question: What is a Pod and when would you use a bare Pod vs a Deployment?
+  answer: A Pod is the smallest deployable unit in Kubernetes — a group of one or
+    more containers sharing the same network namespace, IPC namespace, and optionally
+    storage volumes. Bare Pods are almost never used in production because if the
+    node they run on fails, they are not rescheduled. A Deployment wraps Pods with
+    a ReplicaSet controller that ensures a specified number of replicas are always
+    running, supports rolling updates, and maintains rollback history. Use bare Pods
+    only for quick one-off debugging; all production workloads should use a controller
+    such as Deployment, StatefulSet, or DaemonSet.
+  spec: 3GPP TS 28.532
+  simulator_trigger: k8s/ manifests — Deployment resource for simulator NF pods
+  interview_context: Telecom CNFs (AMF, SMF) must survive node failures with zero
+    call drops — Deployment with PodDisruptionBudget guarantees HA
+- id: q223
+  domain: kubernetes
+  subdomain: core_concepts
+  tags:
+  - kubernetes
+  - deployment
+  level: engineer
+  question: When do you use a StatefulSet instead of a Deployment?
+  answer: A StatefulSet is used when Pods require stable, unique network identities
+    and stable persistent storage that survives Pod restarts and rescheduling. Unlike
+    a Deployment (where Pods are fungible with random names), StatefulSet Pods get
+    ordered names (web-0, web-1) with stable DNS hostnames and are created/deleted
+    in deterministic order. Each replica can have its own PersistentVolumeClaim via
+    volumeClaimTemplates. Use StatefulSets for databases, message queues (Kafka),
+    and any workload requiring peer awareness. A failed web-0 is rescheduled but re-attaches
+    to the same PVC, preserving its data.
+  spec: null
+  simulator_trigger: k8s/ manifests — StatefulSet for UDR/UDSF subscriber state storage
+  interview_context: UDR and UDSF store subscriber state and must be deployed as StatefulSets
+    — also relevant for etcd-backed signaling stores
+- id: q224
+  domain: kubernetes
+  subdomain: core_concepts
+  tags:
+  - kubernetes
+  - pod
+  level: engineer
+  question: What is a DaemonSet and what are its typical use cases?
+  answer: 'A DaemonSet ensures that exactly one Pod runs on every node (or a subset
+    matching a nodeSelector). When a new node joins, the controller automatically
+    schedules a Pod; when a node is removed, the Pod is garbage-collected. DaemonSets
+    are used for cluster-wide infrastructure: log collectors (Fluentd, Filebeat),
+    node-level monitoring agents (Prometheus node-exporter), CNI plugins (Calico,
+    Cilium), and SR-IOV device plugins that expose hardware resources on every worker
+    node.'
+  spec: null
+  simulator_trigger: k8s/ manifests — DaemonSet for SR-IOV device plugin and CNI configuration
+  interview_context: SR-IOV device plugins (for UPF data-plane acceleration) run as
+    DaemonSets on SR-IOV-capable nodes
+- id: q225
+  domain: kubernetes
+  subdomain: core_concepts
+  tags:
+  - kubernetes
+  - deployment
+  level: senior
+  question: What is the difference between a Deployment rolling update and a StatefulSet
+    rolling update?
+  answer: A Deployment rolling update replaces Pods in parallel via maxSurge and maxUnavailable
+    parameters. A StatefulSet rolling update replaces Pods strictly one at a time
+    in reverse ordinal order (web-N first, down to web-0), waiting for each Pod to
+    reach Running/Ready before proceeding to the next. This ordered behavior is essential
+    for databases where replicas must be upgraded before the primary. StatefulSets
+    also support the Partition field for canary upgrades — only Pods with ordinal
+    >= partition are updated.
+  spec: null
+  simulator_trigger: k8s/ manifests — StatefulSet partition-based canary rollout for
+    UDM/UDR upgrade
+  interview_context: Upgrading a 5G UDM/UDR cluster requires ensuring replica sync
+    before upgrading the primary — this is the StatefulSet partition use case
+- id: q226
+  domain: kubernetes
+  subdomain: networking
+  tags:
+  - kubernetes
+  - service
+  - cloud-native
+  level: engineer
+  question: What are the four Kubernetes Service types and when do you use each?
+  answer: 'ClusterIP (default): internal cluster only — microservice-to-microservice
+    communication, 5G SBI inter-NF calls. NodePort: external via <NodeIP>:<NodePort>
+    (30000-32767) — dev/test external access, 5G N2 interface (AMF toward gNB). LoadBalancer:
+    external via cloud-provisioned LB IP — production ingress, 5G N6 interface toward
+    internet PDN. ExternalName: CNAME alias to external DNS name — mapping to on-premise
+    or legacy systems. In a 5G AMF Helm chart: SBI service is ClusterIP (internal
+    NRF discovery), while N2 interface is NodePort (gNB needs to reach a stable node
+    IP:port for NGAP SCTP).'
+  spec: 3GPP TS 23.501
+  simulator_trigger: k8s/ manifests — Service types for different 5G interfaces
+  interview_context: Understanding which Service type is appropriate for each 5G interface
+    is essential at Nokia/Ericsson/Mavenir
+- id: q227
+  domain: kubernetes
+  subdomain: networking
+  tags:
+  - kubernetes
+  - cloud-native
+  level: engineer
+  question: What is an Ingress and how does it differ from a Service?
+  answer: A Service operates at Layer 4 (TCP/UDP) and provides load balancing across
+    Pod endpoints without awareness of HTTP paths or hostnames. An Ingress is a Layer
+    7 (HTTP/HTTPS) API object that routes external traffic to Services based on URL
+    paths and hostname rules; it requires an Ingress Controller (NGINX, Traefik, HAProxy,
+    Istio Gateway) running in the cluster. An Ingress can consolidate multiple services
+    behind a single external IP with TLS termination, path-based routing (/api → api-service),
+    and host-based routing. Without an Ingress, you'd need a separate LoadBalancer
+    IP per service.
+  spec: null
+  simulator_trigger: k8s/ manifests — Ingress for OSS/BSS portal in simulator
+  interview_context: 5G SBI uses HTTP/2 with mTLS handled at the Ingress/service-mesh
+    layer (Istio IngressGateway)
+- id: q228
+  domain: kubernetes
+  subdomain: networking
+  tags:
+  - kubernetes
+  - cnf
+  - cloud-native
+  level: senior
+  question: Compare Calico, Flannel, and Cilium CNI plugins. When would you choose
+    each?
+  answer: 'Flannel: VXLAN overlay, no NetworkPolicy, simplest setup — dev/CI clusters
+    only. Calico: BGP routing (native or VXLAN), standard + extended NetworkPolicy,
+    battle-tested, BGP peering with spine-leaf DC fabric — enterprise production,
+    bare-metal. Cilium: eBPF kernel bypass, L3/L4/L7 policy (HTTP, gRPC), highest
+    throughput, Hubble observability — high-performance 5G CNF clusters. Cilium''s
+    eBPF datapath achieves O(1) rule lookup vs O(n) for iptables at scale. Nokia AirFrame
+    and Ericsson Cloud RAN support Calico and Cilium as certified CNIs.'
+  spec: null
+  simulator_trigger: k8s/ manifests — CNI selection for simulator deployment
+  interview_context: Cilium is increasingly adopted for 5G CNF clusters (Rakuten Symphony);
+    Calico where BGP peering with DC fabric is required
+- id: q229
+  domain: kubernetes
+  subdomain: networking
+  tags:
+  - kubernetes
+  - cnf
+  - cloud-native
+  level: senior
+  question: What is Multus CNI and why is it required for 5G network functions?
+  answer: 'Multus is a meta-CNI plugin that allows a Pod to have multiple network
+    interfaces — it calls other CNI plugins sequentially to attach additional NICs.
+    Without Multus, a Pod has only one network interface (plus loopback). A 5G AMF
+    Pod needs at minimum three interfaces: (1) SBI interface for inter-NF communication,
+    (2) N2 interface toward gNBs (NGAP/SCTP), and (3) O&M interface. These must be
+    on separate VLANs/subnets for security and QoS. Multus uses NetworkAttachmentDefinition
+    CRDs and Pod annotations, which can use different CNI plugins (SR-IOV, macvlan,
+    ipvlan) per interface.'
+  spec: 3GPP TS 23.501
+  simulator_trigger: k8s/ manifests — Multus NetworkAttachmentDefinition for 5G interface
+    separation
+  interview_context: 3GPP interface isolation (N2, N3, N4, N6, N9) is mandatory; virtually
+    all 5G core deployments use Multus
+- id: q230
+  domain: kubernetes
+  subdomain: storage
+  tags:
+  - kubernetes
+  level: engineer
+  question: Explain PersistentVolume, PersistentVolumeClaim, and StorageClass. How
+    do they relate?
+  answer: A PersistentVolume (PV) is a cluster-level storage resource provisioned
+    by an admin or dynamically by a StorageClass — it exists independently of any
+    Pod. A PersistentVolumeClaim (PVC) is a request for storage by a user or Pod,
+    specifying size and access mode (ReadWriteOnce, ReadWriteMany, ReadOnlyMany).
+    Kubernetes binds a PVC to a matching available PV. A StorageClass links to a CSI
+    driver for dynamic provisioning — when a PVC specifies a StorageClass, the CSI
+    driver automatically creates and binds a new PV. ReadWriteOnce (single node) is
+    most common; ReadWriteMany (NFS, CephFS) is needed for shared file systems.
+  spec: null
+  simulator_trigger: k8s/ manifests — StorageClass for UDR subscriber data in simulator
+  interview_context: UDR subscriber data stores require PVs with ReadWriteOnce using
+    Ceph RBD or local NVMe for low-latency access
+- id: q231
+  domain: kubernetes
+  subdomain: configuration
+  tags:
+  - kubernetes
+  level: engineer
+  question: What is the difference between a ConfigMap and a Secret?
+  answer: A ConfigMap stores non-sensitive configuration data as key-value pairs or
+    files — app settings, feature flags, 5G PLMN IDs, NSSAI slices. A Secret stores
+    sensitive data (passwords, TLS certificates, API keys) base64-encoded (not encrypted
+    by default unless etcd encryption is enabled). Both can be consumed by Pods as
+    environment variables or volume mounts. Secrets can be tied to RBAC to restrict
+    access and stored in external secret managers (HashiCorp Vault, AWS Secrets Manager
+    via External Secrets Operator). Never store passwords in ConfigMaps; always use
+    Secrets with etcd encryption at rest.
+  spec: 3GPP TS 33.501
+  simulator_trigger: k8s/ manifests — ConfigMap for NF configuration and Secret for
+    TLS certificates
+  interview_context: 5G NFs store mTLS certificates and OAuth2 client secrets as K8s
+    Secrets — correct separation is basic hygiene at all telecom DevOps interviews
+- id: q232
+  domain: kubernetes
+  subdomain: configuration
+  tags:
+  - kubernetes
+  level: engineer
+  question: When should you use environment variables vs volume mounts to inject ConfigMap/Secret
+    data?
+  answer: 'Environment variables: simple, static, small configuration values (feature
+    flags, port numbers). Disadvantage: baked in at Pod startup — Pod must restart
+    to pick up changes. Volume mounts: project ConfigMap/Secret as files in the container
+    filesystem and support live reloading within ~60 seconds of update without Pod
+    restart. Use volume mounts for: large configuration files, TLS certificates (which
+    must auto-rotate without restarts), any value that must be hot-reloaded. Avoid
+    injecting Secrets as env vars — they are visible in kubectl describe pod output
+    and to child processes.'
+  spec: null
+  simulator_trigger: k8s/ manifests — TLS certificate volume mounts for auto-rotation
+    in NF pods
+  interview_context: 5G SBI uses TLS mutual authentication — certificates must rotate
+    without restarting the NF Pod, requiring volume-mounted Secrets
+- id: q233
+  domain: kubernetes
+  subdomain: health
+  tags:
+  - kubernetes
+  - pod
+  level: engineer
+  question: Explain the three Kubernetes health probe types, their behavior, and when
+    to use each.
+  answer: 'Liveness probe: ''Is the container still running and not deadlocked?''
+    Failure action: kill + restart container. Use for deadlocks, infinite loops, OOM
+    states. Readiness probe: ''Can this Pod serve traffic right now?'' Failure action:
+    remove Pod from Service endpoint list (no restart). Use for temporarily unavailable
+    states (DB connection warming, cache loading). Startup probe: ''Has the application
+    finished initial startup?'' Failure action: kill + restart (disables liveness/readiness
+    until passes). Use for slow-starting apps. Maximum startup time = failureThreshold
+    × periodSeconds.'
+  spec: null
+  simulator_trigger: k8s/ manifests — health probes in AMF/SMF Deployment specs
+  interview_context: Misconfigured liveness probes are one of the top causes of production
+    outages in CNF environments — AMF with 90s startup needs startup probe
+- id: q234
+  domain: kubernetes
+  subdomain: scaling
+  tags:
+  - kubernetes
+  level: engineer
+  question: How does Horizontal Pod Autoscaler (HPA) work? What does it need to function?
+  answer: 'HPA runs a control loop (default every 15 seconds) fetching metrics from
+    the Metrics Server (CPU/memory) or Custom/External Metrics API. Formula: desiredReplicas
+    = ceil(currentReplicas × currentMetric / targetMetric). HPA never scales below
+    minReplicas or above maxReplicas. A stabilization window (default 5 min) prevents
+    scale-down oscillation. Prerequisites: (1) Metrics Server must be installed; (2)
+    CPU/memory requests must be set on containers; (3) minReplicas and maxReplicas
+    must be sensibly configured. In 5G, AMF scales from 3 to 12 pods in under 60s
+    using HPA with a custom metric ''registrations_per_second > 5000''.'
+  spec: null
+  simulator_trigger: k8s/ manifests — HPA for AMF scaling during registration storms
+  interview_context: 5G AMF must scale during morning registration storms — HPA with
+    custom metrics enables sub-minute scaling
+- id: q235
+  domain: kubernetes
+  subdomain: scaling
+  tags:
+  - kubernetes
+  level: senior
+  question: What is the difference between HPA, VPA, and Cluster Autoscaler? When
+    do you use each?
+  answer: 'HPA: scales Pod replica count based on CPU, memory, or custom metrics —
+    does not right-size individual pods. VPA: adjusts CPU/memory requests and limits
+    per Pod based on historical usage — requires pod restart to apply; do not combine
+    with HPA on same CPU/memory metric (creates feedback loop). Cluster Autoscaler:
+    adds/removes nodes in node groups when Pods cannot schedule — node provisioning
+    takes 1-5 minutes. Together: HPA for replica count, VPA for per-pod sizing, Cluster
+    Autoscaler for infrastructure. Use VPA in ''Off'' mode for recommendations without
+    applying.'
+  spec: null
+  simulator_trigger: k8s/ manifests — three-layer scaling for 5G NF cluster
+  interview_context: 'Jio and Rakuten 5G deployments use all three: Cluster Autoscaler
+    for edge node scaling, HPA for AMF/SMF replica scaling, VPA for UDM/PCF sizing'
+- id: q236
+  domain: kubernetes
+  subdomain: helm
+  tags:
+  - kubernetes
+  - helm
+  - cnf
+  level: engineer
+  question: What is Helm and what problem does it solve vs raw YAML?
+  answer: 'Helm is the package manager for Kubernetes — it packages a set of Kubernetes
+    manifests as a versioned, templatable unit called a Chart. Without Helm, deploying
+    a microservice requires maintaining dozens of separate YAML files with manual
+    edits per environment. Helm solves this by: Templating (Go templates allow values
+    to be parameterized via values.yaml); Versioning (charts have semantic versions
+    and full release history); Rollback (helm rollback re-applies a previous revision);
+    Dependency management (sub-charts for Redis, PostgreSQL). Each helm install creates
+    a Release stored as a Kubernetes Secret.'
+  spec: null
+  simulator_trigger: k8s/ manifests — Helm charts for NF deployment in simulator
+  interview_context: All major 5G core vendors (Nokia, Ericsson, Mavenir, Rakuten)
+    deliver their NFs as Helm charts
+- id: q237
+  domain: kubernetes
+  subdomain: helm
+  tags:
+  - kubernetes
+  - helm
+  level: engineer
+  question: What is the difference between helm upgrade and helm rollback? What are
+    the limitations of rollback?
+  answer: 'helm upgrade <release> <chart> applies new chart manifests, creates a new
+    revision, and waits for deployment to succeed (with --wait). helm rollback <release>
+    [revision] re-applies manifests from a previous revision. --atomic on upgrade
+    automatically rolls back if pods do not become Ready within timeout. Limitations:
+    (1) Rollback does NOT undo database schema migrations — handle data migrations
+    separately; (2) PersistentVolumeClaims are not deleted on rollback; (3) ConfigMap/Secret
+    data changes are reverted but application state (in-memory, database) is not;
+    (4) helm rollback is not a substitute for GitOps rollback.'
+  spec: null
+  simulator_trigger: k8s/ manifests — Helm rollback strategy for AMF/SMF upgrades
+  interview_context: AMF/SMF upgrades in production may include schema migrations
+    on the UDR — rolling back the chart without addressing the data layer causes NF
+    startup failures
+- id: q238
+  domain: kubernetes
+  subdomain: patterns
+  tags:
+  - kubernetes
+  - pod
+  level: engineer
+  question: Explain the sidecar pattern. What is the difference between a sidecar
+    and a classic init container?
+  answer: 'A sidecar is a container that runs alongside the main application container
+    for the full Pod lifetime, providing supporting functionality: log shipping (Fluentd),
+    metrics collection (Prometheus exporter), service mesh proxy (Envoy/Istio), TLS
+    termination. Since Kubernetes 1.29, native sidecars are defined in spec.initContainers
+    with restartPolicy: Always — they start before main containers and run for the
+    full Pod lifetime. An init container runs to completion before any main container
+    starts — use for one-off setup: waiting for dependencies (nc -z db 5432), cloning
+    git repos, database schema validation.'
+  spec: null
+  simulator_trigger: docker-compose.yml — sidecar pattern for log shipping in simulator
+    containers
+  interview_context: Istio injects an Envoy proxy as a native sidecar for mTLS enforcement;
+    init containers wait for NRF before starting AMF/SMF
+- id: q239
+  domain: kubernetes
+  subdomain: telecom
+  tags:
+  - kubernetes
+  - cnf
+  - cloud-native
+  level: senior
+  question: What is the difference between a VNF and a CNF? Why is Kubernetes preferred
+    for 5G core NFs?
+  answer: 'VNF: VM image (QCOW2/VMDK), orchestrated by VIM (OpenStack), scaling unit
+    is entire VM (5-15 min), 30-40% resource overhead from hypervisor. CNF: Container
+    image (OCI), orchestrated by Kubernetes, scaling unit is individual microservice
+    pod (5-30 sec), 5-10% overhead from shared kernel. Kubernetes is preferred for
+    5G core because: (1) 3GPP 5G SBA was designed as a microservices architecture
+    — each NF maps directly to a K8s Deployment; (2) CNFs require 40-60% fewer compute
+    cores than VNFs for the same subscriber capacity; (3) HPA enables sub-minute scaling;
+    (4) GitOps enables bi-weekly NF upgrades with zero downtime vs quarterly VNF maintenance
+    windows.'
+  spec: 3GPP TS 23.501
+  simulator_trigger: docker-compose.yml — container-based NF deployment in simulator
+  interview_context: Rakuten Mobile runs all 5GC NFs as CNFs on bare-metal Kubernetes
+    across 15 regional data centers
+- id: q240
+  domain: kubernetes
+  subdomain: telecom
+  tags:
+  - kubernetes
+  - cnf
+  level: senior
+  question: What is SR-IOV and why is it used for UPF data-plane acceleration in Kubernetes?
+  answer: SR-IOV (Single Root I/O Virtualization) is a PCIe hardware standard that
+    partitions a physical NIC into multiple Virtual Functions (VFs) — lightweight
+    PCIe functions that can be directly assigned to containers, bypassing the host
+    kernel network stack entirely. In Kubernetes, the SR-IOV Device Plugin runs as
+    a DaemonSet, discovers SR-IOV-capable NICs, and exposes VFs as extended resources
+    (intel.com/sriov_net). UPF Pods request these resources and are assigned a VF
+    with direct hardware access. Combined with DPDK for poll-mode packet processing,
+    SR-IOV-enabled UPFs achieve line-rate packet forwarding (100+ Gbps per node).
+  spec: null
+  simulator_trigger: k8s/ manifests — SR-IOV device plugin DaemonSet for UPF acceleration
+  interview_context: AT&T's production uses Ericsson UPF as CNF with DPDK-accelerated
+    user plane at 200+ Gbps — Nokia and Mavenir UPF also require SR-IOV/DPDK
+- id: q241
+  domain: kubernetes
+  subdomain: telecom
+  tags:
+  - kubernetes
+  - cnf
+  - cloud-native
+  level: senior
+  question: How does the 5G NRF relate to Kubernetes service discovery mechanisms?
+  answer: 'The NRF is the 5G core''s service registry (TS 29.510) — every NF registers
+    its profile and consumer NFs query for matching instances. The NRF is conceptually
+    similar to Kubernetes CoreDNS + Service endpoints but operates at the application/NF
+    layer above Kubernetes. In practice, both layers are used: Kubernetes ClusterIP
+    Services provide stable internal DNS names (nrf-svc.5gc.svc.cluster.local) and
+    load balancing across NRF replicas; the NRF provides 5G-specific selection logic
+    (slice-aware, capacity-aware, locality-aware) that Kubernetes DNS cannot express.
+    A common interview scenario: ''AMF is running but no traffic is flowing — how
+    do you diagnose?'' — check both K8s Service endpoints AND NRF registration status.'
+  spec: 3GPP TS 29.510
+  simulator_trigger: k8s/ manifests — NRF registration in simulator NF startup
+  interview_context: Understanding K8s service discovery vs 3GPP NRF discovery separates
+    K8s generalists from 5G-specialist DevOps engineers
+- id: q242
+  domain: devops
+  subdomain: cicd
+  tags:
+  - ci-cd
+  - docker
+  level: engineer
+  question: Explain the structure of a GitHub Actions workflow. What are the key components?
+  answer: 'A GitHub Actions workflow is a YAML file in .github/workflows/ automating
+    CI/CD. Key components: Trigger (on) — events like push, pull_request, schedule,
+    workflow_dispatch; Jobs — units of work running in parallel by default (use ''needs''
+    for dependencies); Steps — sequential commands within a job; Actions — reusable
+    logic from GitHub Marketplace (actions/checkout, actions/cache); Secrets — encrypted
+    values injected via ${{ secrets.MY_SECRET }}; Environments — named deployment
+    targets with protection rules and manual approval gates.'
+  spec: null
+  simulator_trigger: docker-compose.yml — CI/CD pipeline for simulator container builds
+  interview_context: GitHub Actions is used in cloud-native 5G CI pipelines — build
+    NF image → scan → push to Harbor → trigger ArgoCD sync
+- id: q243
+  domain: devops
+  subdomain: cicd
+  tags:
+  - ci-cd
+  - docker
+  level: engineer
+  question: What is a Docker multi-stage build and why is it critical in production
+    CI/CD?
+  answer: 'A multi-stage build uses multiple FROM statements in a single Dockerfile.
+    Earlier stages handle build dependencies (compilers, test tools); only artifacts
+    needed at runtime are copied into the final minimal image. Benefits: (1) Image
+    size — final image contains only the binary, not the build toolchain (300 MB →
+    10 MB for Go); (2) Security — smaller attack surface, no package manager or shell
+    in distroless images; (3) Build cache — go mod download is cached as long as go.mod
+    doesn''t change; (4) Separation — test artifacts and build tools never reach production.'
+  spec: null
+  simulator_trigger: docker-compose.yml — multi-stage Dockerfile for simulator NF
+    images
+  interview_context: 5G NF container images stored in Harbor/ECR must be minimal for
+    fast pull times during scaling events
+- id: q244
+  domain: devops
+  subdomain: cicd
+  tags:
+  - ci-cd
+  - docker
+  level: engineer
+  question: What is your image tagging strategy in a CI/CD pipeline? What are the
+    anti-patterns?
+  answer: 'Recommended tags: Git SHA (registry/amf:abc1234 — immutable, traces to
+    commit); Semantic version (registry/amf:v1.3.2 — human-readable release); Branch/environment
+    (registry/amf:main-abc1234 — feature branch previews). Push both SHA tag and environment
+    tag atomically. Anti-patterns: (1) ''latest'' tag — mutable, non-reproducible,
+    leads to ''works on my machine'' — never use in production Kubernetes; (2) branch
+    names alone (main) — mutable across commits; (3) timestamps without commit ref
+    — not traceable. In Helm charts, image.tag should always be a specific SHA or
+    semantic version. In GitOps (ArgoCD/Flux), image updates are committed to Git
+    as a specific tag.'
+  spec: null
+  simulator_trigger: docker-compose.yml — image tagging strategy in simulator CI pipeline
+  interview_context: 5G NF deployments are audited by MNO operations teams — every
+    running NF version must trace to a specific Git commit and approved change request
+- id: q245
+  domain: kubernetes
+  subdomain: health
+  tags:
+  - kubernetes
+  - pod
+  level: engineer
+  question: What is the difference between a readiness probe failure and a liveness
+    probe failure in terms of traffic impact?
+  answer: 'Readiness probe failure: Pod IP is removed from the Service''s endpoint
+    list — no new traffic is routed to the Pod, but the container is not restarted
+    and stays in a Running state (READY shows 0/1). Appropriate for temporary degradation.
+    Liveness probe failure: triggers container restart via kubelet — if it repeats,
+    causes CrashLoopBackOff. Golden rule: liveness should only check conditions from
+    which the app cannot recover on its own (deadlock, memory corruption); readiness
+    should check operational dependencies (DB connectivity, upstream service health).'
+  spec: null
+  simulator_trigger: k8s/ manifests — liveness vs readiness probe distinction for
+    AMF/SMF
+  interview_context: During 5G core scaling events, NFs may temporarily exceed memory/CPU
+    — incorrect liveness probes cause cascading restarts during overload
+- id: q246
+  domain: kubernetes
+  subdomain: scaling
+  tags:
+  - kubernetes
+  level: engineer
+  question: What is the difference between resource requests and resource limits in
+    Kubernetes?
+  answer: 'Requests: minimum resources guaranteed to a container — the scheduler uses
+    requests to decide which node can host the Pod. Limits: maximum resources the
+    container can consume — enforced at runtime. If a container exceeds CPU limit,
+    it is throttled (not killed). If it exceeds memory limit, it is OOM-killed (container
+    restart). Setting limits equal to requests creates Guaranteed QoS class (highest
+    priority; never throttled). Not setting requests or limits creates BestEffort
+    class (first evicted under node pressure). For production CNFs, always set both;
+    use Guaranteed QoS for latency-sensitive NFs like AMF and SMF.'
+  spec: null
+  simulator_trigger: k8s/ manifests — resource requests and limits for NF pods in
+    simulator
+  interview_context: UPF data-plane pods must have Guaranteed QoS with CPU pinning
+    to avoid throttling during high-throughput forwarding
+- id: q247
+  domain: kubernetes
+  subdomain: patterns
+  tags:
+  - kubernetes
+  - pod
+  level: senior
+  question: What is the ambassador container pattern and how does it differ from a
+    sidecar?
+  answer: 'The ambassador pattern is a specialization of the sidecar where the helper
+    container acts as a proxy — the main application talks to it via localhost. The
+    ambassador hides external service complexity (service discovery, TLS termination,
+    retries, connection pooling, protocol translation) from the main container. The
+    main app connects to localhost:<port> as if the external service were local; the
+    ambassador handles routing to the actual external endpoint. Sidecar vs Ambassador:
+    all ambassadors are sidecars, but not all sidecars are ambassadors. A sidecar
+    adds supplementary functionality; an ambassador sits in the network path between
+    the app and external services.'
+  spec: null
+  simulator_trigger: docker-compose.yml — Envoy sidecar as ambassador for SBI traffic
+    in simulator
+  interview_context: The Envoy sidecar in Istio acts as an ambassador for SBI traffic
+    — it intercepts outbound HTTP/2 calls, applies mTLS and circuit breaking
+- id: q248
+  domain: kubernetes
+  subdomain: storage
+  tags:
+  - kubernetes
+  level: engineer
+  question: What is emptyDir and when should you use it vs a PersistentVolumeClaim?
+  answer: 'emptyDir is an ephemeral volume created when a Pod is assigned to a node
+    and deleted when the Pod is removed. It is stored in the node''s local disk (or
+    RAM if emptyDir.medium: Memory). Unlike a PVC, it does not survive Pod deletion
+    or rescheduling. Use emptyDir for: (1) sharing files between containers within
+    the same Pod (app writes logs, sidecar ships them); (2) scratch space for temporary
+    computation; (3) caches that can be rebuilt after restart. Use a PVC when data
+    must survive Pod restarts or node failures.'
+  spec: null
+  simulator_trigger: k8s/ manifests — emptyDir for sidecar log sharing in simulator
+    pods
+  interview_context: emptyDir is the standard volume for sidecar log-shipping patterns
+    in CNF observability — ubiquitous in all CNF deployments
+- id: q249
+  domain: kubernetes
+  subdomain: storage
+  tags:
+  - kubernetes
+  level: engineer
+  question: What are PV access modes and reclaim policies?
+  answer: 'Access modes: ReadWriteOnce (RWO — single node), ReadOnlyMany (ROX — multiple
+    nodes read-only), ReadWriteMany (RWX — multiple nodes read-write), ReadWriteOncePod
+    (RWOP — single Pod only, K8s 1.22+). Reclaim policies: Retain (PV remains, manual
+    cleanup required — safe for production data), Delete (PV and underlying storage
+    deleted automatically — for dynamic provisioning), Recycle (deprecated). For production
+    stateful workloads, use Retain to prevent accidental data loss during PVC or namespace
+    deletion. A common interview scenario: ''what happens if you delete a PVC bound
+    to UDR data?'' — depends entirely on the reclaim policy.'
+  spec: null
+  simulator_trigger: k8s/ manifests — PV reclaim policy for UDR subscriber data
+  interview_context: UDR in 5G must use Retain policy — deleting a Pod namespace during
+    rollback must not destroy subscriber data
+- id: q250
+  domain: kubernetes
+  subdomain: helm
+  tags:
+  - kubernetes
+  - helm
+  - cnf
+  level: engineer
+  question: Describe the structure of a Helm chart and the role of each component.
+  answer: 'A Helm chart directory contains: Chart.yaml (metadata: name, version, appVersion,
+    description, dependencies — version is chart version; appVersion matches Docker
+    image tag); values.yaml (default config values, overridable with --set or -f);
+    templates/ (Go template K8s manifests — deployment.yaml, service.yaml, hpa.yaml,
+    pdb.yaml, _helpers.tpl for named reusable templates); charts/ (bundled sub-chart
+    dependencies); .helmignore. Values are referenced as {{ .Values.key }}. ''helm
+    template'' renders locally; ''helm install --dry-run'' validates against cluster
+    API server. Nokia AMF chart has 20+ configurable parameters.'
+  spec: null
+  simulator_trigger: k8s/ manifests — Helm chart structure for simulator NF deployment
+  interview_context: Telecom NF Helm charts are complex — understanding values.yaml
+    override hierarchy is essential for per-environment NF configurations

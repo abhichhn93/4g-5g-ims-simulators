@@ -1,0 +1,238 @@
+- id: q303
+  domain: telecom_sysdesign
+  subdomain: mme_design
+  tags:
+  - system-design
+  - mme-design
+  - scalability
+  level: architect
+  question: Design a scalable MME handling 10 million UEs.
+  answer: The core challenge is that the MME is stateful — each UE has EMM/ECM state,
+    security context, bearer list, and last known TA. At 10M UEs, the architecture
+    must be horizontally sharded by IMSI range (or IMSI hash), distributing UE records
+    across a distributed in-memory store (Redis Cluster, Apache Ignite, or UDSF per
+    3GPP Release 15) which separates control-plane logic from state, enabling stateless
+    MME processing pods to scale independently. Each MME pod fetches UE context from
+    UDSF at the start of a procedure and persists it back on completion. The S-TMSI
+    embeds the GUMMEI so the eNB can route S1AP messages to the correct MME shard.
+    Load rebalancing uses a 'load balancing TAU' that migrates UEs to peer MMEs via
+    the S10 interface. Geo-redundancy replicates each shard to a standby site; failover
+    uses BFD/heartbeat.
+  spec: 3GPP TS 23.401
+  simulator_trigger: BULK command — bulk UE attach simulation stresses the MME design
+    limits
+  interview_context: Tests senior/architect-level understanding of stateful NF horizontal
+    scaling with distributed context storage
+- id: q304
+  domain: telecom_sysdesign
+  subdomain: dra_design
+  tags:
+  - system-design
+  - scalability
+  - fault-tolerance
+  level: architect
+  question: Design a production-grade Diameter Routing Agent (DRA) for 50 million
+    subscribers.
+  answer: 'A DRA decouples the Diameter mesh into a star topology. Routing logic distinguishes:
+    stateless routing (any HSS shard owning the subscriber''s IMSI range can respond)
+    vs session-bound routing (all messages in a Gx session must reach the same PCRF
+    — maintained in a shared in-memory binding table replicated across DRA cluster
+    nodes with sub-millisecond lookup). Load balancing uses weighted round-robin.
+    Failover is implemented with TCP/SCTP peer-link failure detection (watchdog per
+    RFC 6733), automatic redirection of in-flight requests to the next peer. The DRA
+    also performs topology hiding and priority-based throttling to prevent cascading
+    overload.'
+  spec: RFC 6733
+  simulator_trigger: BULK command — Diameter traffic routing under load tests DRA
+    design
+  interview_context: Tests Diameter session binding, fault tolerance, and multi-PCRF
+    load balancing architecture
+- id: q305
+  domain: telecom_sysdesign
+  subdomain: hss_design
+  tags:
+  - system-design
+  - fault-tolerance
+  - scalability
+  level: architect
+  question: Design a carrier-grade, fault-tolerant HSS for 100 million subscribers.
+  answer: 'The HSS holds static subscriber profile data (IMSI, service subscriptions,
+    authentication vectors) and dynamic data (current MME address, IMS registration
+    state). Static data suits a distributed NoSQL store (Cassandra with RF=3, rack-aware
+    placement) for geo-redundancy. Dynamic data changes on every attach/detach and
+    must be replicated synchronously to a standby for consistency. Geo-redundancy:
+    two or more HSS clusters across sites with asynchronous replication of static
+    data and synchronous replication of dynamic data within a site; cross-site failover
+    uses DNS TTL manipulation. The 3GPP TS 29.272 Reset procedure informs MMEs to
+    re-authenticate UEs after HSS recovery — must be rate-limited to avoid thundering-herd
+    reattach storms.'
+  spec: 3GPP TS 29.272
+  simulator_trigger: BULK command — bulk subscriber data load tests HSS capacity design
+  interview_context: Tests HSS data partitioning, replication strategy, and thundering-herd
+    mitigation after failure recovery
+- id: q306
+  domain: telecom_sysdesign
+  subdomain: amf_upgrade
+  tags:
+  - system-design
+  - amf-upgrade
+  - fault-tolerance
+  level: architect
+  question: Design zero-downtime AMF upgrade in production handling 5 million active
+    UE registrations.
+  answer: 'A zero-downtime AMF upgrade uses a Kubernetes StatefulSet rolling upgrade
+    strategy with maxUnavailable=0 and maxSurge=1, ensuring at least one old-version
+    replica runs during upgrade. UE NAS contexts (security keys, 5G-GUTI, registration
+    state) are externalized to a shared ETCD/UDSF store before pod termination, so
+    the new pod can reload context on first message receipt. SCTP connections to gNBs
+    use VIP (Virtual IP) failover: the SCTP pod listens on a stable VIP; traffic migrates
+    to the new pod without the gNB needing to re-setup the N2 association. New UE
+    registrations route to the new pod while in-flight procedures on the old pod complete
+    within a drain timeout (30 s). Health check failure on the new pod halts the rollout
+    — remaining old pods continue serving.'
+  spec: 3GPP TS 23.502
+  simulator_trigger: BULK command — zero-downtime upgrade simulation with active UE
+    sessions
+  interview_context: Tests StatefulSet rolling upgrade design with session state externalization
+    for zero-downtime NF upgrades
+- id: q307
+  domain: telecom_sysdesign
+  subdomain: nrf_design
+  tags:
+  - system-design
+  - nrf-design
+  - fault-tolerance
+  level: architect
+  question: Design a production-hardened 5G NRF handling 500,000 NF discovery requests
+    per second with rate limiting and circuit breakers.
+  answer: 'Rate limiting uses a token bucket per-NF-consumer tracked in a shared Redis
+    counter — requests exceeding the budget receive HTTP 429 with Retry-After. The
+    circuit breaker pattern is applied on the consumer side: if discovery requests
+    fail for >N% of calls in a 10-second window, the circuit opens and the consumer
+    NF falls back to its cached NF profile list — TS 29.510 specifies NF consumers
+    must locally cache discovered profiles for a TTL period. For HA: the NRF is deployed
+    as a clustered stateful service with a distributed NF profile store (etcd or Cassandra);
+    NF registrations are replicated to a secondary NRF cluster in a different AZ;
+    a global load balancer distributes traffic across the cluster. NRF heartbeat intervals
+    (default 60s per TS 29.510) TTL-expire stale NF profiles.'
+  spec: 3GPP TS 29.510
+  simulator_trigger: BULK command — high-volume NF discovery traffic tests NRF rate
+    limiting
+  interview_context: Tests NRF rate limiting, circuit breaker, and HA design for a
+    critical 5G core service
+- id: q308
+  domain: telecom_sysdesign
+  subdomain: pcrf_policy
+  tags:
+  - system-design
+  - fault-tolerance
+  level: senior
+  question: Explain how you would implement Call Admission Control (CAC) in a PCRF
+    for a VoLTE deployment.
+  answer: 'When a UE initiates a VoLTE call, the P-CSCF detects the SIP INVITE/SDP
+    and triggers an IMS authorization request over the Rx interface (TS 29.214) to
+    the PCRF, carrying media component parameters (codec, bandwidth, IP 5-tuple).
+    The PCRF correlates this Rx session with the existing Gx session (maintained since
+    PDN attach) and evaluates: subscriber entitlement (VoLTE service subscription
+    in SPR/UDR), available bearer capacity. If admitted, the PCRF installs a PCC rule
+    on Gx specifying QCI=1 (GBR bearer), GBR/MBR values matching the codec (AMR-WB:
+    12.65 kbps), and ARP priority. The P-GW then triggers a Dedicated Bearer Activation.
+    If denied, the PCRF returns DIAMETER_UNABLE_TO_COMPLY; the P-CSCF signals SIP
+    488 Not Acceptable Here, and the call falls through to CSFB.'
+  spec: 3GPP TS 29.212
+  simulator_trigger: BULK command — VoLTE call admission under capacity load tests
+    PCRF design
+  interview_context: Tests VoLTE call admission control flow across Rx/Gx interfaces
+    and bearer activation orchestration
+- id: q309
+  domain: telecom_sysdesign
+  subdomain: ims_conference
+  tags:
+  - system-design
+  - scalability
+  level: senior
+  question: Design a scalable VoLTE conference bridge using the MRFC/MRFP architecture
+    for 10,000 simultaneous conferences.
+  answer: 'In IMS, the MRFC handles SIP/SDP signaling and the MRFP handles media mixing.
+    A conference is established via a factory URI — the AS sends a SIP INVITE to the
+    MRFC''s factory URI which creates a conference focus; participants are mixed using
+    the Cr interface (MSML/NETANN) and the Mp interface (H.248/Megaco) between MRFC
+    and MRFP. Media mixing involves receiving N RTP streams, performing N-way audio
+    mixing (energy-based floor control), and sending unique mixed streams back to
+    each participant. To scale to 10,000 conferences, MRFP is horizontally scaled
+    as a farm behind a Media Resource Broker (MRB per TS 23.218) that selects an MRFP
+    with available capacity. Capacity rule: ~200-500 concurrent mixed conferences
+    per CPU core (AMR-NB vs EVS).'
+  spec: 3GPP TS 23.228
+  simulator_trigger: BULK command — conference bridge load simulation stresses MRFC/MRFP
+    design
+  interview_context: Tests IMS conference bridge architecture including MRB-based
+    MRFP selection and media mixing design
+- id: q310
+  domain: telecom_sysdesign
+  subdomain: voLTE_debug
+  tags:
+  - system-design
+  level: senior
+  question: How do you debug a dropped VoLTE call in production?
+  answer: 'First, check KPI dashboards for SIP BYE with abnormal cause codes (Bearer
+    Lost / SIP reason 503 / IMS cause A.450.x). Cross-correlate with eNB KPIs: QCI=1
+    DL/UL packet loss rate, PDCP discard rate, and RRC reestablishment failure count
+    — in a basement scenario expect RSRP degradation and RRC reestablishment failure
+    leading to radio bearer release. Capture L3 signaling PCAP on S1-MME and Mw interfaces
+    for the affected IMSI. Filter in Wireshark: ''sip || rtp || s1ap''. Look for:
+    S1AP UEContextReleaseCommand timestamp → P-GW deactivates QCI=1 bearer → IMS detects
+    media bearer loss (RTP timeout 10-30s) → IMS sends BYE. Root cause for basement:
+    radio coverage; remediation: antenna tilt, femtocell, or eSRVCC/SRVCC configuration.'
+  spec: 3GPP TS 23.228
+  simulator_trigger: BULK command — VoLTE call drop simulation in basement coverage
+    scenario
+  interview_context: Tests systematic VoLTE debugging methodology from KPI dashboards
+    to PCAP analysis to log correlation
+- id: q311
+  domain: telecom_sysdesign
+  subdomain: observability
+  tags:
+  - system-design
+  - scalability
+  level: senior
+  question: Design a complete observability stack for a 5G Core deployment.
+  answer: 'Each 5G NF exposes Prometheus /metrics endpoints: AMF (registration success
+    rate, handover latency, active UE count), SMF (PDU session establishment rate,
+    policy enforcement latency), UPF (packet throughput, GTP tunnel setup time, N4
+    PFCP session count), NRF (NF registration count, discovery request rate). Prometheus
+    scrapes all NF pods via PodMonitor/ServiceMonitor CRDs; Grafana dashboards per
+    NF and per slice (using Prometheus labels for slice/sst/sd/dnn). SLOs: PDU Session
+    Establishment Success Rate ≥ 99.9%, Handover Success Rate ≥ 99.5%, VoLTE Call
+    Setup Success Rate ≥ 99.0% — error budget burn rate alerts fire before SLO breach.
+    NWDAF (TS 23.288) supplements Prometheus with ML-based anomaly detection, predicting
+    NF load increases 15 minutes in advance.'
+  spec: 3GPP TS 23.288
+  simulator_trigger: BULK command — observability stack for simulator NF health monitoring
+  interview_context: Tests SLO definition, multi-window alerting, and NWDAF integration
+    for proactive 5G core capacity management
+- id: q312
+  domain: telecom_sysdesign
+  subdomain: handover_zero_loss
+  tags:
+  - system-design
+  - fault-tolerance
+  level: senior
+  question: Walk through the technical design for achieving zero packet loss during
+    an LTE X2 handover.
+  answer: 'During LTE X2 handover, from the moment the UE is commanded to handover
+    (RRCConnectionReconfiguration), the source eNB forwards all buffered downlink
+    PDCP SDUs to the target eNB over a temporary GTP-U forwarding tunnel on the X2-U
+    interface. The target eNB buffers these forwarded packets and new packets arriving
+    from the SGW-to-eNB GTP-U tunnel (direct path switch occurs after the UE sends
+    a RACH Preamble to the target and the MME sends a Modify Bearer Request to the
+    SGW). PDCP reordering at the UE is critical: the UE''s PDCP receive window reorders
+    packets across the handover using PDCP SNs from both source and target paths.
+    Zero loss is achieved for acknowledged-mode RBs (RLC AM) because HARQ retransmission
+    status and RLC STATUS PDUs allow the source to know exactly which PDCP SNs need
+    forwarding. Residual uplink loss risk: target eNB UL alignment timing gap of 1-2
+    TTI, mitigated by RACH-based TA acquisition.'
+  spec: 3GPP TS 36.300
+  simulator_trigger: BULK command — X2 handover simulation with packet loss measurement
+  interview_context: Tests deep understanding of LTE X2 handover PDCP forwarding mechanism
+    and sequence number continuity

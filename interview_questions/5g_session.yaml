@@ -1,0 +1,426 @@
+- id: q143
+  domain: 5g
+  subdomain: session
+  tags:
+  - smf
+  - upf
+  - pfcp
+  - n4
+  - pdu-session
+  - 5g-sba
+  level: engineer
+  question: What is the SMF in 5G, and what are its key responsibilities?
+  answer: The SMF (Session Management Function) manages the full lifecycle of PDU
+    sessions from establishment through modification to release. Its responsibilities
+    include selecting and controlling UPF(s) via N4/PFCP; fetching SM subscription
+    data from UDM; obtaining PCC rules from PCF; orchestrating GTP-U tunnel endpoint
+    assignments between gNB and UPF; UE IP address allocation; enforcing QoS via QER
+    installation in UPF; and SSC mode management. The SMF corresponds to 4G's SGW-C
+    + PGW-C combined, but exposes services via RESTful SBI (Nsmf_PDUSession).
+  spec: TS 23.501 §6.2.2, TS 23.502 §4.3
+  simulator_trigger: 5G PDU session command — smf_node.cpp orchestrates PFCP, UDM,
+    PCF, and NGAP interactions for session setup
+  interview_context: Core SMF role question expected at engineer level in any 5GC
+    development role
+- id: q144
+  domain: 5g
+  subdomain: session
+  tags:
+  - smf
+  - upf
+  - pfcp
+  - n4
+  - pdu-session
+  - ngap
+  - amf
+  level: senior
+  question: Walk through the 5G PDU Session Establishment procedure (16 steps).
+  answer: The UE sends PDU Session Establishment Request (NAS); AMF invokes Nsmf_PDUSession_CreateSMContext
+    (HTTP/2 POST); SMF fetches SM subscription from UDM and PCC rules from PCF; SMF
+    sends PFCP Session Establishment Request to UPF with PDRs, FARs, QERs, URRs, and
+    gets UPF F-TEID; SMF returns context to AMF, which sends NGAP PDU Session Resource
+    Setup Request to gNB; gNB configures DRB and responds with gNB F-TEID; AMF forwards
+    gNB tunnel info to SMF, which sends PFCP Session Modification Request to UPF updating
+    the FAR's downlink F-TEID. After step 16, GTP-U tunnels are fully established.
+  spec: TS 23.502 §4.3.2, TS 24.501 §6.4, TS 29.244
+  simulator_trigger: 5G PDU session command — 16-step flow traced in 5g_pdu_session_handler.cpp
+  interview_context: 5G equivalent of the LTE Create Session walkthrough — senior-level
+    expectation in any SMF/UPF role
+- id: q145
+  domain: 5g
+  subdomain: session
+  tags:
+  - smf
+  - pdu-session
+  - upf
+  level: senior
+  question: What are the three SSC (Session and Service Continuity) modes in 5G?
+  answer: 'SSC Mode 1: the UPF anchor never changes for the PDU session lifetime —
+    use for VoNR and enterprise VPN requiring a stable IP. SSC Mode 2: the network
+    releases the old session and creates a new one (break-before-make) — for best-effort
+    internet browsing. SSC Mode 3: the network creates a new session before releasing
+    the old (make-before-break) — for video streaming or gaming requiring minimal
+    interruption. SSC mode is negotiated at session establishment; UDM subscription
+    data may restrict allowed modes per DNN.'
+  spec: TS 23.501 §5.6.9, TS 23.502 §4.3.3
+  simulator_trigger: 5G PDU session command — simulator tests SSC Mode 1/2/3 behavior
+    during UPF relocation in mobility scenarios
+  interview_context: Tests 5G session continuity model knowledge that has no direct
+    4G equivalent
+- id: q146
+  domain: 5g
+  subdomain: session
+  tags:
+  - upf
+  - pfcp
+  - n4
+  - smf
+  - pdu-session
+  level: senior
+  question: What are PDRs, FARs, QERs, and URRs in PFCP? What does each do?
+  answer: 'PDR (Packet Detection Rule) matches incoming packets using criteria such
+    as source interface, SDF filter (IP 5-tuple), or TEID — each PDR has a precedence
+    and points to a FAR. FAR (Forwarding Action Rule) specifies what to do with matched
+    packets: forward (with destination IP/TEID), drop, buffer (for idle UE), or duplicate
+    — updated when the gNB TEID becomes known. QER (QoS Enforcement Rule) enforces
+    MBR, GBR, and gate status per QoS flow via token-bucket policing. URR (Usage Reporting
+    Rule) triggers volume/time/event-based usage reports to SMF for CHF charging.'
+  spec: TS 29.244 §7.5–7.8
+  simulator_trigger: 5G PDU session command — PFCP rules installed in UPF simulator
+    via N4 in pfcp_session_manager.cpp
+  interview_context: Tests PFCP rule knowledge essential for UPF implementation and
+    N4 interface debugging
+- id: q147
+  domain: 5g
+  subdomain: session
+  tags:
+  - nrf
+  - nf-discovery
+  - 5g-sba
+  - http2
+  level: engineer
+  question: What is the NRF in 5G, and what services does it provide?
+  answer: The NRF (Network Repository Function) is the service registry and discovery
+    broker for the 5GC. NFs register their NF Profile (type, instance ID, PLMN ID,
+    supported services, capacity, IP/FQDN) at startup. When an NF consumer needs a
+    service, it sends Nnrf_NFDiscovery_Request specifying target NF type and optional
+    S-NSSAI/DNN filters; NRF returns matching NF instances. The NRF also supports
+    subscription notifications — NFs subscribe to topology change events without polling.
+    In slicing deployments, multiple NRFs may be hierarchically deployed at PLMN,
+    shared-slice, and slice-specific levels.
+  spec: TS 23.501 §6.2.6, TS 29.510
+  simulator_trigger: 5G REG command — all NF registrations and discovery calls logged
+    in nrf_node.cpp
+  interview_context: Tests NRF registry/discovery mechanism central to all 5GC NF
+    interactions
+- id: q148
+  domain: 5g
+  subdomain: session
+  tags:
+  - nrf
+  - oauth2
+  - 5g-sba
+  - http2
+  level: senior
+  question: How does OAuth2-based authorization work for NF service access in 5G?
+  answer: 3GPP uses OAuth 2.0 client credentials grant for SBI authorization. An NF
+    consumer obtains an access token from NRF via POST to Nnrf_AccessToken_Get, specifying
+    its NF type, target NF type, and required service scope; the NRF verifies the
+    requester's identity via mutual TLS and issues a signed JWT. The consumer includes
+    this bearer token in the Authorization HTTP header of every service request; the
+    producer validates the token signature and scope before processing. This prevents
+    unauthorized NFs from calling any service and enables fine-grained access control.
+  spec: TS 29.510 §5.22, TS 33.501 §13.3
+  simulator_trigger: 5G REG command — NRF issues JWT access tokens used in all Nudm,
+    Nausf, Nsmf calls in 5g_oauth_handler.cpp
+  interview_context: Tests OAuth2/SBI authorization knowledge needed for 5GC security
+    hardening and zero-trust deployments
+- id: q149
+  domain: 5g
+  subdomain: session
+  tags:
+  - nssf
+  - network-slicing
+  - nssai
+  - sst
+  - 5g-sba
+  - amf
+  level: engineer
+  question: What is the NSSF, and what is NSSAI in 5G?
+  answer: 'The NSSF (Network Slice Selection Function) selects appropriate Network
+    Slice instances to serve a UE based on subscription, requested S-NSSAIs, UE location,
+    and operator policy. NSSAI (Network Slice Selection Assistance Information) is
+    a collection of S-NSSAIs; each S-NSSAI has an SST (Slice/Service Type, 8-bit:
+    1=eMBB, 2=URLLC, 3=MIoT) and an optional SD (Slice Differentiator, 24-bit, distinguishing
+    multiple slices of the same SST). The UE includes Requested NSSAI in the Registration
+    Request; the NSSF determines Allowed NSSAI and may select a specific AMF Set.'
+  spec: TS 23.501 §5.15, TS 29.531
+  simulator_trigger: 5G REG command with slice_id — AMF contacts NSSF for slice selection
+    in nssf_client.cpp
+  interview_context: Tests 5G network slicing entry-level knowledge — NSSAI vocabulary
+    is expected at the engineer level
+- id: q150
+  domain: 5g
+  subdomain: session
+  tags:
+  - network-slicing
+  - nssai
+  - sst
+  - nssf
+  - 5g-sba
+  level: senior
+  question: Explain end-to-end network slicing in 5G — how do RAN, Core, and Transport
+    slices work together?
+  answer: 'End-to-end slicing isolates networks logically on shared physical infrastructure
+    across three domains: RAN uses S-NSSAI-based scheduler differentiation, dedicated
+    bandwidth parts, or dedicated DRBs per slice; the 5GC deploys dedicated or shared
+    NF instances per S-NSSAI with per-slice NF registration in the NRF; and the transport
+    network uses DSCP or FlexE/VLAN-based isolation in backhaul and fronthaul. The
+    NSSF orchestrates core slice selection; Allowed NSSAI in the Registration Accept
+    propagates RAN-level slice awareness via NGAP. IETF/3GPP transport slicing maps
+    5QI values to DSCP/CoS markings.'
+  spec: TS 23.501 §5.15, TR 28.530
+  simulator_trigger: network-slicing command — simulator validates end-to-end slice
+    isolation across RAN, CN, and transport simulators
+  interview_context: Tests architect-level understanding of end-to-end slicing — needed
+    for network slice design roles
+- id: q151
+  domain: 5g
+  subdomain: session
+  tags:
+  - network-slicing
+  - nssai
+  - sst
+  - nssf
+  level: senior
+  question: What are the security isolation challenges unique to 5G network slicing?
+  answer: Slices share physical infrastructure, enabling cross-slice resource exhaustion
+    attacks where a UE flooding one slice can degrade another if shared NFs like AMF
+    are not slice-aware rate-limited. Authentication credentials (SUPI, AUSF) are
+    shared across slices, so slice isolation must be enforced at NF and data plane
+    level rather than at the identity level. Misconfigured NSSAI mapping could allow
+    a low-security IoT slice subscriber to access a high-security URLLC slice's NFs.
+    The NRF's slice-specific deployment must prevent NF producers in one slice from
+    being discoverable by consumers in another.
+  spec: TS 33.501 §9, TS 23.501 §5.15.6
+  simulator_trigger: network-slicing command with cross_slice_attack=true — simulator
+    verifies AMF rate-limiting and NRF slice isolation
+  interview_context: Architect-level question testing ability to reason about security
+    invariants across slice boundaries
+- id: q152
+  domain: 5g
+  subdomain: session
+  tags:
+  - suci
+  - supi
+  - 5g-auth
+  - ecies
+  - privacy
+  - udm
+  level: engineer
+  question: What is SUPI, and why was SUCI introduced in 5G?
+  answer: SUPI (Subscription Permanent Identifier) is the 5G successor to 4G IMSI
+    — a permanent, globally unique subscriber identifier stored in the USIM and used
+    internally by the 5GC, never transmitted over the air. 5G introduced SUCI (Subscription
+    Concealed Identifier) as the ECIES-encrypted form of the MSIN component of SUPI,
+    so any over-the-air Registration Request reveals only an ephemeral ciphertext
+    rather than the real identity. This directly eliminates the IMSI-catcher (Stingray)
+    attack vector that plagued 2G–4G networks. Only the SIDF function within UDM holds
+    the Home Network private key and can decrypt SUCI back to SUPI.
+  spec: TS 23.003 §2.10.1, TS 33.501 §5.2.5 and §6.12
+  simulator_trigger: REG command step 1 — SUCI sent by gNB to AMF in Initial UE Message
+  interview_context: Tests understanding of subscriber privacy — a key 5G security
+    improvement over 4G
+- id: q153
+  domain: 5g
+  subdomain: session
+  tags:
+  - suci
+  - ecies
+  - 5g-auth
+  - udm
+  - key-hierarchy
+  level: senior
+  question: Describe how SUCI is constructed from SUPI using ECIES. What are the cryptographic
+    steps?
+  answer: The USIM generates a fresh ephemeral ECC key pair for each SUCI, computes
+    a shared secret with the Home Network's provisioned public key (Curve25519 or
+    secp256r1), then derives an encryption key and MAC key from the shared secret
+    using ANSI-X9.63-KDF. The MSIN portion of SUPI is encrypted with AES-128-CTR and
+    a MAC is appended; MCC and MNC remain in cleartext for routing. The resulting
+    SUCI bundles the ephemeral public key, ciphertext, MAC tag, protection scheme
+    ID, and routing indicator. Only SIDF inside UDM, holding the Home Network private
+    key, can invert this ECIES operation and recover the original SUPI.
+  spec: TS 33.501 Annex C.3
+  simulator_trigger: REG command step 1 — SUCI construction in UE USIM module
+  interview_context: Tests cryptographic depth for senior security engineers; commonly
+    asked at Qualcomm, Ericsson, Nokia
+- id: q154
+  domain: 5g
+  subdomain: session
+  tags:
+  - 5g-aka
+  - ausf
+  - udm
+  - 5g-auth
+  - key-hierarchy
+  - suci
+  level: senior
+  question: Describe the complete 5G-AKA procedure. What is HXRES* and why does it
+    exist?
+  answer: After receiving SUCI, SEAF asks AUSF, which asks UDM/ARPF for a 5G HE AV
+    (RAND, AUTN, XRES*, K_AUSF). AUSF computes HXRES* = SHA-256(XRES* || RAND) and
+    sends the 5G SE AV (RAND, AUTN, HXRES*) to SEAF, keeping XRES* hidden from the
+    serving network. When the UE responds with RES*, SEAF computes HRES* = SHA-256(RES*
+    || RAND) and verifies it equals HXRES* — confirming serving-network-level success
+    — then forwards RES* to AUSF for home-network-level verification against XRES*.
+    This two-step confirmation prevents a rogue serving network from falsely claiming
+    authentication success, because the home network always performs final XRES* verification.
+  spec: TS 33.501 §6.1.3
+  simulator_trigger: REG command steps 3–5 — Authentication challenge/response between
+    AMF/AUSF/UDM
+  interview_context: Tests depth of 5G security architecture; the dual-confirmation
+    design is a popular senior interview point
+- id: q155
+  domain: 5g
+  subdomain: session
+  tags:
+  - key-hierarchy
+  - 5g-aka
+  - 5g-auth
+  - amf
+  - ausf
+  level: senior
+  question: Explain the 5G key hierarchy from root key K down to NAS and AS session
+    keys.
+  answer: The root key K in the USIM generates K_AUSF via 5G-AKA (or via EAP-AKA'
+    using CK'/IK'), from which K_SEAF is derived bound to the serving network name,
+    and then K_AMF is derived bound to ngKSI and the ABBA anti-bidding-down parameter.
+    From K_AMF the NAS keys K_NASenc and K_NASint are derived, and K_gNB is derived
+    for the RAN, from which K_RRCenc/K_RRCint and K_UPenc/K_UPint are further derived
+    at the gNB. Each layer of binding (SN-name into K_SEAF, ABBA into K_AMF) prevents
+    a compromised node at one layer from impersonating another network or downgrading
+    to weaker security. All root keys are 256-bit; algorithms use the 128 least-significant
+    bits.
+  spec: TS 33.501 §A.2, §A.7, §A.8
+  simulator_trigger: REG command step 6 — NAS Security Mode Command issued by AMF
+  interview_context: Architect-level question on key derivation; tests ability to
+    trace a security breach impact across the hierarchy
+- id: q156
+  domain: 5g
+  subdomain: session
+  tags:
+  - amf
+  - ngap
+  - n2
+  - 5g-registration
+  - 5g-sba
+  level: engineer
+  question: What is NGAP, and what are the key differences from S1AP?
+  answer: NGAP (TS 38.413) is the control-plane protocol on the N2 interface between
+    gNB and AMF, replacing S1AP (TS 36.413) on the S1-MME interface. Both use SCTP
+    for reliable transport, but NGAP supports both 3GPP and non-3GPP access types
+    (e.g., N3IWF), uses PDU session and QoS flow granularity instead of EPS bearers,
+    and carries NAS-5G rather than NAS-EPS. NGAP paging uses 5G-S-TMSI and supports
+    network slicing metadata (S-NSSAI) in resource setup messages. Handovers in 5G
+    use Xn-AP (direct gNB-to-gNB) analogous to X2AP, with NGAP used only for inter-AMF
+    handover coordination.
+  spec: TS 38.413, TS 36.413
+  simulator_trigger: REG command step 2 — Initial UE Message sent by gNB to AMF over
+    N2/NGAP
+  interview_context: Tests RAN-core interface knowledge; asked to assess transition
+    readiness from 4G to 5G
+- id: q157
+  domain: 5g
+  subdomain: session
+  tags:
+  - amf
+  - ngap
+  - n2
+  - 5g-sba
+  - 5g-registration
+  level: engineer
+  question: What is the NG Setup procedure, and why is it required before any UE-level
+    signaling?
+  answer: NG Setup is the first control-plane exchange between a gNB and an AMF, where
+    the gNB sends NGSetupRequest with its Global RAN Node ID, supported TAC list,
+    and capabilities, and the AMF responds with NGSetupResponse containing AMF Name,
+    GUAMI list, PLMN support, and Allowed NSSAI. Without a successful NG Setup, the
+    gNB does not know which slices or PLMNs the AMF serves, so it cannot route Initial
+    UE Messages to the correct AMF. It is analogous to the S1 Setup procedure in 4G
+    and must succeed before any UE-associated NGAP procedure can proceed. The AMF
+    returns NGSetupFailure with a cause IE if it cannot serve the gNB's reported TACs.
+  spec: TS 38.413 §8.7.1
+  simulator_trigger: Simulator startup — NG Setup handshake between simulated gNB
+    and AMF before first REG command
+  interview_context: Asked to test understanding of RAN-CN initialization and AMF
+    pool selection
+- id: q158
+  domain: 5g
+  subdomain: session
+  tags:
+  - 5g-sba
+  - nf-services
+  - http2
+  - 5g-auth
+  level: senior
+  question: What is the SEPP, and why was it needed in 5G roaming?
+  answer: The Security Edge Protection Proxy (SEPP) sits at the PLMN boundary and
+    secures all inter-PLMN HTTP/2 control-plane signaling in roaming scenarios. In
+    4G, inter-PLMN Diameter messages traversed IPX networks without application-layer
+    security, allowing IPX providers to read or modify all signaling — enabling SS7/Diameter
+    attacks. In 5G the SEPP provides topology hiding (concealing internal NF addresses),
+    message filtering, and cryptographic protection via TLS (N32-c negotiation) or
+    PRINS (N32-f with IPX providers). Every inter-PLMN SBI request passes through
+    both a vSEPP in the visited PLMN and an hSEPP in the home PLMN.
+  spec: TS 33.501 §13, TS 29.573
+  simulator_trigger: ROAM command — vSEPP/hSEPP PRINS message exchange on N32-f between
+    VPLMN and HPLMN
+  interview_context: Tests 5G roaming security design; asked at Nokia/Ericsson for
+    network security architecture roles
+- id: q159
+  domain: 5g
+  subdomain: session
+  tags:
+  - 5g-sba
+  - nf-services
+  - http2
+  - smf
+  - upf
+  level: senior
+  question: What is the difference between Home-Routed and Local Breakout roaming
+    in 5G?
+  answer: In Home-Routed roaming, user-plane traffic flows from the UE through a V-UPF
+    to an N9 GTP-U tunnel ending at the H-UPF, and session management is handled by
+    an H-SMF in the home PLMN — all internet traffic is backhauled to the home PLMN,
+    adding latency. In Local Breakout, the V-SMF manages the PDU session and a V-UPF
+    anchors the session in the visited PLMN, so internet traffic exits locally without
+    backhaul — lower latency but more complex inter-PLMN charging. Home-routed is
+    mandatory for IMS/VoNR because the IMS core is anchored in the HPLMN. Local Breakout
+    is technically defined but operationally rare in early 5G deployments due to charging
+    and policy complexity.
+  spec: TS 23.501 §5.17, GSMA NG.113
+  simulator_trigger: ROAM command — SMF selection shows H-SMF (home-routed) vs V-SMF
+    (LBO) path
+  interview_context: Tests roaming architecture trade-offs; asked for IMS and core
+    engineering roles at major vendors
+- id: q160
+  domain: 5g
+  subdomain: session
+  tags:
+  - 5g-sba
+  - http2
+  level: senior
+  question: What is the difference between N32-c and N32-f sub-interfaces of the SEPP?
+  answer: N32-c is a short-lived control sub-interface used for security capability
+    negotiation between two SEPPs — they exchange supported security mechanisms (TLS-only
+    or PRINS), PLMN IDs, and N32-f forwarding parameters over mutual TLS. N32-f is
+    the long-lived forwarding sub-interface that carries actual NF service HTTP/2
+    messages between the VPLMN and HPLMN. When an IPX provider sits in the path, PRINS
+    (Protocol for N32 Interconnect Security) is used on N32-f, applying JOSE-based
+    application-layer signatures so SEPPs can cryptographically verify which modifications
+    an IPX provider is permitted to make. Without PRINS, end-to-end TLS between SEPPs
+    is used and IPX providers remain transparent.
+  spec: TS 29.573 §4.2 and §6.2, TS 33.501 §13.2
+  simulator_trigger: ROAM command — N32-c handshake log showing PRINS capability negotiation
+  interview_context: Architect-level test on inter-PLMN security protocol details

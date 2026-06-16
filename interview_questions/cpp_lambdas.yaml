@@ -1,0 +1,68 @@
+- id: q332
+  domain: cpp
+  subdomain: lambdas
+  tags:
+  - cpp-templates
+  level: senior
+  question: What is the performance cost of std::function?
+  answer: 'std::function uses type erasure to store any callable with a matching signature.
+    Every call incurs: a null-check, a pointer dereference to find the invoker (similar
+    to a vtable entry), and a virtual-dispatch-like indirect call — preventing inlining.
+    For callables larger than the Small Buffer Optimisation threshold (typically 16-32
+    bytes), std::function also heap-allocates storage, adding allocator overhead.
+    Benchmarks show std::function is ~4-6x slower than a raw function pointer or lambda
+    at -O0. Non-capturing lambdas are implicitly convertible to function pointers
+    with zero type-erasure overhead. In packet-processing hot loops, std::function
+    overhead is unacceptable — use templates or function pointers for dataplane callbacks;
+    std::function is appropriate for control-plane event registration.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — std::function
+    overhead in packet-processing hot loops
+  interview_context: 'Critical knowledge: std::function must be avoided in dataplane
+    hot loops; inappropriate use causes latency spikes in production'
+- id: q333
+  domain: cpp
+  subdomain: lambdas
+  tags:
+  - cpp-templates
+  level: senior
+  question: 'When should you use each callable type: function pointer, lambda, or
+    std::function?'
+  answer: Use function pointers when interfacing with C APIs (qsort, POSIX callbacks),
+    when you need C interoperability, or when the callable has no captured state and
+    you want minimal binary size. Use lambdas (directly, with auto parameter or template)
+    when the callable is used locally, inline, or as an algorithm predicate — lambdas
+    are inlinable and zero-overhead for non-capturing cases. Use std::function when
+    you must store heterogeneous callables in a container (vector<std::function<void()>>),
+    when the callable type cannot be known at compile time (runtime-registered callbacks),
+    or when you need a type-erased owning wrapper. For performance-critical code with
+    known callables, prefer templates (template<typename Callable>) — they maintain
+    the concrete type, allow inlining, and have zero type-erasure overhead.
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — callable
+    type selection in protocol handler registration
+  interview_context: 'Dataplane: templates or raw pointers. Control plane and OAM:
+    std::function is fine as call frequency is low'
+- id: q334
+  domain: cpp
+  subdomain: lambdas
+  tags:
+  - cpp-templates
+  level: engineer
+  question: 'Explain lambda capture: by value vs by reference, and mutable lambdas.'
+  answer: 'Capturing by value ([x]) copies the variable at lambda creation; the lambda
+    owns its copy and the original is unaffected. Capturing by reference ([&x]) stores
+    a reference to the original; the lambda can modify it but introduces a lifetime
+    dependency — if the lambda outlives the scope of the captured variable, the reference
+    dangling is undefined behaviour. By default, value-captured variables are const
+    inside the lambda body. Adding mutable makes operator() non-const, allowing modification
+    of value-captured copies (but not the original). C++14 init-captures ([x = std::move(obj)])
+    allow moving a non-copyable object into a lambda. Best practice: prefer value
+    capture for lambdas that escape their defining scope (returned, stored in std::function,
+    passed to async tasks).'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — lambda capture
+    in async network callbacks
+  interview_context: Async network callbacks that outlive their stack frame must capture
+    by value or via shared_ptr to avoid dangling references — common crash source
+    in telecom event loop code

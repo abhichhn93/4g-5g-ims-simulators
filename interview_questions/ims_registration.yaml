@@ -1,0 +1,236 @@
+- id: q096
+  domain: ims
+  subdomain: registration
+  tags:
+  - ims-register
+  - sip-register
+  - cx
+  - p-cscf
+  - s-cscf
+  - i-cscf
+  - hss
+  - diameter
+  level: senior
+  question: Walk through the complete IMS SIP registration procedure step by step,
+    naming all interfaces.
+  answer: The UE sends an unauthenticated SIP REGISTER to P-CSCF; P-CSCF forwards
+    to I-CSCF, which queries HSS via Cx UAR/UAA to locate or select an S-CSCF. The
+    S-CSCF fetches IMS-AKA auth vectors from HSS via Cx MAR/MAA and challenges the
+    UE with 401 Unauthorized (RAND, AUTN). The UE responds with a second REGISTER
+    carrying credentials (RES); the S-CSCF verifies RES, registers the S-CSCF assignment
+    with HSS via SAR/SAA (receiving iFC and user profile), and returns 200 OK. The
+    S-CSCF then invokes iFC to register with Application Servers (e.g., MTAS) for
+    supplementary services.
+  spec: TS 23.228, TS 24.229, TS 29.228
+  simulator_trigger: REGISTER command — SIP REGISTER from UE through P-CSCF to S-CSCF
+    with Cx Diameter exchanges to HSS
+  interview_context: End-to-end IMS registration knowledge expected at senior level
+    in any IMS/VoLTE role
+- id: q097
+  domain: ims
+  subdomain: registration
+  tags:
+  - ims-register
+  - p-cscf
+  - s-cscf
+  level: engineer
+  question: What is the difference between IMPI and IMPU in IMS?
+  answer: IMPI (IMS Private Identity) is the permanent, private identity of the IMS
+    subscriber formatted as a NAI (user@domain) — used for authentication in the SIP
+    REGISTER Authorization header and never visible to other users. IMPU (IMS Public
+    Identity) is the user-visible identity used for communications — a SIP URI (sip:+1234@operator.com)
+    or TEL URI (tel:+1234). One IMPI can have multiple IMPUs; IMPUs in the same implicit
+    registration set are all registered simultaneously when any one is registered.
+  spec: TS 23.003, TS 23.228
+  simulator_trigger: REGISTER command — IMPI in SIP Authorization header, IMPU in
+    From/To headers in sip_register_handler.cpp
+  interview_context: Tests IMS identity model fundamental to IMS registration and
+    service routing
+- id: q098
+  domain: ims
+  subdomain: registration
+  tags:
+  - ims-register
+  - s-cscf
+  - mtas
+  - cx
+  - hss
+  level: senior
+  question: What is an Initial Filter Criteria (iFC) and when is it triggered in IMS?
+  answer: An iFC is a trigger condition stored in the S-CSCF (received from HSS in
+    the user profile via SAA) that determines when a SIP message should be forwarded
+    to an Application Server. Each iFC has a Priority, Trigger Point (conditions on
+    SIP method, headers, URI), AS URI, and Default Handling (session-continued or
+    terminated if AS unreachable). The S-CSCF evaluates iFC for every SIP REGISTER,
+    INVITE, or SUBSCRIBE passing through it, forking to the AS if conditions match
+    via the ISC interface.
+  spec: TS 23.218, TS 24.229
+  simulator_trigger: REGISTER command — S-CSCF evaluates iFC from user profile, triggers
+    MTAS for MMTel service registration
+  interview_context: Tests service routing mechanism that connects IMS core to Application
+    Servers for supplementary services
+- id: q099
+  domain: ims
+  subdomain: registration
+  tags:
+  - ims-register
+  - p-cscf
+  - s-cscf
+  - ims-epc
+  level: engineer
+  question: How does P-CSCF discovery work in LTE/VoLTE?
+  answer: 'P-CSCF discovery in LTE occurs during IMS PDN connection establishment
+    via PCO (Protocol Configuration Options) in the PDN Connectivity Accept NAS message:
+    the PGW inserts P-CSCF IPv4/IPv6 addresses into the PCO IE, provisioned per IMS
+    APN. GSMA IR.92 mandates PCO-based discovery as the primary method; DNS-based
+    discovery (NAPTR/SRV lookup) is a fallback. The MME forwards PCO transparently
+    between UE and PGW; the UE stores the P-CSCF address for all subsequent SIP signaling.'
+  spec: TS 23.228 §5.1.1.1, GSMA IR.92
+  simulator_trigger: 4G ATTACH command — PGW inserts P-CSCF address in PCO in the
+    IMS APN Create Session Response
+  interview_context: Tests the EPC-IMS boundary knowledge of how the UE first learns
+    where to send SIP signaling
+- id: q100
+  domain: ims
+  subdomain: registration
+  tags:
+  - volte-call
+  - sip-invite
+  - sdp
+  - rx-interface
+  - qci1
+  - p-cscf
+  - s-cscf
+  - ims-epc
+  - volte-bearer
+  level: senior
+  question: Walk through the VoLTE Mobile Originated call setup procedure from SIP
+    to QCI=1 bearer establishment.
+  answer: UE-A sends SIP INVITE (with SDP offer) to P-CSCF-A, which forwards through
+    S-CSCF-A (invoking MTAS for call features) to the terminating side; UE-B responds
+    with 183 Session Progress containing an SDP answer. The P-CSCF on the terminating
+    side sends Rx AAR (with media parameters from SDP) to PCRF, which creates a QCI=1
+    PCC rule and pushes it to PGW via Gx RAR, triggering GTPv2 Create Bearer Request
+    through SGW → MME → eNB → UE for dedicated bearer establishment. QoS preconditions
+    are confirmed, UE-B answers with 200 OK, and RTP voice flows over the QCI=1 GTP-U
+    tunnel; a SIP BYE releases both the session and the QCI=1 bearer.
+  spec: TS 23.228, TS 24.229, TS 29.214, TS 23.203
+  simulator_trigger: CALL command — end-to-end VoLTE flow from SIP INVITE through
+    Rx/Gx to GTPv2 dedicated bearer
+  interview_context: End-to-end VoLTE architecture question combining SIP, IMS, PCRF,
+    and EPC bearer knowledge
+- id: q101
+  domain: ims
+  subdomain: registration
+  tags:
+  - volte-call
+  - sdp
+  - sip-invite
+  level: engineer
+  question: What is the SDP offer/answer model and what is its role in VoLTE codec
+    negotiation?
+  answer: SDP (Session Description Protocol, RFC 4566) describes media sessions. In
+    VoLTE, the SIP INVITE carries an SDP offer from the originating UE listing supported
+    codecs (payload types), media IP address, UDP port for RTP, and bandwidth. The
+    terminating UE responds with an SDP answer in the 183/200 OK, selecting one codec
+    and providing its own IP/port for the reverse RTP stream. Key parameters include
+    a=rtpmap (codec/rate), a=fmtp (codec parameters), a=ptime (packetization time,
+    e.g., 20ms for AMR-WB), and a=curr:qos / a=des:qos for QoS preconditions.
+  spec: TS 24.229, RFC 4566, RFC 3264, GSMA IR.92
+  simulator_trigger: CALL command — SDP offer/answer exchange in sip_sdp_handler.cpp
+    driving codec and media IP negotiation
+  interview_context: Tests SDP offer/answer understanding needed for VoLTE codec selection
+    and bearer TFT configuration
+- id: q102
+  domain: ims
+  subdomain: registration
+  tags:
+  - rx-interface
+  - qci1
+  - volte-bearer
+  - ims-epc
+  - p-cscf
+  level: senior
+  question: What is the role of the Rx interface in VoLTE call setup?
+  answer: The Rx interface connects the P-CSCF (acting as an AF) to the PCRF, using
+    Diameter (App-ID 16777236). After receiving the SDP answer, the P-CSCF extracts
+    media parameters and sends an AA-Request (AAR) to the PCRF with service information
+    (media type, bandwidth, flow descriptions). The PCRF creates a PCC rule for a
+    QCI=1 GBR dedicated bearer and pushes it to the PGW via Gx RAR. The Rx↔Gx interaction
+    is the bridge between IMS session management and EPC bearer management — ensuring
+    a voice bearer is only created when an active IMS session justifies it.
+  spec: TS 29.214, TS 23.203
+  simulator_trigger: CALL command — Rx AAR from P-CSCF to PCRF in rx_client.cpp after
+    SDP answer received
+  interview_context: Tests understanding of the Rx/Gx bridge — the most commonly misunderstood
+    interaction in VoLTE
+- id: q103
+  domain: ims
+  subdomain: registration
+  tags:
+  - volte-call
+  - sip
+  - sip-invite
+  level: senior
+  question: What are early and late ringing modes in VoLTE, and what is a ghost ring?
+  answer: In early ringing mode, 180 Ringing is sent before the QCI=1 bearer is established
+    on the originating side; if bearer setup subsequently fails, the phone rang but
+    the call never connected — this is a ghost ring. In late ringing (precondition
+    mode per RFC 3312), 180 Ringing is only sent after QCI=1 bearers on both sides
+    are confirmed established. Late ringing is more reliable but has slightly higher
+    call setup time; GSMA IR.92 recommends precondition mode with a target of ≤4 seconds
+    call setup time.
+  spec: TS 24.229, RFC 3312, GSMA IR.92
+  simulator_trigger: CALL command — simulator configures early_ringing=true to test
+    ghost ring detection in call_setup_handler.cpp
+  interview_context: Tests VoLTE call setup quality understanding relevant to IMS
+    troubleshooting and IR.92 compliance
+- id: q104
+  domain: ims
+  subdomain: registration
+  tags:
+  - ims-epc
+  - rx-interface
+  - qci1
+  - volte-bearer
+  - p-cscf
+  - gx
+  - pcrf
+  level: senior
+  question: How does IMS interact with EPC during a VoLTE call? Trace the full control-plane
+    path.
+  answer: IMS and EPC interact primarily through the P-CSCF → PCRF → PGW chain. EPC
+    provides the QCI=5 default bearer for SIP signaling (no EPC involvement beyond
+    IP transport for the registration step). During call setup, the P-CSCF sends Rx
+    AAR with media flow info to the PCRF, which creates a PCC rule for QCI=1 GBR and
+    sends Gx RAR to the PGW, which then sends a GTPv2 Create Bearer Request chain
+    through SGW → MME → eNB → UE. On call teardown, SIP BYE triggers Rx STR to PCRF,
+    which sends Gx RAR to PGW removing the rule, and the PGW initiates Delete Bearer
+    Request. No SIP messages pass through MME, SGW, or PGW — those nodes only handle
+    the GTP tunnel per policy.
+  spec: TS 23.203, TS 29.214, TS 29.212, TS 23.401
+  simulator_trigger: CALL command — full cross-system trace from CALL command through
+    SIP, Rx, Gx, GTPv2 to bearer
+  interview_context: Architect-level question requiring ability to trace a VoLTE call
+    across both IMS and EPC simultaneously
+- id: q105
+  domain: ims
+  subdomain: registration
+  tags:
+  - p-cscf
+  - ims-register
+  - rx-interface
+  level: engineer
+  question: What is the role of the P-CSCF in IMS?
+  answer: The P-CSCF (Proxy-CSCF) is the UE's first IMS contact point — all SIP signaling
+    passes through it. Functions include SIP proxy (forwarding REGISTER and INVITE),
+    IPSec/TLS termination for the UE security association, acting as Rx/AF (extracting
+    SDP media parameters and signaling PCRF for bearer authorization), emergency session
+    detection, network-initiated session release if UE loses connectivity, and optionally
+    SigComp message compression. In roaming scenarios, the P-CSCF is located in the
+    visited network.
+  spec: TS 23.228 §4.6.1, TS 29.214
+  simulator_trigger: REGISTER command and CALL command — all SIP from UE simulator
+    passes through p_cscf_node.cpp
+  interview_context: Core IMS node role knowledge tested at mid-level in any IMS/VoLTE
+    engineering position

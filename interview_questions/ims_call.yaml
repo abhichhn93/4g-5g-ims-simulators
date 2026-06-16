@@ -1,0 +1,358 @@
+- id: q100
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - volte-call
+  - sip-invite
+  - sdp
+  - rx-interface
+  - qci1
+  - p-cscf
+  - s-cscf
+  - ims-epc
+  - volte-bearer
+  level: senior
+  question: Walk through the VoLTE Mobile Originated call setup procedure from SIP
+    to QCI=1 bearer establishment.
+  answer: UE-A sends SIP INVITE (with SDP offer) to P-CSCF-A, which forwards through
+    S-CSCF-A (invoking MTAS for call features) to the terminating side; UE-B responds
+    with 183 Session Progress containing an SDP answer. The P-CSCF on the terminating
+    side sends Rx AAR (with media parameters from SDP) to PCRF, which creates a QCI=1
+    PCC rule and pushes it to PGW via Gx RAR, triggering GTPv2 Create Bearer Request
+    through SGW → MME → eNB → UE for dedicated bearer establishment. QoS preconditions
+    are confirmed, UE-B answers with 200 OK, and RTP voice flows over the QCI=1 GTP-U
+    tunnel; a SIP BYE releases both the session and the QCI=1 bearer.
+  spec: TS 23.228, TS 24.229, TS 29.214, TS 23.203
+  simulator_trigger: CALL command — end-to-end VoLTE flow from SIP INVITE through
+    Rx/Gx to GTPv2 dedicated bearer
+  interview_context: End-to-end VoLTE architecture question combining SIP, IMS, PCRF,
+    and EPC bearer knowledge
+- id: q101
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - volte-call
+  - sdp
+  - sip-invite
+  level: engineer
+  question: What is the SDP offer/answer model and what is its role in VoLTE codec
+    negotiation?
+  answer: SDP (Session Description Protocol, RFC 4566) describes media sessions. In
+    VoLTE, the SIP INVITE carries an SDP offer from the originating UE listing supported
+    codecs (payload types), media IP address, UDP port for RTP, and bandwidth. The
+    terminating UE responds with an SDP answer in the 183/200 OK, selecting one codec
+    and providing its own IP/port for the reverse RTP stream. Key parameters include
+    a=rtpmap (codec/rate), a=fmtp (codec parameters), a=ptime (packetization time,
+    e.g., 20ms for AMR-WB), and a=curr:qos / a=des:qos for QoS preconditions.
+  spec: TS 24.229, RFC 4566, RFC 3264, GSMA IR.92
+  simulator_trigger: CALL command — SDP offer/answer exchange in sip_sdp_handler.cpp
+    driving codec and media IP negotiation
+  interview_context: Tests SDP offer/answer understanding needed for VoLTE codec selection
+    and bearer TFT configuration
+- id: q102
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - rx-interface
+  - qci1
+  - volte-bearer
+  - ims-epc
+  - p-cscf
+  level: senior
+  question: What is the role of the Rx interface in VoLTE call setup?
+  answer: The Rx interface connects the P-CSCF (acting as an AF) to the PCRF, using
+    Diameter (App-ID 16777236). After receiving the SDP answer, the P-CSCF extracts
+    media parameters and sends an AA-Request (AAR) to the PCRF with service information
+    (media type, bandwidth, flow descriptions). The PCRF creates a PCC rule for a
+    QCI=1 GBR dedicated bearer and pushes it to the PGW via Gx RAR. The Rx↔Gx interaction
+    is the bridge between IMS session management and EPC bearer management — ensuring
+    a voice bearer is only created when an active IMS session justifies it.
+  spec: TS 29.214, TS 23.203
+  simulator_trigger: CALL command — Rx AAR from P-CSCF to PCRF in rx_client.cpp after
+    SDP answer received
+  interview_context: Tests understanding of the Rx/Gx bridge — the most commonly misunderstood
+    interaction in VoLTE
+- id: q103
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - volte-call
+  - sip
+  - sip-invite
+  level: senior
+  question: What are early and late ringing modes in VoLTE, and what is a ghost ring?
+  answer: In early ringing mode, 180 Ringing is sent before the QCI=1 bearer is established
+    on the originating side; if bearer setup subsequently fails, the phone rang but
+    the call never connected — this is a ghost ring. In late ringing (precondition
+    mode per RFC 3312), 180 Ringing is only sent after QCI=1 bearers on both sides
+    are confirmed established. Late ringing is more reliable but has slightly higher
+    call setup time; GSMA IR.92 recommends precondition mode with a target of ≤4 seconds
+    call setup time.
+  spec: TS 24.229, RFC 3312, GSMA IR.92
+  simulator_trigger: CALL command — simulator configures early_ringing=true to test
+    ghost ring detection in call_setup_handler.cpp
+  interview_context: Tests VoLTE call setup quality understanding relevant to IMS
+    troubleshooting and IR.92 compliance
+- id: q104
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - ims-epc
+  - rx-interface
+  - qci1
+  - volte-bearer
+  - p-cscf
+  - gx
+  - pcrf
+  level: senior
+  question: How does IMS interact with EPC during a VoLTE call? Trace the full control-plane
+    path.
+  answer: IMS and EPC interact primarily through the P-CSCF → PCRF → PGW chain. EPC
+    provides the QCI=5 default bearer for SIP signaling (no EPC involvement beyond
+    IP transport for the registration step). During call setup, the P-CSCF sends Rx
+    AAR with media flow info to the PCRF, which creates a PCC rule for QCI=1 GBR and
+    sends Gx RAR to the PGW, which then sends a GTPv2 Create Bearer Request chain
+    through SGW → MME → eNB → UE. On call teardown, SIP BYE triggers Rx STR to PCRF,
+    which sends Gx RAR to PGW removing the rule, and the PGW initiates Delete Bearer
+    Request. No SIP messages pass through MME, SGW, or PGW — those nodes only handle
+    the GTP tunnel per policy.
+  spec: TS 23.203, TS 29.214, TS 29.212, TS 23.401
+  simulator_trigger: CALL command — full cross-system trace from CALL command through
+    SIP, Rx, Gx, GTPv2 to bearer
+  interview_context: Architect-level question requiring ability to trace a VoLTE call
+    across both IMS and EPC simultaneously
+- id: q105
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - p-cscf
+  - ims-register
+  - rx-interface
+  level: engineer
+  question: What is the role of the P-CSCF in IMS?
+  answer: The P-CSCF (Proxy-CSCF) is the UE's first IMS contact point — all SIP signaling
+    passes through it. Functions include SIP proxy (forwarding REGISTER and INVITE),
+    IPSec/TLS termination for the UE security association, acting as Rx/AF (extracting
+    SDP media parameters and signaling PCRF for bearer authorization), emergency session
+    detection, network-initiated session release if UE loses connectivity, and optionally
+    SigComp message compression. In roaming scenarios, the P-CSCF is located in the
+    visited network.
+  spec: TS 23.228 §4.6.1, TS 29.214
+  simulator_trigger: REGISTER command and CALL command — all SIP from UE simulator
+    passes through p_cscf_node.cpp
+  interview_context: Core IMS node role knowledge tested at mid-level in any IMS/VoLTE
+    engineering position
+- id: q106
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - i-cscf
+  - ims-register
+  - cx
+  - s-cscf
+  level: engineer
+  question: What is the role of the I-CSCF in IMS?
+  answer: The I-CSCF (Interrogating-CSCF) is the entry point for SIP requests into
+    an operator's home network. For new registrations, it queries the HSS via Cx UAR/UAA
+    to determine which S-CSCF to assign; for incoming calls, it queries HSS via Cx
+    LIR/LIA to find the currently assigned S-CSCF for the destination subscriber.
+    The I-CSCF can load-balance across multiple capable S-CSCFs based on HSS-returned
+    capabilities, and its IP address is published in DNS as the domain's public SIP
+    entry point.
+  spec: TS 23.228 §4.6.2
+  simulator_trigger: REGISTER command — I-CSCF UAR/UAA exchange with HSS in i_cscf_node.cpp
+    for S-CSCF selection
+  interview_context: Tests understanding of the I-CSCF entry-point role often overlooked
+    when focusing only on S-CSCF
+- id: q107
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - s-cscf
+  - ims-register
+  - cx
+  - mtas
+  - hss
+  level: engineer
+  question: What is the role of the S-CSCF in IMS?
+  answer: The S-CSCF (Serving-CSCF) is the core service node — SIP registrar and session
+    manager for registered users. Functions include registrar (accepting SIP REGISTER,
+    maintaining IMPU-to-contact binding, notifying HSS via SAR), session control (all
+    user SIP sessions pass through it with iFC-based AS invocation), routing (forwarding
+    INVITE to terminating network or BGCF for PSTN), and charging (Rf/Ro interfaces).
+    If the S-CSCF fails, the UE must re-register since S-CSCF holds the UE state.
+  spec: TS 23.228 §4.6.3
+  simulator_trigger: REGISTER command and CALL command — s_cscf_node.cpp is the central
+    IMS session manager
+  interview_context: Core S-CSCF role knowledge expected at mid-level in all IMS/VoLTE
+    engineering roles
+- id: q108
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - mtas
+  - s-cscf
+  - cx
+  level: senior
+  question: What is the MTAS (or TAS) and how does it relate to the S-CSCF?
+  answer: The MTAS (Multimedia Telephony Application Server) provides MMTel supplementary
+    services (call barring, call waiting, call forwarding, conferencing, CLID) via
+    the ISC (IMS Service Control) interface with the S-CSCF. When the S-CSCF evaluates
+    iFC and finds a matching trigger, it forks the SIP message to the MTAS's URI;
+    the MTAS may redirect the call (e.g., voicemail), add features, or insert itself
+    in the SIP dialog. The MTAS reads/writes user service data from HSS via the Sh
+    interface (Diameter UDR/UDA).
+  spec: TS 23.228, TS 24.604, TS 29.329
+  simulator_trigger: CALL command — S-CSCF iFC evaluation triggers MTAS for MMTel
+    call processing in mtas_node.cpp
+  interview_context: Tests MTAS/iFC/Sh understanding needed for supplementary service
+    development and debugging
+- id: q109
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - mrfc
+  - s-cscf
+  - conferencing
+  level: senior
+  question: What is the MRFC/MRFP and when are they used in IMS?
+  answer: 'The MRFC (Multimedia Resource Function Controller) is a SIP UA that receives
+    INVITE requests from S-CSCF or AS via the Mr interface (SIP) and controls the
+    MRFP (Multimedia Resource Function Processor) via the Mp interface (H.248/MEGACO).
+    The MRFP performs actual media handling: tone generation, media mixing for conferences,
+    transcoding, and DTMF detection. Key use cases are 3-party conference (MRFP mixes
+    media streams), IVR/announcements, and transcoding between incompatible codecs.'
+  spec: TS 23.228 §4.7, TS 23.333
+  simulator_trigger: CALL command with conferencing=true — MRFC invoked by MTAS for
+    conference bridge setup in mrfc_node.cpp
+  interview_context: Tests MRFC/MRFP architecture knowledge required for 3-party conferencing
+    implementation
+- id: q110
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - call-barring
+  - mtas
+  - s-cscf
+  - sip
+  level: senior
+  question: How does call barring work in IMS/VoLTE?
+  answer: Call barring in IMS is implemented by the MTAS as a MMTel service (TS 24.611).
+    Barring programs (OCB, BAIC, etc.) are stored in the HSS and downloaded to the
+    MTAS via the Sh interface. When a call is initiated, the S-CSCF routes the INVITE
+    to the MTAS via iFC; the MTAS checks caller/callee barring programs against call
+    direction and type. If barred, the MTAS rejects the INVITE with 403 Forbidden;
+    users can manage barring via the Ut interface (XCAP over HTTP) modifying XML documents
+    in an XDMS.
+  spec: TS 24.611, TS 24.623
+  simulator_trigger: CALL command with barring test — MTAS returns 403 Forbidden when
+    barring subscription active
+  interview_context: Tests supplementary service implementation knowledge across IMS,
+    MTAS, HSS, and Sh interface
+- id: q111
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - call-waiting
+  - mtas
+  - sip
+  level: senior
+  question: How is call waiting implemented in IMS/VoLTE?
+  answer: When a UE is in an active call, an incoming INVITE is routed to the MTAS
+    via iFC; the MTAS checks the called subscriber's call waiting status from HSS
+    via Sh. If active, the MTAS forwards the INVITE to the UE, which plays a waiting
+    tone locally. The UE may accept the new call (200 OK, holding the active call
+    via SIP re-INVITE with a=sendonly) or reject it (486 Busy Here); if call waiting
+    is inactive, the MTAS returns 486 Busy Here for the waiting call.
+  spec: TS 24.615
+  simulator_trigger: CALL command to busy UE — MTAS CW logic in mtas_cw_handler.cpp
+    determines hold vs reject
+  interview_context: Tests supplementary service SIP signaling flow involving hold/resume
+    and MTAS state management
+- id: q112
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - conferencing
+  - mrfc
+  - mtas
+  - sip
+  level: senior
+  question: How is 3-party conferencing established in IMS/VoLTE?
+  answer: Party-A calls Party-B normally, then calls Party-C in a new SIP dialog;
+    Party-A's MTAS detects the conference request and involves the MRFC by sending
+    a SIP INVITE to it. The MRFC instructs the MRFP (via H.248) to create a mixing
+    conference bridge; both Party-B and Party-C's media streams are directed to the
+    MRFP, which mixes them and sends the combined stream back to each party. SIP signaling
+    follows the conference factory URI model (RFC 4579) triggered via MTAS based on
+    iFC.
+  spec: TS 24.605, TS 23.228, RFC 4579
+  simulator_trigger: CALL command with add_party — MTAS invokes MRFC conference bridge
+    in mrfc_conference_handler.cpp
+  interview_context: Tests 3-party conference architecture combining MTAS, MRFC, MRFP,
+    and SIP dialog forking
+- id: q113
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - volte-call
+  - qci1
+  - volte-bearer
+  - sip
+  level: senior
+  question: What is GSMA IR.92 and what are its key mandatory requirements for VoLTE?
+  answer: 'GSMA IR.92 (IMS Profile for Voice and SMS) defines the minimum mandatory
+    feature set for interoperable VoLTE deployment. Key requirements: QCI=5 default
+    bearer for IMS signaling, QCI=1 GBR dedicated bearer for voice, QCI=9 for internet
+    data; AMR-WB (HD Voice) and AMR-NB codecs; SIP extensions PRACK (100rel), preconditions
+    (RFC 3312), UPDATE, and session timers; PCO-based P-CSCF discovery; SMS over IMS
+    (IP-SM-GW); SRVCC; and 20ms packetization time for AMR-WB. Late ringing (precondition
+    mode) is recommended with ≤4 second call setup target.'
+  spec: GSMA IR.92 v20.0 (2024), TS 26.114
+  simulator_trigger: CALL command — simulator validates IR.92 compliance including
+    codec negotiation, PRACK, and preconditions
+  interview_context: Tests IR.92 profile knowledge required for VoLTE interoperability
+    and commercial deployment roles
+- id: q114
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - volte-call
+  - sdp
+  level: engineer
+  question: What codecs are mandatory in IR.92 and why is AMR-WB significant for VoLTE?
+  answer: IR.92 mandates AMR-WB (Adaptive Multi-Rate Wideband, G.722.2) as the primary
+    codec for VoLTE and AMR-NB as fallback for 2G/3G interoperability. AMR-WB operates
+    at 16kHz sampling rate delivering HD Voice quality; it supports multiple bitrate
+    modes (6.60–23.85kbps) with 12.65kbps most commonly deployed, and uses DTX with
+    Comfort Noise Generation during silence. Later IR.92 versions also mandate EVS
+    (Enhanced Voice Services) supporting 32kHz super-wideband and 48kHz fullband.
+    Codec negotiation occurs in SDP offer/answer during call setup.
+  spec: TS 26.114, TS 26.445, GSMA IR.92
+  simulator_trigger: CALL command — SDP offer from UE simulator lists AMR-WB/EVS codecs;
+    answer selects AMR-WB 12.65kbps
+  interview_context: Tests codec knowledge relevant to VoLTE audio quality analysis
+    and IR.92 certification
+- id: q115
+  domain: ims
+  subdomain: call_setup
+  tags:
+  - sip
+  - sip-invite
+  - sip-register
+  - prack
+  level: engineer
+  question: 'What is the purpose of each key SIP method in VoLTE: INVITE, REGISTER,
+    BYE, CANCEL, OPTIONS, PRACK, UPDATE?'
+  answer: REGISTER registers the UE's IMPU-to-IP binding and initiates IMS-AKA; INVITE
+    initiates a call with an SDP offer and can re-INVITE for hold or codec change;
+    BYE terminates an established call and triggers QCI=1 bearer teardown; CANCEL
+    cancels a pending unanswered INVITE. OPTIONS queries SIP entity capabilities and
+    is used for P-CSCF keep-alive in LTE; PRACK (provisional ACK per 100rel) acknowledges
+    1xx provisional responses like 183 Session Progress — mandatory per IR.92; UPDATE
+    modifies session parameters mid-call (e.g., precondition status) without changing
+    dialog state.
+  spec: RFC 3261, RFC 3262, RFC 3311, TS 24.229
+  simulator_trigger: CALL command — INVITE/PRACK/UPDATE/BYE sequence visible in sip_call_flow_tracer.cpp
+  interview_context: Tests comprehensive SIP method knowledge across the full VoLTE
+    call lifecycle

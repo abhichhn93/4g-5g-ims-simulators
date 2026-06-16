@@ -1,0 +1,678 @@
+- id: q171
+  domain: linux
+  subdomain: sockets
+  tags:
+  - linux
+  - socket
+  - tcp
+  level: engineer
+  question: Describe the full lifecycle of a TCP server socket from socket() to accept().
+  answer: A TCP server calls socket(AF_INET, SOCK_STREAM, 0) to create an endpoint,
+    then bind() to associate it with an IP/port, listen(fd, backlog) to mark it passive
+    and set the connection queue length, and accept() to dequeue completed connections
+    from the kernel's accept queue, returning a new fd per client. The original listening
+    socket remains open to accept further connections. accept() blocks until a client
+    completes the three-way handshake unless the socket is set non-blocking.
+  spec: null
+  simulator_trigger: socket_wrapper.h — TCP server socket creation in simulator node
+    startup
+  interview_context: Tests socket lifecycle knowledge required for every telecom server
+    implementation
+- id: q172
+  domain: linux
+  subdomain: sockets
+  tags:
+  - linux
+  - socket
+  - tcp
+  level: engineer
+  question: What does SO_REUSEADDR do and when do you need it?
+  answer: SO_REUSEADDR allows a socket to bind to a local address/port that is in
+    the TIME_WAIT state from a previous connection. Without it, restarting a server
+    immediately after shutdown typically fails with EADDRINUSE because the kernel
+    holds the port in TIME_WAIT for 2×MSL (typically 60–120 s). Set it with setsockopt(fd,
+    SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) before calling bind(). On Linux it
+    also allows multiple sockets to bind to the same port when combined with SO_REUSEPORT.
+  spec: null
+  simulator_trigger: socket_wrapper.h — SO_REUSEADDR set before bind in server nodes
+  interview_context: Telecom NFs undergo rolling restarts and must rebind well-known
+    ports instantly
+- id: q173
+  domain: linux
+  subdomain: sockets
+  tags:
+  - linux
+  - socket
+  - tcp
+  level: senior
+  question: What is SO_KEEPALIVE and what are its limitations for telecom use?
+  answer: SO_KEEPALIVE enables the kernel to periodically send TCP keepalive probes
+    on idle connections. If the peer fails to respond after tcp_keepalive_probes attempts
+    (default 9), the connection is dropped. The system-wide defaults (tcp_keepalive_time=7200s,
+    tcp_keepalive_intvl=75s) are far too slow for telecom use; individual sockets
+    can be tuned with TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_KEEPCNT via setsockopt(). SCTP
+    provides its own heartbeat mechanism, making SO_KEEPALIVE less relevant on SCTP
+    sockets.
+  spec: null
+  simulator_trigger: socket_wrapper.h — keepalive settings in SCTP/TCP connection
+    setup
+  interview_context: LTE/5G signaling peers must detect dead connections quickly to
+    trigger path failover
+- id: q174
+  domain: linux
+  subdomain: sockets
+  tags:
+  - linux
+  - socket
+  - tcp
+  - epoll
+  level: engineer
+  question: What is the difference between blocking and non-blocking sockets, and
+    how do you set a socket non-blocking?
+  answer: On a blocking socket, read(), write(), connect(), and accept() all block
+    the calling thread until data is available or the operation completes. On a non-blocking
+    socket, these calls return immediately with -1 and errno=EAGAIN/EWOULDBLOCK when
+    they would block. Set non-blocking via fcntl(fd, F_SETFL, O_NONBLOCK) or pass
+    SOCK_NONBLOCK to socket(). Non-blocking I/O is essential for single-threaded event
+    loops and is required when using epoll in edge-triggered mode.
+  spec: null
+  simulator_trigger: socket_wrapper.h — O_NONBLOCK flag in all simulator socket creation
+  interview_context: High-performance telecom daemons use reactor patterns with non-blocking
+    sockets
+- id: q175
+  domain: linux
+  subdomain: sockets
+  tags:
+  - linux
+  - socket
+  - tcp
+  level: senior
+  question: What happens if send() returns fewer bytes than requested on a non-blocking
+    socket?
+  answer: A partial send() is normal on non-blocking sockets when the kernel send
+    buffer is partially full. The return value indicates how many bytes were actually
+    queued. The application must buffer the remainder and retry the send when the
+    socket becomes writable again (signaled by epoll/poll with POLLOUT). This pattern
+    is critical to implement correctly; failing to handle partial writes is a common
+    source of data corruption in telecom messaging stacks.
+  spec: null
+  simulator_trigger: socket_wrapper.h — partial write handling in message send loop
+  interview_context: Diameter and S1AP messages can be hundreds of bytes; high-load
+    scenarios saturate socket buffers
+- id: q176
+  domain: linux
+  subdomain: epoll
+  tags:
+  - linux
+  - epoll
+  level: senior
+  question: Compare select, poll, and epoll. When would you choose each?
+  answer: All three allow monitoring multiple file descriptors for I/O readiness.
+    select uses fixed-size bitmasks (max 1024 fds), requires rebuilding the set every
+    call, and scans all fds O(n). poll removes the 1024-fd limit using a pollfd array
+    but still copies the entire array to the kernel on each call and returns O(n)
+    results. epoll (Linux-only) maintains fd interest in the kernel via a red-black
+    tree; epoll_wait returns only ready events in O(ready) time with a single registration
+    copy. Use select only for portability; use poll for fewer than ~1000 fds; use
+    epoll for high-concurrency servers with thousands of persistent connections.
+  spec: null
+  simulator_trigger: epoll usage in node servers — event loop implementation in simulator
+  interview_context: Telecom signaling servers handle thousands of concurrent SCTP/TCP
+    associations requiring epoll-based event loops
+- id: q177
+  domain: linux
+  subdomain: epoll
+  tags:
+  - linux
+  - epoll
+  level: senior
+  question: What is the difference between edge-triggered (ET) and level-triggered
+    (LT) mode in epoll?
+  answer: In level-triggered mode (the default), epoll_wait returns a fd as ready
+    whenever its kernel buffer contains data — i.e., as long as the condition persists.
+    In edge-triggered mode (EPOLLET), epoll_wait returns a notification only on the
+    transition from 'not ready' to 'ready'. With ET, if you read only part of the
+    available data, epoll_wait will not fire again for that fd until new data arrives.
+    ET mode therefore requires reading in a loop until EAGAIN and using non-blocking
+    fds. ET reduces syscall overhead when data arrives in bursts but is harder to
+    implement correctly.
+  spec: null
+  simulator_trigger: epoll usage in node servers — EPOLLET flag in simulator event
+    loop
+  interview_context: High-throughput SCTP/TCP processing uses ET mode to minimize
+    epoll_wait calls per burst
+- id: q178
+  domain: linux
+  subdomain: epoll
+  tags:
+  - linux
+  - epoll
+  level: senior
+  question: What are EPOLLONESHOT and EPOLLET, and how do they interact?
+  answer: 'EPOLLONESHOT disarms the fd after one event — no further notifications
+    until epoll_ctl(EPOLL_CTL_MOD) re-arms it. It is useful for multi-threaded event
+    loops where you hand a fd to a worker thread and must prevent simultaneous events.
+    EPOLLET provides edge triggering. When combined, you must re-arm the fd via epoll_ctl
+    before calling read/write to avoid a race: new data arriving between the last
+    read and re-arming would be missed if EPOLLET|EPOLLONESHOT is in use without careful
+    ordering.'
+  spec: null
+  simulator_trigger: epoll usage in node servers — EPOLLONESHOT in multi-threaded
+    simulator dispatcher
+  interview_context: Thread-per-association models use EPOLLONESHOT to safely dispatch
+    each association to a dedicated worker
+- id: q179
+  domain: linux
+  subdomain: epoll
+  tags:
+  - linux
+  - epoll
+  level: senior
+  question: What are the internal data structures epoll uses in the kernel?
+  answer: epoll maintains a red-black tree to store all monitored fds (inserted/removed
+    by epoll_ctl), enabling O(log n) insertion and deletion. A ready list (doubly-linked
+    list) holds fds that currently have events; the kernel adds entries via per-fd
+    callback functions registered at epoll_ctl time, triggered by the network subsystem
+    when data arrives. epoll_wait simply removes entries from the ready list, giving
+    O(ready) copy to userspace. This design avoids full fd-set copies on every call.
+  spec: null
+  simulator_trigger: epoll usage in node servers — understanding epoll scalability
+    for 10,000+ SCTP associations
+  interview_context: Understanding epoll internals is a common Nokia/Qualcomm systems
+    design interview topic
+- id: q180
+  domain: linux
+  subdomain: sctp
+  tags:
+  - linux
+  - sctp
+  level: senior
+  question: Why does telecom use SCTP instead of TCP for protocols like S1AP and Diameter?
+  answer: SCTP (Stream Control Transmission Protocol, RFC 4960) was designed for telephony
+    signaling transport. Unlike TCP, SCTP is message-oriented (preserves message boundaries
+    like UDP), provides multi-homing (multiple IP addresses per association for automatic
+    failover), and multi-streaming (multiple independent streams in one association
+    to eliminate head-of-line blocking). S1AP (LTE eNB-to-MME) and Diameter both mandate
+    SCTP because a single IP failure in TCP drops the entire connection, whereas SCTP
+    silently fails over to a secondary path.
+  spec: RFC 4960
+  simulator_trigger: SCTP comments in socket_wrapper.h — IPPROTO_SCTP usage in S1/N2
+    interfaces
+  interview_context: Every Nokia/Ericsson 4G/5G signaling interface uses SCTP — fundamental
+    knowledge for telecom C++ engineers
+- id: q181
+  domain: linux
+  subdomain: sctp
+  tags:
+  - linux
+  - sctp
+  level: senior
+  question: 'Explain SCTP multi-homing: how does it work and what are its failure
+    detection mechanisms?'
+  answer: In SCTP multi-homing, each endpoint registers multiple IP addresses during
+    the INIT/INIT-ACK handshake. Data flows over a designated primary path; the stack
+    monitors all paths via periodic heartbeat messages. If the primary path fails
+    (heartbeat timeout or RTO exceeded), SCTP automatically switches to a secondary
+    path without notifying the application — the association remains alive. The heartbeat
+    interval and rto_max are tunable via setsockopt with sctp_paddrparams.
+  spec: RFC 4960
+  simulator_trigger: SCTP comments in socket_wrapper.h — dual-homed SCTP configuration
+  interview_context: Nokia/Ericsson nodes use dual-homed SCTP for link redundancy
+    without session disruption
+- id: q182
+  domain: linux
+  subdomain: sctp
+  tags:
+  - linux
+  - sctp
+  level: senior
+  question: Explain SCTP multi-streaming and how it prevents head-of-line blocking.
+  answer: An SCTP association can carry multiple independent streams, each identified
+    by a Stream ID. Messages on stream N are delivered in order relative to other
+    messages on stream N, but independently of other streams. A lost chunk only blocks
+    reordering within its own stream. This is fundamentally different from TCP, where
+    a single lost byte blocks all subsequent data. In Diameter, this allows control
+    messages and accounting messages on separate streams, preventing a large accounting
+    burst from delaying a time-critical authentication exchange.
+  spec: RFC 4960
+  simulator_trigger: SCTP comments in socket_wrapper.h — stream selection in sctp_sendmsg
+  interview_context: Nokia base station controllers exploit SCTP streams to carry
+    different message classes independently
+- id: q183
+  domain: linux
+  subdomain: sctp
+  tags:
+  - linux
+  - sctp
+  level: senior
+  question: How does SCTP's four-way handshake differ from TCP's three-way handshake,
+    and why?
+  answer: 'SCTP uses a four-way handshake: INIT → INIT-ACK (with a COOKIE) → COOKIE-ECHO
+    → COOKIE-ACK. The server sends a stateless cookie in INIT-ACK; the client must
+    echo it back before the server allocates state. This design prevents SYN-flood
+    attacks as an inherent protocol mechanism. TCP''s three-way handshake does not
+    include this anti-spoofing mechanism at the protocol level. SCTP also uses TSNs
+    per chunk rather than TCP''s byte-stream sequence numbers, and supports selective
+    acknowledgment (SACK) natively.'
+  spec: RFC 4960
+  simulator_trigger: SCTP comments in socket_wrapper.h — SCTP association setup in
+    S1AP/NGAP handling
+  interview_context: Telecom nodes must handle signaling storms; the SCTP cookie mechanism
+    is mandatory defense
+- id: q184
+  domain: linux
+  subdomain: sctp
+  tags:
+  - linux
+  - sctp
+  level: senior
+  question: How would you implement an SCTP socket in C++ with multi-homing?
+  answer: Use socket(AF_INET, SOCK_SEQPACKET, IPPROTO_SCTP) and add secondary addresses
+    with sctp_bindx(fd, addrs, count, SCTP_BINDX_ADD_ADDR). On the connect side, use
+    sctp_connectx() to specify all peer addresses. For per-message control (stream
+    selection, flags), use sctp_sendmsg()/sctp_recvmsg() instead of send()/recv().
+    Tune heartbeat via setsockopt(fd, IPPROTO_SCTP, SCTP_PEER_ADDR_PARAMS, &params)
+    with SPP_HB_ENABLE set. Monitor path states with SCTP_GET_PEER_ADDR_INFO.
+  spec: RFC 4960
+  simulator_trigger: socket_wrapper.h — sctp_bindx and sctp_connectx in S1/N2 socket
+    initialization
+  interview_context: Nokia, Ericsson, Qualcomm engineers are expected to write SCTP
+    socket code from scratch in coding interviews
+- id: q185
+  domain: linux
+  subdomain: ipc
+  tags:
+  - linux
+  - ipc
+  level: engineer
+  question: 'Compare all major Linux IPC mechanisms: pipes, FIFOs, Unix domain sockets,
+    message queues, and shared memory.'
+  answer: Anonymous pipes are unidirectional, process-lifetime. Named pipes (FIFOs)
+    are unidirectional, filesystem-persisted. Unix domain sockets are bidirectional,
+    stream or dgram, pollable via epoll. POSIX message queues are bidirectional, typed,
+    kernel-managed. Shared memory (shm_open + mmap) is the fastest — zero kernel involvement
+    in the data path after setup, but requires explicit synchronization. For small
+    messages, performance differences are minor; for large buffers (packet processing),
+    shared memory wins by 5–10x. Sockets are most flexible for multi-client, pollable
+    use cases.
+  spec: null
+  simulator_trigger: epoll usage in node servers — IPC between simulator processes
+  interview_context: Nokia/Ericsson signaling agents on multi-core servers use IPC
+    for inter-process communication
+- id: q186
+  domain: linux
+  subdomain: ipc
+  tags:
+  - linux
+  - ipc
+  - memory
+  level: senior
+  question: Explain mmap() — what are its flags, when does a page fault occur, and
+    what is MAP_SHARED vs MAP_PRIVATE?
+  answer: mmap(addr, length, prot, flags, fd, offset) maps a file or anonymous memory
+    into the process virtual address space. With MAP_SHARED, writes are visible to
+    all processes mapping the same region and propagate to the backing file. With
+    MAP_PRIVATE, writes trigger copy-on-write — the caller gets a private copy. MAP_ANONYMOUS
+    creates zero-initialized memory not backed by a file. Pages are not allocated
+    at mmap() time — a page fault occurs on first access (demand paging). Use msync()
+    to force dirty pages to disk.
+  spec: null
+  simulator_trigger: epoll usage in node servers — mmap for zero-copy shared buffers
+  interview_context: Nokia packet processing pipelines use mmap + MAP_SHARED for zero-copy
+    shared buffers between processes
+- id: q187
+  domain: linux
+  subdomain: ipc
+  tags:
+  - linux
+  - ipc
+  - memory
+  level: senior
+  question: How do you implement POSIX shared memory in C++? Walk through the API.
+  answer: 'Writer: shm_open(''/region'', O_CREAT|O_RDWR, 0600), ftruncate(fd, size),
+    mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0), close(fd), then munmap
+    and shm_unlink when done. Reader: shm_open with O_RDONLY and mmap with PROT_READ.
+    Synchronization between writer and reader requires a semaphore or mutex placed
+    inside the shared region, initialized with PTHREAD_PROCESS_SHARED. POSIX shared
+    memory objects are implemented on Linux as files in tmpfs at /dev/shm.'
+  spec: null
+  simulator_trigger: epoll usage in node servers — shared memory for high-frequency
+    statistics
+  interview_context: Nokia/Ericsson inter-process communication for management plane
+    daemons uses POSIX shared memory
+- id: q188
+  domain: linux
+  subdomain: signals
+  tags:
+  - linux
+  - signals
+  level: engineer
+  question: What is the difference between sigaction() and signal()? Which should
+    you use?
+  answer: 'signal() has undefined, platform-dependent behavior: it may or may not
+    reset the handler to SIG_DFL after delivery, and it does not block other signals
+    during handler execution. sigaction() provides explicit, portable control: sa_mask
+    specifies signals to block during the handler, SA_RESTART controls whether interrupted
+    syscalls auto-restart, and SA_SIGINFO provides additional signal context via siginfo_t.
+    Always use sigaction() in production code. signal() should only be used for setting
+    SIG_DFL/SIG_IGN portably.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — SIGTERM/SIGHUP handling in server process
+    shutdown
+  interview_context: Nokia/Ericsson C++ server processes must handle SIGTERM, SIGHUP,
+    and SIGPIPE reliably
+- id: q189
+  domain: linux
+  subdomain: signals
+  tags:
+  - linux
+  - signals
+  - socket
+  level: engineer
+  question: How should a TCP/SCTP server handle SIGPIPE?
+  answer: 'SIGPIPE is delivered when a process writes to a socket whose read end has
+    been closed. The default action terminates the process — which would kill the
+    entire server on a single dead client. The correct approach: ignore SIGPIPE globally
+    with signal(SIGPIPE, SIG_IGN) or sigaction with SIG_IGN, and instead check return
+    value of write()/send() for -1 with errno==EPIPE. Alternatively, pass MSG_NOSIGNAL
+    to send() on a per-call basis to suppress the signal without changing the global
+    disposition.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — SIGPIPE suppression in all socket send paths
+  interview_context: A telecom SIP proxy or Diameter node handles thousands of clients
+    — SIGPIPE termination would be catastrophic
+- id: q190
+  domain: linux
+  subdomain: signals
+  tags:
+  - linux
+  - signals
+  level: senior
+  question: What is an async-signal-safe function? Give examples of safe and unsafe
+    functions.
+  answer: 'An async-signal-safe function can be called safely from within a signal
+    handler — it is either reentrant or atomic with respect to signals. Safe: write(),
+    read(), close(), fork(), execve(), kill(), signal(), sigaction(), _exit(), sem_post().
+    Unsafe (must NOT call from handler): printf(), malloc(), free(), syslog(), exit(),
+    any stdio function, std::cout. Since signal handlers may interrupt malloc mid-execution
+    (holding internal locks), calling malloc from a handler can deadlock. The standard
+    pattern: set a volatile sig_atomic_t flag in the handler, process it in the main
+    event loop.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — signal handler uses write() not printf()
+  interview_context: Nokia/Ericsson signaling servers use signal handlers for graceful
+    shutdown and config reload
+- id: q191
+  domain: linux
+  subdomain: signals
+  tags:
+  - linux
+  - signals
+  - epoll
+  level: senior
+  question: Explain the self-pipe trick for integrating signals with epoll.
+  answer: The self-pipe trick converts a signal into a readable fd event, making it
+    compatible with epoll. Create a pipe with pipe2(fds, O_NONBLOCK|O_CLOEXEC). In
+    the signal handler (async-signal-safe), write(write_fd, 0x00, 1). In the epoll
+    event loop, register read_fd for EPOLLIN. When the signal arrives, the handler
+    writes a byte; epoll_wait returns the pipe as readable; the event loop reads and
+    drains the byte, then handles the signal in the normal flow. On Linux 2.6.22+,
+    signalfd() is the modern alternative.
+  spec: null
+  simulator_trigger: epoll usage in node servers — signal integration in main event
+    loop
+  interview_context: Nokia telecom applications use this pattern to integrate graceful-shutdown
+    signals into epoll event loops
+- id: q192
+  domain: linux
+  subdomain: process
+  tags:
+  - linux
+  - fork
+  level: beginner
+  question: What does fork() return and what is the state of the child process?
+  answer: 'fork() returns the child''s PID to the parent and 0 to the child; on error
+    it returns -1. The child is an exact copy of the parent''s address space (using
+    copy-on-write pages), inherits all open file descriptors, signal dispositions,
+    environment, and memory mappings. The child does not inherit: the parent''s pending
+    signals, memory locks (mlock), or POSIX timers. Open file descriptors are shared
+    — changes to the file offset in one process are visible to the other unless O_CLOEXEC
+    was set.'
+  spec: null
+  simulator_trigger: epoll usage in node servers — fork() in simulator process management
+  interview_context: Telecom daemons use fork() to create worker processes; understanding
+    fd inheritance is critical
+- id: q193
+  domain: linux
+  subdomain: process
+  tags:
+  - linux
+  - fork
+  level: engineer
+  question: What is a zombie process? How does it occur and how do you prevent it?
+  answer: 'A zombie is a process that has exited but whose exit status has not yet
+    been collected by its parent via wait()/waitpid(). The kernel retains the process
+    table entry (PID, exit status) until the parent reaps it. Zombies consume a PID
+    and a PCB entry but no memory or CPU. Prevention: call wait()/waitpid() in the
+    parent, install a SIGCHLD handler that reaps children, or set SA_NOCLDWAIT/signal(SIGCHLD,
+    SIG_IGN) to auto-reap. If the parent dies first, orphaned children are re-parented
+    to init/systemd which reaps them.'
+  spec: null
+  simulator_trigger: epoll usage in node servers — child process reaping in simulator
+    supervisor
+  interview_context: Nokia/Ericsson supervisory daemons spawn worker subprocesses
+    — zombie accumulation exhausts PID namespace
+- id: q194
+  domain: linux
+  subdomain: process
+  tags:
+  - linux
+  - fork
+  level: engineer
+  question: Explain exec() and the exec family. What is preserved after execve()?
+  answer: 'execve(path, argv, envp) replaces the calling process''s code, data, stack,
+    and heap with a new program image, but reuses the same PID. After execve(): open
+    file descriptors without FD_CLOEXEC are inherited; signal dispositions set to
+    SIG_DFL/SIG_IGN are preserved but custom handlers are reset to SIG_DFL; UID/GID
+    are preserved unless setuid binary. exec variants differ by argument passing:
+    execl/execv (explicit args/array), execle/execve (with env), execlp/execvp (PATH
+    search). The canonical fork-exec pattern: fork(), set up fds in child, then execve().'
+  spec: null
+  simulator_trigger: epoll usage in node servers — fork-exec pattern in NF process
+    launching
+  interview_context: Telecom application managers use fork-exec to launch NF processes;
+    fd inheritance is critical to avoid socket leaks
+- id: q195
+  domain: linux
+  subdomain: process
+  tags:
+  - linux
+  level: senior
+  question: How do you create a daemon process in Linux?
+  answer: 'The classic double-fork method: (1) fork() — parent exits; (2) setsid()
+    — child becomes session leader, detached from controlling terminal; (3) fork()
+    again — grandchild cannot reacquire a terminal; (4) chdir(''/'') — avoid holding
+    mount points; (5) umask(0) — reset file creation mask; (6) close all open fds
+    or redirect stdin/stdout/stderr to /dev/null. Modern approach: use daemon(3) libc
+    call or systemd with type=notify. systemd-managed daemons often use SD_NOTIFY
+    instead of double-fork.'
+  spec: null
+  simulator_trigger: epoll usage in node servers — daemonization in production NF
+    processes
+  interview_context: Every Nokia/Ericsson NF starts as a daemon — daemonization is
+    standard telecom platform knowledge
+- id: q196
+  domain: linux
+  subdomain: fd
+  tags:
+  - linux
+  - fd
+  level: engineer
+  question: What does dup2(oldfd, newfd) do and why is it used?
+  answer: 'dup2(oldfd, newfd) closes newfd if open (atomically) and makes it a duplicate
+    of oldfd — both fds then point to the same open file description (shared offset,
+    flags, locks). The atomicity is critical: a close(newfd); dup(oldfd) sequence
+    has a race window where a signal handler could steal newfd. The most common use:
+    redirect stdout/stderr before exec() by calling dup2(pipe_fd, STDOUT_FILENO).
+    The duplicate does not share the close-on-exec flag (FD_CLOEXEC), which is cleared
+    on the new fd.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — dup2 in process launcher for log redirection
+  interview_context: Nokia/Ericsson process launchers use dup2() to redirect child
+    process I/O to log pipes before exec()
+- id: q197
+  domain: linux
+  subdomain: fd
+  tags:
+  - linux
+  - fd
+  level: engineer
+  question: What is O_NONBLOCK and how do you set it after socket creation?
+  answer: 'O_NONBLOCK causes I/O system calls to return immediately with EAGAIN/EWOULDBLOCK
+    instead of blocking when data is unavailable. Set at creation: socket(AF_INET,
+    SOCK_STREAM | SOCK_NONBLOCK, 0). Set after creation: int flags = fcntl(fd, F_GETFL);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK). Note: accept() on non-blocking listener
+    returns -1/EAGAIN when no connections are pending, and returned client sockets
+    may not inherit the non-blocking flag — always set explicitly on accepted fds.'
+  spec: null
+  simulator_trigger: socket_wrapper.h — O_NONBLOCK in all socket creation paths
+  interview_context: All SCTP/TCP sockets in Nokia/Ericsson high-performance I/O paths
+    are non-blocking
+- id: q198
+  domain: linux
+  subdomain: fd
+  tags:
+  - linux
+  - fd
+  level: senior
+  question: What is /proc/PID/fd and how do you use it to detect fd leaks?
+  answer: '''/proc/<PID>/fd/'' is a directory where each entry is a symbolic link
+    named by fd number, pointing to the actual resource (socket, file, pipe). Count
+    open fds: ls /proc/<PID>/fd | wc -l. A steadily increasing count indicates a leak.
+    Tools: lsof -p <PID> shows all open files with type, path, and fd number; valgrind
+    --track-fds=yes detects fd leaks in tests. Monitor with: watch -n 5 ''ls /proc/<PID>/fd
+    | wc -l''. EMFILE (''too many open files'') in production telecom is a critical
+    incident.'
+  spec: null
+  simulator_trigger: epoll usage in node servers — fd leak monitoring in long-running
+    simulator processes
+  interview_context: Long-running Nokia/Ericsson signaling daemons are susceptible
+    to fd leaks from error paths
+- id: q199
+  domain: linux
+  subdomain: fd
+  tags:
+  - linux
+  - fd
+  level: senior
+  question: What is FD_CLOEXEC and when should you set it?
+  answer: FD_CLOEXEC (set via fcntl(fd, F_SETFD, FD_CLOEXEC) or at creation with O_CLOEXEC)
+    causes the fd to be automatically closed when the process calls execve(). Without
+    it, all open sockets and files are inherited by exec'd children — a security risk
+    and resource leak. Modern code should always open fds with O_CLOEXEC (or SOCK_CLOEXEC
+    for sockets) as the default, and explicitly clear it only for fds intentionally
+    passed to children. This is the POSIX-recommended defensive default.
+  spec: null
+  simulator_trigger: socket_wrapper.h — SOCK_CLOEXEC flag in socket creation
+  interview_context: Nokia application managers that exec() NF binaries must ensure
+    management-plane sockets are not inherited
+- id: q200
+  domain: linux
+  subdomain: memory
+  tags:
+  - linux
+  - memory
+  level: senior
+  question: Describe the Linux virtual address space layout for a 64-bit process.
+  answer: 'In a typical 64-bit Linux process (x86_64), the virtual address space is
+    128 TB (48-bit addressing). Layout from low to high: null guard page → text segment
+    (code) → initialized data (.data/.bss) → heap (grows up via brk()/mmap()) → mmap
+    region (shared libs, mmap() allocations, grows down from ~0x7fff...) → stack (grows
+    down from near 0x7fff...) → kernel space (above 0xffff800000000000, inaccessible
+    from userspace). The stack and heap are separated by the large unallocated mmap
+    region. Stack typically defaults to 8 MB (ulimit -s).'
+  spec: null
+  simulator_trigger: epoll usage in node servers — stack overflow avoidance in deep
+    call stacks
+  interview_context: Nokia/Ericsson real-time signaling code must avoid stack overflow
+    and control heap fragmentation
+- id: q201
+  domain: linux
+  subdomain: memory
+  tags:
+  - linux
+  - memory
+  level: senior
+  question: What is a page fault? Distinguish between minor and major page faults.
+  answer: 'A page fault occurs when a process accesses a virtual address whose page
+    table entry is not marked present. The CPU raises an exception; the kernel''s
+    page fault handler runs. Minor (soft) fault: the physical page exists (e.g., in
+    another process''s page cache or shared COW page) but the PTE was not set — the
+    kernel just updates the PTE, no disk I/O, ~1-5 µs. Major (hard) fault: the page
+    must be read from disk (swap or file) — takes ~50 µs (NVMe) to 10 ms (HDD). mmap(),
+    malloc(), and fork() all defer physical page allocation until first access (demand
+    paging).'
+  spec: null
+  simulator_trigger: epoll usage in node servers — mlockall() to prevent page faults
+    in real-time paths
+  interview_context: Nokia 5G user-plane software uses mlockall(MCL_CURRENT|MCL_FUTURE)
+    to prevent major page faults during packet processing
+- id: q202
+  domain: linux
+  subdomain: memory
+  tags:
+  - linux
+  - memory
+  level: senior
+  question: What are Huge Pages? How do you use them and what are the trade-offs?
+  answer: 'Huge pages use 2 MB (or 1 GB) page sizes instead of 4 KB, reducing TLB
+    pressure dramatically. Explicit huge pages are pre-allocated via /proc/sys/vm/nr_hugepages,
+    accessed via mmap(MAP_HUGETLB) or /dev/hugepages. Transparent Huge Pages (THP)
+    are automatically promoted by the kernel; configured via /sys/kernel/mm/transparent_hugepage/enabled.
+    Trade-offs: huge pages improve throughput for large working sets (databases, packet
+    buffers) but increase COW cost (~500 µs for 2 MB vs ~1 µs for 4 KB) and waste
+    memory for small allocations.'
+  spec: null
+  simulator_trigger: epoll usage in node servers — HugeTLBfs for NIC DMA buffers
+  interview_context: Nokia/Ericsson packet processing engines allocate SCTP/TCP receive
+    buffers from HugeTLBfs for maximum NIC DMA performance
+- id: q203
+  domain: linux
+  subdomain: perf
+  tags:
+  - linux
+  - perf
+  level: senior
+  question: How do you use perf for CPU profiling of a C++ signaling daemon?
+  answer: 'perf record -g -p <PID> -- sleep 30 samples the call stack of a running
+    process. perf report shows a hierarchical view of CPU time by function with call
+    graphs. perf top -p <PID> provides live per-function CPU usage. perf stat -p <PID>
+    reports hardware counters: IPC, cache misses, branch mispredictions. For flame
+    graphs: perf record -g ./daemon; perf script | stackcollapse-perf.pl | flamegraph.pl
+    > flame.svg. Requires frame pointer preservation (-fno-omit-frame-pointer) or
+    DWARF unwinding (--call-graph dwarf).'
+  spec: null
+  simulator_trigger: epoll usage in node servers — performance profiling of simulator
+    hot paths
+  interview_context: Nokia/Ericsson engineers use perf to identify hot paths in packet-processing
+    code
+- id: q204
+  domain: linux
+  subdomain: perf
+  tags:
+  - linux
+  - perf
+  level: senior
+  question: What is NUMA and why does it matter for telecom packet processing?
+  answer: 'NUMA (Non-Uniform Memory Access) systems have multiple memory controllers;
+    each CPU socket has local memory with lower latency (~80 ns) than remote memory
+    on another socket (~120–160 ns). If the NIC is attached to socket 0 but the processing
+    thread runs on socket 1, every DMA buffer access crosses the NUMA interconnect,
+    adding ~30–50% latency and reducing throughput by up to 4x. Tools: numactl --hardware
+    (topology), numastat (per-node allocation stats), lstopo (visual diagram). Mitigation:
+    numactl -m 0 -N 0 ./daemon pins process and memory allocation to NUMA node 0.'
+  spec: null
+  simulator_trigger: epoll usage in node servers — NUMA-aware memory allocation in
+    production deployment
+  interview_context: Nokia base station user-plane packet processing is extremely
+    NUMA-sensitive

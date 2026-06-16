@@ -1,0 +1,71 @@
+- id: q350
+  domain: cpp
+  subdomain: undefined_behavior
+  tags:
+  - ubsan
+  level: senior
+  question: What are the most common forms of undefined behaviour in C++ and why are
+    they dangerous?
+  answer: 'Common UB forms: (1) signed integer overflow (wrapping assumed absent by
+    optimiser, can cause security vulnerabilities); (2) null pointer dereference;
+    (3) use-after-free and dangling references; (4) reading uninitialised memory;
+    (5) data races (concurrent unsynchronised access to non-atomic data); (6) out-of-bounds
+    array access; (7) strict aliasing violations (accessing an object via an incompatible
+    pointer type). UB is dangerous because the C++ standard gives the compiler permission
+    to assume UB never occurs; optimisers exploit this to eliminate safety checks,
+    producing binaries whose behaviour is unpredictable — crash, silent data corruption,
+    or exploitable code paths. Telecom protocol parsers are particularly vulnerable
+    to UB-driven exploits.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — UB sources
+    in protocol buffer parsing code
+  interview_context: CVE-2021-41773 (Apache path traversal) and similar are rooted
+    in UB; telecom NF security audits specifically check for integer overflow and
+    out-of-bounds patterns
+- id: q351
+  domain: cpp
+  subdomain: undefined_behavior
+  tags:
+  - ubsan
+  level: senior
+  question: How do UBSan, ASan, and Valgrind differ in what they detect?
+  answer: UBSan (Undefined Behaviour Sanitizer, -fsanitize=undefined) instruments
+    the binary at compile time to trap UB at the exact instruction that triggers it
+    — covers signed overflow, null dereference, misaligned access, strict aliasing,
+    and more. ASan (Address Sanitizer, -fsanitize=address) detects memory safety errors
+    — heap/stack buffer overflows, use-after-free, use-after-return — with ~2x memory
+    and ~2x runtime overhead, by shadow-mapping every 8-byte word. Valgrind (memcheck)
+    runs the unmodified binary in a dynamic instrumentation VM, detecting similar
+    memory errors to ASan plus uninitialised reads, with ~10-20x slowdown and no recompilation
+    needed. Combine UBSan + ASan during CI; use Valgrind for final verification or
+    when source is unavailable.
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — UBSan/ASan
+    integration in telecom NF CI pipeline
+  interview_context: Nokia, Ericsson, and open-source 5G (Open5GS, free5GC) CI pipelines
+    use ASan+UBSan to catch memory bugs before integration testing
+- id: q352
+  domain: cpp
+  subdomain: undefined_behavior
+  tags:
+  - ubsan
+  level: architect
+  question: Explain strict aliasing and how std::launder or memcpy can be used to
+    work around it safely.
+  answer: 'The strict aliasing rule states that accessing an object through a pointer
+    to an incompatible type is undefined behaviour (the compiler assumes pointers
+    of different types never alias the same memory, enabling aggressive load/store
+    reordering). Common violation: casting a char buffer to a struct pointer and dereferencing
+    it directly. Safe alternatives: (1) use memcpy to copy bytes between representations
+    — compilers optimise memcpy to register moves when size is small and constant;
+    (2) use std::bit_cast<T> (C++20) for reinterpretation when both types are trivially
+    copyable and the same size; (3) use std::launder to inhibit the compiler''s alias-based
+    assumptions when the object''s type has genuinely changed via placement new. In
+    protocol parsers, always use memcpy or bit_cast when extracting multi-byte integer
+    fields from wire-format buffers.'
+  spec: null
+  simulator_trigger: TelecomException hierarchy in telecom_exception.h — strict aliasing
+    in NAS/GTP buffer parsing
+  interview_context: Protocol parsers that cast raw byte buffers to struct pointers
+    without memcpy are a classic UB source in telecom stacks; code review must flag
+    these

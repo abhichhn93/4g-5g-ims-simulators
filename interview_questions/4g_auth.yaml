@@ -1,0 +1,285 @@
+- id: q056
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-auth
+  - aka
+  - diameter
+  - s6a
+  - hss
+  - kasme
+  level: senior
+  question: Describe the EPS-AKA procedure. What vectors does the HSS generate, and
+    what does each field represent?
+  answer: 'The HSS generates an EPS Authentication Vector containing four values:
+    RAND (128-bit random challenge), AUTN (Authentication Token enabling mutual authentication),
+    XRES (Expected Response used by the MME to verify the UE), and K_ASME (the top-level
+    session key derived from CK, IK, SQN, and serving network ID). The MME sends RAND
+    and AUTN to the UE; the UE verifies AUTN, computes RES, and returns it. The MME
+    validates RES == XRES, and both sides independently derive K_ASME which is never
+    transmitted over the air.'
+  spec: TS 33.401, TS 33.102
+  simulator_trigger: 4G ATTACH command step 4 — Diameter AIR sent by MME to HSS; AIA
+    returns EPS-AV
+  interview_context: Core security knowledge expected at senior level in any 4G/5G
+    network function role
+- id: q057
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-auth
+  - kasme
+  - s6a
+  - hss
+  level: senior
+  question: What is K_ASME and what keys are derived from it in LTE?
+  answer: 'K_ASME (Access Security Management Entity Key) is the master key for EPS
+    security, derived jointly by the UE and HSS from CK, IK, SQN, and the Serving
+    Network Identity — never transmitted over the air. From K_ASME, three second-level
+    keys are derived: K_NASenc (NAS encryption), K_NASint (NAS integrity), and K_eNB
+    (forwarded to the eNodeB). From K_eNB, the eNodeB further derives K_RRCenc, K_RRCint,
+    and K_UPenc.'
+  spec: TS 33.401 §6.2
+  simulator_trigger: 4G ATTACH command security phase — NAS Security Mode Command
+    sent after EPS-AKA completes
+  interview_context: Tests the 4G key hierarchy — important for security-focused roles
+    and VoLTE NAS security debugging
+- id: q058
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-auth
+  - nas
+  - mme
+  level: engineer
+  question: What is the NAS Security Mode Command in LTE, and when is it triggered?
+  answer: The NAS Security Mode Command (SMC) is sent by the MME to the UE after successful
+    EPS-AKA to activate NAS-layer encryption and integrity protection. It carries
+    the selected encryption algorithm (EEA), integrity algorithm (EIA), eKSI, and
+    a NAS-MAC. The UE verifies the NAS-MAC, derives K_NASenc and K_NASint, and responds
+    with NAS Security Mode Complete. Crucially, the SMC itself is integrity-protected
+    but not ciphered — ciphering is activated for all subsequent NAS messages.
+  spec: TS 24.301 §5.4.2, TS 33.401
+  simulator_trigger: 4G ATTACH command — NAS SMC sent by MME after Diameter AIA returns
+    authentication vectors
+  interview_context: Tests understanding of the NAS security activation sequence and
+    its ordering invariant
+- id: q059
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-auth
+  - s1ap
+  - mme
+  level: senior
+  question: What is the AS Security Mode Command in LTE and which layer executes it?
+  answer: The AS (Access Stratum) Security Mode Command is an RRC-layer message (not
+    NAS) sent by the eNodeB to the UE to activate RRC and user-plane security using
+    K_eNB received from the MME in the Initial Context Setup Request. It activates
+    integrity and ciphering for RRC signaling and ciphering for user-plane data at
+    the PDCP layer. AS integrity protection is mandatory for RRC; ciphering is configurable
+    per operator policy.
+  spec: TS 33.401 §7.2, TS 36.331
+  simulator_trigger: 4G ATTACH command — eNodeB sends RRC Security Mode Command after
+    receiving K_eNB in S1AP Initial Context Setup
+  interview_context: Tests ability to distinguish NAS-layer and RRC-layer security
+    activation procedures
+- id: q060
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-auth
+  - mme
+  - nas
+  level: senior
+  question: What ciphering and integrity algorithms are supported for NAS and AS in
+    LTE?
+  answer: 'LTE defines Evolved Encryption Algorithms (EEA): EEA0=null, EEA1=SNOW 3G,
+    EEA2=AES-CTR, EEA3=ZUC. Evolved Integrity Algorithms (EIA): EIA0=null (only for
+    emergency calls), EIA1=SNOW 3G, EIA2=AES-CMAC, EIA3=ZUC. The MME selects algorithms
+    based on the UE''s capability list and the operator''s priority list; NAS integrity
+    is mandatory (EIA0 only allowed for unauthenticated emergency sessions). EIA2/EEA2
+    (AES) is the most commonly deployed in commercial networks.'
+  spec: TS 33.401 §5.1, Annex B
+  simulator_trigger: 4G ATTACH command security negotiation — algorithm selection
+    logged in mme_security.cpp
+  interview_context: Tests cryptographic algorithm knowledge expected at senior level
+    in security-sensitive core network roles
+- id: q061
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-bearer
+  - qci
+  - gtpv2
+  - sgw
+  - pgw
+  level: engineer
+  question: What is the difference between a default EPS bearer and a dedicated EPS
+    bearer?
+  answer: A default EPS bearer is established automatically during PDN connection
+    setup, is always non-GBR, and remains active for the lifetime of the PDN connection
+    — providing always-on connectivity. A dedicated EPS bearer is established dynamically
+    when the default bearer's QoS cannot meet a specific service's requirements (e.g.,
+    VoLTE voice); it is linked to the default bearer via the Linked EPS Bearer ID
+    and carries a TFT to route specific flows. Dedicated bearers can be GBR or non-GBR;
+    up to 11 EPS bearers (EBI 5–15) can be active per UE simultaneously.
+  spec: TS 23.401 §5.4, TS 23.203
+  simulator_trigger: 4G ATTACH command — default bearer (QCI 9) establishment; VoLTE
+    CALL command — dedicated bearer (QCI 1) establishment
+  interview_context: Foundational bearer model question expected at entry-to-mid level
+    in EPC roles
+- id: q062
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-bearer
+  - qci
+  - volte-bearer
+  - pgw
+  level: engineer
+  question: What is QCI? List the QCI values most relevant to VoLTE and their characteristics.
+  answer: 'QCI (QoS Class Identifier) is a scalar value (1–9 in Release 8) mapping
+    to QoS characteristics: resource type (GBR or non-GBR), priority, packet delay
+    budget, and packet error loss rate. For VoLTE: QCI 1 (GBR, 100ms PDB) is the dedicated
+    bearer for RTP voice media; QCI 5 (non-GBR, 100ms PDB) is the default bearer for
+    IMS SIP signaling; QCI 9 (non-GBR, 300ms PDB) is the default bearer for internet
+    data. The QCI 2 (GBR, 150ms) dedicated bearer is added for video calls.'
+  spec: TS 23.203 §6.1.7
+  simulator_trigger: CALL command — QCI 1 dedicated bearer setup triggered by PCRF
+    Gx RAR after Rx AAR from P-CSCF
+  interview_context: Core VoLTE bearer model knowledge tested universally in IMS/VoLTE
+    roles
+- id: q063
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-bearer
+  - qci
+  - volte-bearer
+  - ims-epc
+  level: engineer
+  question: Describe the EPS bearer model for a VoLTE UE with an active voice call
+    and concurrent data session.
+  answer: 'A VoLTE UE with simultaneous voice and data maintains at least three EPS
+    bearers: a default non-GBR bearer (QCI 9) on the internet APN for regular IP data;
+    a default non-GBR bearer (QCI 5) on the IMS APN for SIP signaling, always active
+    once IMS is connected; and a dedicated GBR bearer (QCI 1) on the IMS APN for RTP
+    voice media, established only during a call and released when the call ends. For
+    a video call, a fourth bearer (QCI 2, GBR) is added for the video media stream.'
+  spec: TS 23.203, GSMA IR.92
+  simulator_trigger: CALL command — QCI 5 pre-established by ATTACH; QCI 1 added during
+    call setup; QCI 9 active in parallel
+  interview_context: End-to-end VoLTE bearer topology question testing understanding
+    of concurrent bearer coexistence
+- id: q064
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-bearer
+  - qci
+  - pgw
+  - mme
+  level: senior
+  question: What is ARP and how does it interact with bearer admission control in
+    LTE?
+  answer: 'ARP (Allocation and Retention Priority) controls bearer admission and preemption,
+    independent of QCI. It has three sub-fields: Priority Level (1–15, where 1 is
+    highest), Preemption Capability (can this bearer preempt others?), and Preemption
+    Vulnerability (can this bearer be preempted?). When resources are insufficient,
+    the network uses ARP to reject the new bearer or preempt an existing lower-priority
+    one. ARP only affects admission/rejection decisions — not in-flight packet scheduling,
+    which is QCI-driven.'
+  spec: TS 23.203 §6.1.7.2
+  simulator_trigger: CALL command under congestion — ARP preemption logic in pgw_bearer_manager.cpp
+  interview_context: Tests precise understanding of admission control vs QoS scheduling
+    — a common interview trap
+- id: q065
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-bearer
+  - pgw
+  - qci
+  level: senior
+  question: What is AMBR, and how does it differ from GBR and MBR in LTE?
+  answer: 'GBR (Guaranteed Bit Rate) and MBR (Maximum Bit Rate) apply per-bearer to
+    GBR-type bearers only — GBR is the minimum guaranteed rate, MBR is the ceiling.
+    AMBR (Aggregate Maximum Bit Rate) applies to non-GBR bearers: UE-AMBR limits total
+    non-GBR traffic across all APNs for a UE, while APN-AMBR limits aggregate non-GBR
+    traffic on a specific APN. There is no per-bearer rate cap for non-GBR bearers
+    — only aggregate limits enforced at the PGW and UE.'
+  spec: TS 23.203 §6.1.7, TS 29.212
+  simulator_trigger: 4G ATTACH command — AMBR provisioned from HSS via Diameter ULA,
+    enforced by PGW in Create Session
+  interview_context: Tests precise understanding of the three-tier LTE QoS rate model
+    often confused in interviews
+- id: q066
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-handover
+  - x2
+  - s1-ho
+  - path-switch
+  - mme
+  level: engineer
+  question: Explain the X2-based handover procedure. When is it used, and when is
+    S1-based handover preferred?
+  answer: X2 handover is used when source and target eNodeBs communicate directly
+    via X2 (same MME pool area); it is faster because MME and SGW are not in the critical
+    path. The source eNB sends Handover Request to the target eNB over X2; after UE
+    attaches, the target eNB notifies the MME via Path Switch Request, and the MME
+    updates the SGW bearer path. S1 handover is used when the eNBs are in different
+    MME pools, no X2 exists, the serving PLMN changes, or security key forwarding
+    requires MME involvement.
+  spec: TS 36.300, TS 23.401 §5.5.1
+  simulator_trigger: HO command in simulator — X2-based path triggers x2_handover_handler.cpp;
+    S1-based triggers s1_handover_handler.cpp
+  interview_context: Tests fundamental handover procedure knowledge relevant to LTE
+    mobility performance analysis
+- id: q067
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-handover
+  - x2
+  - s1-ho
+  - path-switch
+  - gtpv2
+  - teid
+  level: senior
+  question: During X2 handover, what is a Path Switch and which GTP tunnels are modified?
+  answer: After the UE attaches to the target eNodeB, the target eNB sends a Path
+    Switch Request (S1AP) to the MME. The MME sends a Modify Bearer Request (GTPv2)
+    to the SGW providing the new S1-U TEID of the target eNB; the SGW re-points its
+    downlink GTP-U tunnel from the source eNB's IP/TEID to the target eNB's IP/TEID.
+    The S5/S8 tunnel between SGW and PGW is not modified — the PGW remains the anchor.
+    The MME then signals the source eNB to release its resources.
+  spec: TS 23.401 §5.5.1.1.2, TS 29.274
+  simulator_trigger: HO command — Modify Bearer Request in x2_path_switch.cpp updating
+    SGW downlink TEID after UE moves
+  interview_context: Tests deep GTP tunnel understanding needed for handover debugging
+    in the simulator
+- id: q068
+  domain: 4g
+  subdomain: authentication
+  tags:
+  - 4g-handover
+  - mme
+  - s1-ho
+  level: senior
+  question: Describe the difference between intra-MME and inter-MME S1 handover at
+    the core network level.
+  answer: In intra-MME S1 handover, source and target eNodeBs connect to the same
+    MME; the MME coordinates the Handover Request to the target eNB and updates the
+    bearer path via SGW. In inter-MME S1 handover, the source MME sends a Forward
+    Relocation Request to the target MME via S10 (GTPv2), which sets up new S11/S5
+    bearers with possibly a new SGW; after UE attachment the target MME sends Forward
+    Relocation Complete and the old MME releases all resources. This involves full
+    re-establishment of the GTP tunnel chain.
+  spec: TS 23.401 §5.5.1.2, §5.5.1.3
+  simulator_trigger: HO command with inter-mme=true flag — S10 Forward Relocation
+    Request between two MME simulator instances
+  interview_context: Tests understanding of the GTP re-anchoring complexity introduced
+    by MME changes

@@ -1,0 +1,460 @@
+- id: q280
+  domain: golang
+  subdomain: basics
+  tags:
+  - golang
+  level: beginner
+  question: What is the difference between := and var in Go?
+  answer: := is the short variable declaration — it declares and initializes a variable,
+    inferring its type from the right-hand side. It can only be used inside function
+    bodies and requires at least one new variable on the left side. var can be used
+    at both package level and function level, supports explicit type annotation, and
+    initializes to the zero value if no value is provided. In practice, := is used
+    for most local variables; var is preferred for package-level declarations, zero-value
+    initialization, or when explicit types aid readability.
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — Go variable declarations in NRF service
+    code
+  interview_context: Go basics test ensures understanding of the language's type inference
+    and scoping rules
+- id: q281
+  domain: golang
+  subdomain: basics
+  tags:
+  - golang
+  level: beginner
+  question: What are zero values in Go?
+  answer: 'In Go, every variable is automatically initialized to its type''s zero
+    value when declared without an explicit value. Zero values: 0 for all numeric
+    types, false for booleans, '''' for strings, nil for pointers/slices/maps/channels/interfaces/functions.
+    Structs get zero values for all their fields. This eliminates uninitialized variable
+    bugs common in C. Notable consequence: a nil slice is a valid slice with length
+    0 and can be appended to; a nil map panics on write but returns zero values on
+    read.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — zero value initialization patterns in
+    NRF service structs
+  interview_context: Go's zero values prevent uninitialized variable bugs; nil map
+    vs nil slice distinction is a common interview gotcha
+- id: q282
+  domain: golang
+  subdomain: concurrency
+  tags:
+  - golang
+  - goroutine
+  level: engineer
+  question: How do goroutines differ from OS threads?
+  answer: Goroutines are lightweight functions managed by the Go runtime scheduler
+    using an M:N model — M goroutines multiplexed onto N OS threads (GOMAXPROCS defaults
+    to CPU count). A goroutine starts with 2-8KB stack that grows and shrinks dynamically;
+    an OS thread typically has a fixed 1-8MB stack. Context switching between goroutines
+    happens in user space — orders of magnitude cheaper than OS thread switches. A
+    Go program can run hundreds of thousands of goroutines concurrently; the same
+    number of OS threads would exhaust system resources. A network simulator needing
+    thousands of virtual connections benefits enormously from goroutines.
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — goroutine-per-NF-connection model in NRF
+    simulator
+  interview_context: Goroutines enable the NRF simulator to handle thousands of concurrent
+    NF registrations with minimal resources
+- id: q283
+  domain: golang
+  subdomain: concurrency
+  tags:
+  - golang
+  - channel
+  - goroutine
+  level: engineer
+  question: What is the difference between buffered and unbuffered channels?
+  answer: An unbuffered channel (make(chan T)) requires both sender and receiver to
+    be ready simultaneously — the send blocks until another goroutine receives, enforcing
+    synchronous handoff. A buffered channel (make(chan T, n)) allows up to n sends
+    without a receiver being ready — it only blocks when the buffer is full, decoupling
+    sender and receiver timing. Use unbuffered channels when synchronization is required;
+    use buffered channels as work queues or to prevent goroutine leaks (a goroutine
+    sending to a buffered channel can always send even if the receiver exits).
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — buffered channels for NF registration
+    event queues
+  interview_context: Channel selection (buffered vs unbuffered) is fundamental to
+    correct goroutine communication in NRF simulator
+- id: q284
+  domain: golang
+  subdomain: concurrency
+  tags:
+  - golang
+  - goroutine
+  - channel
+  level: engineer
+  question: How does the select statement work?
+  answer: 'select multiplexes across multiple channel operations — it blocks until
+    at least one case can proceed, then executes that case. When multiple cases are
+    ready simultaneously, Go picks one at random (preventing starvation). A default
+    clause makes select non-blocking. select combined with context.Done() is the idiomatic
+    pattern for cancellable goroutines. It is also used for timeouts (time.After)
+    and rate limiting. Example: select { case err := <-done: return err; case <-ctx.Done():
+    return ctx.Err(); case <-time.After(5*time.Second): return errors.New(''timeout'')
+    }'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — select with context cancellation in NRF
+    discovery handler
+  interview_context: select with context is the Go idiom for implementing cancellable
+    NF discovery requests with timeouts
+- id: q285
+  domain: golang
+  subdomain: concurrency
+  tags:
+  - golang
+  - goroutine
+  level: engineer
+  question: How do sync.WaitGroup and sync.Mutex/sync.RWMutex work?
+  answer: 'sync.WaitGroup tracks a count of goroutines: Add(n) increments, Done()
+    decrements (call with defer wg.Done()), Wait() blocks until count reaches zero
+    — used to wait for a fan-out of goroutines. sync.Mutex provides mutual exclusion:
+    Lock() blocks until free; always defer mu.Unlock(). sync.RWMutex allows multiple
+    concurrent readers (RLock/RUnlock) but only one writer (Lock/Unlock) — use it
+    when reads far outnumber writes (e.g., a read-heavy in-memory NF profile table).
+    Example: FlowTable with RWMutex for concurrent read-heavy NRF profile lookups.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — RWMutex for concurrent NF profile table
+    access
+  interview_context: Concurrent NF profile table access in the NRF requires careful
+    RWMutex usage for read-heavy workloads
+- id: q286
+  domain: golang
+  subdomain: interfaces
+  tags:
+  - golang
+  - interface
+  level: engineer
+  question: How does Go's implicit interface implementation work?
+  answer: 'In Go, a type satisfies an interface implicitly — there is no implements
+    keyword. If a type has all the methods an interface requires (matching names and
+    signatures), it satisfies that interface automatically. This is structural typing
+    (duck typing with compile-time checking). The benefit: you can add a new interface
+    to existing types without modifying their source code, enabling retroactive abstraction.
+    Go standard library uses tiny interfaces: io.Reader has one method; io.Writer
+    has one method — composability through embedding.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — interface-based NF handler dispatch in
+    NRF service
+  interview_context: Go's implicit interfaces enable clean abstraction in the NRF
+    simulator without tight coupling between NF types
+- id: q287
+  domain: golang
+  subdomain: interfaces
+  tags:
+  - golang
+  - interface
+  level: engineer
+  question: What is the empty interface and type assertion?
+  answer: 'The empty interface interface{} (aliased as any since Go 1.18) has no method
+    requirements — every type satisfies it. It is Go''s equivalent of Object in Java
+    or void* in C. Use it only when you genuinely need to handle any type; prefer
+    generics (Go 1.18+) for type-safe containers. Type assertion: v, ok := i.(ConcreteType)
+    — the two-value form is safe (ok=false if wrong type); single-value form panics
+    on mismatch. A type switch patterns over multiple types: switch v := i.(type)
+    { case int: ... case string: ... }'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — type assertion in generic NF message handler
+  interview_context: Type assertions and switches are used in NRF message dispatching
+    to handle different NF types
+- id: q288
+  domain: golang
+  subdomain: memory
+  tags:
+  - golang
+  level: engineer
+  question: How does the Go garbage collector work?
+  answer: 'Go uses a concurrent tri-color mark-and-sweep garbage collector. Colors:
+    white = not yet reached (candidate for collection), gray = reachable but children
+    not scanned, black = fully scanned. The collector runs concurrently with user
+    goroutines — no stop-the-world for full mark-and-sweep. Short STW pauses occur
+    only for root marking and termination, kept to < 1ms since Go 1.17+. GOGC environment
+    variable controls aggressiveness (default 100 = GC when heap doubles). Reduce
+    GC pressure with sync.Pool to reuse allocations, pre-allocated slice capacities,
+    and struct embedding over pointer-to-struct.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — sync.Pool for NF message buffer reuse
+    in NRF
+  interview_context: GC tuning is important for the NRF simulator to maintain low-latency
+    NF discovery responses at high load
+- id: q289
+  domain: golang
+  subdomain: memory
+  tags:
+  - golang
+  level: senior
+  question: What is escape analysis and the stack vs heap distinction?
+  answer: 'The Go compiler performs escape analysis at compile time to decide whether
+    a variable is allocated on the stack or heap. Stack allocation is preferred —
+    cheap (just adjust stack pointer), automatically reclaimed when function returns,
+    no GC pressure. A variable escapes to the heap when: its address is returned from
+    a function, assigned to an interface, captured by a closure, or too large for
+    the stack. Use go build -gcflags=''-m'' to see escape decisions. Understanding
+    escape analysis helps write allocation-free hot paths — critical in high-throughput
+    telecom packet processing.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — escape analysis optimization for NF discovery
+    hot path
+  interview_context: Allocation-free hot paths are critical in the NRF simulator to
+    maintain low latency at 500K discovery requests/sec
+- id: q290
+  domain: golang
+  subdomain: memory
+  tags:
+  - golang
+  level: engineer
+  question: Explain defer, panic, and recover in Go.
+  answer: defer schedules a function call to execute just before the surrounding function
+    returns, regardless of how it returns (normal, error, panic). Multiple defers
+    execute in LIFO order. Arguments to deferred functions are evaluated immediately
+    at the defer statement. panic stops normal execution, unwinds the stack executing
+    all deferred functions, and crashes if uncaught. recover is called inside a deferred
+    function to catch a panic and return its value — recover() outside a defer always
+    returns nil. The idiomatic use is in HTTP handlers and library code to prevent
+    one panic from crashing the whole service.
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — panic recovery middleware in NRF HTTP
+    handler
+  interview_context: Panic recovery in HTTP handlers prevents one bad NF registration
+    from crashing the entire NRF service
+- id: q291
+  domain: golang
+  subdomain: http
+  tags:
+  - golang
+  - http-server
+  level: engineer
+  question: How do you build an HTTP server with net/http?
+  answer: net/http is Go's standard HTTP server library — no external dependencies
+    for most use cases. A handler is any type implementing http.Handler (ServeHTTP(ResponseWriter,
+    *Request)). http.HandlerFunc is a function type adapter. http.ListenAndServe(addr,
+    handler) starts the server and blocks. Always set timeouts (ReadTimeout, WriteTimeout,
+    IdleTimeout) to prevent slow-client resource exhaustion. The http.Server struct
+    allows fine-grained configuration including TLS via ListenAndServeTLS. Use http.NewServeMux()
+    to route different paths to different handlers.
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — HTTP server in NRF Go implementation for
+    SBI REST API
+  interview_context: The NRF Go service implements the 5G SBI REST API using net/http
+    — correct server setup with timeouts is mandatory
+- id: q292
+  domain: golang
+  subdomain: http
+  tags:
+  - golang
+  - http-server
+  level: engineer
+  question: How does the middleware pattern work in Go?
+  answer: 'Go middleware is a function that takes an http.Handler and returns an http.Handler,
+    wrapping the inner handler with additional behavior. Middleware chains are composed
+    by nesting: mux = loggingMiddleware(authMiddleware(router)). Each middleware calls
+    next.ServeHTTP(w, r) to pass control to the inner handler. Common middleware:
+    logging, authentication, rate limiting, CORS, panic recovery, request ID injection.
+    This pattern requires no framework — it''s idiomatic standard-library Go.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — logging and auth middleware in NRF HTTP
+    handler chain
+  interview_context: Middleware chains in the NRF service handle cross-cutting concerns
+    like logging, request tracing, and rate limiting
+- id: q293
+  domain: golang
+  subdomain: http
+  tags:
+  - golang
+  level: engineer
+  question: What is context.Context and how should it be used?
+  answer: context.Context is Go's standard mechanism for cancellation, deadlines,
+    and request-scoped values across goroutine boundaries. Every HTTP request handler
+    receives r.Context() which is cancelled when the client disconnects. Pass context
+    as the first parameter to any function that does network I/O, long computation,
+    or spawns goroutines. Create derived contexts with context.WithCancel, context.WithTimeout,
+    or context.WithDeadline. Never store context in a struct field — pass it explicitly.
+    Always call the cancel() function returned by WithCancel/WithTimeout (usually
+    defer cancel()).
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — context propagation in NRF discovery request
+    handling
+  interview_context: Context propagation enables proper cancellation of in-flight
+    NRF discovery requests when NF clients disconnect
+- id: q294
+  domain: golang
+  subdomain: concurrency
+  tags:
+  - golang
+  - goroutine
+  level: senior
+  question: How do you prevent goroutine leaks?
+  answer: 'A goroutine leak occurs when a goroutine is blocked on a channel operation
+    that will never complete. Rules to prevent leaks: (1) every goroutine must have
+    a way to exit — use context.Context cancellation; (2) buffered channels allow
+    a goroutine to send even if the receiver has exited (make(chan error, 1)); (3)
+    always close channels from the sender; (4) in tests, use goleak.VerifyNone(t)
+    to catch leaks early; (5) in production, monitor runtime.NumGoroutine() and use
+    pprof''s goroutine profile. Leak-free pattern: make a buffered result channel,
+    wrap work in goroutine, select on result and ctx.Done().'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — goroutine leak prevention in NRF subscription
+    manager
+  interview_context: Goroutine leaks in the NRF subscription manager would cause memory
+    growth over time in a long-running service
+- id: q295
+  domain: golang
+  subdomain: concurrency
+  tags:
+  - golang
+  - worker-pool
+  level: engineer
+  question: Explain the worker pool pattern in Go.
+  answer: A worker pool maintains a fixed number of goroutines that consume tasks
+    from a shared channel — limiting maximum concurrency and preventing resource exhaustion.
+    Use golang.org/x/sync/errgroup with g.SetLimit(n) for a bounded worker pool with
+    automatic error propagation and context cancellation. The 'jobs <- task' pattern
+    feeds the pool; workers read with 'for job := range jobs'. Worker pools are preferred
+    over fan-out for consistent workloads — fan-out dynamically creates goroutines
+    per input (more flexible, potentially unbounded); worker pool uses a fixed number
+    of consumers (better resource control).
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — worker pool for processing concurrent
+    NF discovery requests
+  interview_context: Worker pools in the NRF service bound the maximum concurrency
+    of discovery request processing
+- id: q296
+  domain: golang
+  subdomain: concurrency
+  tags:
+  - golang
+  - goroutine
+  - channel
+  level: senior
+  question: Explain the fan-out/fan-in pattern in Go.
+  answer: 'Fan-out distributes work from one input channel to multiple goroutines
+    (each item processed by exactly one worker). Fan-in merges results from multiple
+    goroutines into a single output channel. Key implementation detail: fanIn must
+    start a dedicated closer goroutine that waits via WaitGroup for all input channels
+    to drain, then closes the output channel — this allows fanIn to return the channel
+    immediately while closing happens asynchronously. Difference from worker pool:
+    fan-out dynamically creates goroutines per input (more flexible); worker pool
+    uses a fixed number of consumers (better resource control).'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — fan-out/fan-in for parallel NF availability
+    checking
+  interview_context: Fan-out/fan-in enables parallel querying of multiple NF types
+    in the NRF discovery response aggregation
+- id: q297
+  domain: golang
+  subdomain: comparison
+  tags:
+  - golang
+  level: senior
+  question: When should you choose Go over C++?
+  answer: 'Choose Go when building cloud-native services, network daemons, API servers,
+    DevOps tooling (Kubernetes, Docker, Prometheus are all Go), or any system where
+    developer productivity, fast compile-deploy cycles, and built-in concurrency matter
+    more than sub-microsecond latency. Choose C++ when you need hardware-level control,
+    deterministic memory management (no GC pauses), template metaprogramming, SIMD
+    intrinsics, or components that must embed into a C++ ecosystem (game engines,
+    embedded firmware, real-time signal processing). In telecom: Go is prevalent in
+    cloud-native 5G core control plane and gNMI/gRPC servers; C++ dominates data plane
+    (DPDK-based packet forwarding, BBU baseband, RAN stacks).'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — Go for NRF control plane vs C++ for UPF
+    data plane
+  interview_context: The Go vs C++ choice is a common architect-level interview question
+    in telecom — each language has distinct optimal use cases
+- id: q298
+  domain: golang
+  subdomain: testing
+  tags:
+  - golang
+  - testing
+  level: beginner
+  question: What is the testing package and how do you write a basic test?
+  answer: 'Go''s testing package is built into the standard library — no external
+    test runner needed. Test files end in _test.go; test functions start with Test
+    and take *testing.T. Run with go test ./.... Use t.Error/t.Errorf for non-fatal
+    failures (continues test); t.Fatal/t.Fatalf for fatal failures (stops test). The
+    go test -race flag enables the race detector — always run in CI. Example: func
+    TestAdd(t *testing.T) { got := Add(2, 3); want := 5; if got != want { t.Errorf(''Add(2,3)
+    = %d; want %d'', got, want) } }'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — unit tests for NRF service methods
+  interview_context: Go's built-in testing package is used for all NRF service unit
+    tests — understanding it is prerequisite for contribution
+- id: q299
+  domain: golang
+  subdomain: testing
+  tags:
+  - golang
+  - testing
+  level: engineer
+  question: What are table-driven tests and why are they idiomatic Go?
+  answer: 'Table-driven tests define a slice of struct test cases (input + expected
+    output), then iterate with a single test loop and t.Run for subtests. This is
+    the dominant Go testing pattern — endorsed by the official Go wiki and used throughout
+    the standard library. Benefits: adding a new case is one line; output clearly
+    names which case failed; subtests can run in parallel; test structure is self-documenting.
+    Use t.Run(tc.name, func(t *testing.T) { ... }) to create subtests identified by
+    name. Run a specific subtest with go test -run TestFoo/case_name.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — table-driven tests for NRF message parsing
+  interview_context: Table-driven tests are the idiomatic Go approach for testing
+    protocol message parsing with multiple input variants
+- id: q300
+  domain: golang
+  subdomain: testing
+  tags:
+  - golang
+  - testing
+  level: engineer
+  question: How do benchmarks work in Go?
+  answer: Benchmark functions start with Bench and take *testing.B. The test framework
+    runs the benchmark body b.N times, automatically adjusting N until timing is stable.
+    Run with go test -bench=. -benchmem. b.ResetTimer() excludes setup time. -benchmem
+    reports allocations per operation. Compare benchmarks across code changes with
+    benchstat to detect regressions. Use benchmarks to measure real hot paths — NRF
+    discovery request parsing, NF profile serialization/deserialization, concurrent
+    map access.
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — benchmarks for NRF discovery request processing
+    throughput
+  interview_context: Benchmarks are essential for verifying the NRF service can sustain
+    500K discovery requests/sec as required by design
+- id: q301
+  domain: golang
+  subdomain: modules
+  tags:
+  - golang
+  level: engineer
+  question: What are go.mod and go.sum?
+  answer: 'go.mod is the module definition file — it declares the module path, minimum
+    Go version, and all direct dependencies with semantic versions. Key directives:
+    module (path), go (minimum Go version), require (dependencies), replace (override
+    dependency with local fork), exclude (skip specific versions), retract (mark a
+    released version as broken). go.sum is a cryptographic integrity file recording
+    expected SHA-256 hashes of all dependencies, preventing supply-chain attacks.
+    Never edit go.sum manually; always commit both files. Run go mod tidy to remove
+    unused and add missing dependencies.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — go.mod for NRF Go service dependency management
+  interview_context: Go module management is essential for reproducible builds in
+    the NRF Go service CI pipeline
+- id: q302
+  domain: golang
+  subdomain: modules
+  tags:
+  - golang
+  level: engineer
+  question: How does Go module versioning work?
+  answer: 'Go modules use semantic versioning (v1.2.3 = MAJOR.MINOR.PATCH). Go''s
+    Minimum Version Selection (MVS) algorithm selects the minimum version that satisfies
+    all constraints — unlike npm/pip which select latest. For major version v2+, the
+    module path must include the version suffix: github.com/user/pkg/v2. This allows
+    v1 and v2 to coexist in the same build. go get github.com/pkg@v1.2.3 pins a version;
+    go get github.com/pkg@latest updates. go mod vendor copies all dependencies to
+    vendor/ for offline/reproducible builds.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — semantic versioning for NRF service releases
+  interview_context: MVS ensures reproducible builds for the NRF Go service — important
+    for audit trails in telecom deployments

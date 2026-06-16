@@ -1,0 +1,337 @@
+- id: q061
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-bearer
+  - qci
+  - gtpv2
+  - sgw
+  - pgw
+  level: engineer
+  question: What is the difference between a default EPS bearer and a dedicated EPS
+    bearer?
+  answer: A default EPS bearer is established automatically during PDN connection
+    setup, is always non-GBR, and remains active for the lifetime of the PDN connection
+    — providing always-on connectivity. A dedicated EPS bearer is established dynamically
+    when the default bearer's QoS cannot meet a specific service's requirements (e.g.,
+    VoLTE voice); it is linked to the default bearer via the Linked EPS Bearer ID
+    and carries a TFT to route specific flows. Dedicated bearers can be GBR or non-GBR;
+    up to 11 EPS bearers (EBI 5–15) can be active per UE simultaneously.
+  spec: TS 23.401 §5.4, TS 23.203
+  simulator_trigger: 4G ATTACH command — default bearer (QCI 9) establishment; VoLTE
+    CALL command — dedicated bearer (QCI 1) establishment
+  interview_context: Foundational bearer model question expected at entry-to-mid level
+    in EPC roles
+- id: q062
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-bearer
+  - qci
+  - volte-bearer
+  - pgw
+  level: engineer
+  question: What is QCI? List the QCI values most relevant to VoLTE and their characteristics.
+  answer: 'QCI (QoS Class Identifier) is a scalar value (1–9 in Release 8) mapping
+    to QoS characteristics: resource type (GBR or non-GBR), priority, packet delay
+    budget, and packet error loss rate. For VoLTE: QCI 1 (GBR, 100ms PDB) is the dedicated
+    bearer for RTP voice media; QCI 5 (non-GBR, 100ms PDB) is the default bearer for
+    IMS SIP signaling; QCI 9 (non-GBR, 300ms PDB) is the default bearer for internet
+    data. The QCI 2 (GBR, 150ms) dedicated bearer is added for video calls.'
+  spec: TS 23.203 §6.1.7
+  simulator_trigger: CALL command — QCI 1 dedicated bearer setup triggered by PCRF
+    Gx RAR after Rx AAR from P-CSCF
+  interview_context: Core VoLTE bearer model knowledge tested universally in IMS/VoLTE
+    roles
+- id: q063
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-bearer
+  - qci
+  - volte-bearer
+  - ims-epc
+  level: engineer
+  question: Describe the EPS bearer model for a VoLTE UE with an active voice call
+    and concurrent data session.
+  answer: 'A VoLTE UE with simultaneous voice and data maintains at least three EPS
+    bearers: a default non-GBR bearer (QCI 9) on the internet APN for regular IP data;
+    a default non-GBR bearer (QCI 5) on the IMS APN for SIP signaling, always active
+    once IMS is connected; and a dedicated GBR bearer (QCI 1) on the IMS APN for RTP
+    voice media, established only during a call and released when the call ends. For
+    a video call, a fourth bearer (QCI 2, GBR) is added for the video media stream.'
+  spec: TS 23.203, GSMA IR.92
+  simulator_trigger: CALL command — QCI 5 pre-established by ATTACH; QCI 1 added during
+    call setup; QCI 9 active in parallel
+  interview_context: End-to-end VoLTE bearer topology question testing understanding
+    of concurrent bearer coexistence
+- id: q064
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-bearer
+  - qci
+  - pgw
+  - mme
+  level: senior
+  question: What is ARP and how does it interact with bearer admission control in
+    LTE?
+  answer: 'ARP (Allocation and Retention Priority) controls bearer admission and preemption,
+    independent of QCI. It has three sub-fields: Priority Level (1–15, where 1 is
+    highest), Preemption Capability (can this bearer preempt others?), and Preemption
+    Vulnerability (can this bearer be preempted?). When resources are insufficient,
+    the network uses ARP to reject the new bearer or preempt an existing lower-priority
+    one. ARP only affects admission/rejection decisions — not in-flight packet scheduling,
+    which is QCI-driven.'
+  spec: TS 23.203 §6.1.7.2
+  simulator_trigger: CALL command under congestion — ARP preemption logic in pgw_bearer_manager.cpp
+  interview_context: Tests precise understanding of admission control vs QoS scheduling
+    — a common interview trap
+- id: q065
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-bearer
+  - pgw
+  - qci
+  level: senior
+  question: What is AMBR, and how does it differ from GBR and MBR in LTE?
+  answer: 'GBR (Guaranteed Bit Rate) and MBR (Maximum Bit Rate) apply per-bearer to
+    GBR-type bearers only — GBR is the minimum guaranteed rate, MBR is the ceiling.
+    AMBR (Aggregate Maximum Bit Rate) applies to non-GBR bearers: UE-AMBR limits total
+    non-GBR traffic across all APNs for a UE, while APN-AMBR limits aggregate non-GBR
+    traffic on a specific APN. There is no per-bearer rate cap for non-GBR bearers
+    — only aggregate limits enforced at the PGW and UE.'
+  spec: TS 23.203 §6.1.7, TS 29.212
+  simulator_trigger: 4G ATTACH command — AMBR provisioned from HSS via Diameter ULA,
+    enforced by PGW in Create Session
+  interview_context: Tests precise understanding of the three-tier LTE QoS rate model
+    often confused in interviews
+- id: q066
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-handover
+  - x2
+  - s1-ho
+  - path-switch
+  - mme
+  level: engineer
+  question: Explain the X2-based handover procedure. When is it used, and when is
+    S1-based handover preferred?
+  answer: X2 handover is used when source and target eNodeBs communicate directly
+    via X2 (same MME pool area); it is faster because MME and SGW are not in the critical
+    path. The source eNB sends Handover Request to the target eNB over X2; after UE
+    attaches, the target eNB notifies the MME via Path Switch Request, and the MME
+    updates the SGW bearer path. S1 handover is used when the eNBs are in different
+    MME pools, no X2 exists, the serving PLMN changes, or security key forwarding
+    requires MME involvement.
+  spec: TS 36.300, TS 23.401 §5.5.1
+  simulator_trigger: HO command in simulator — X2-based path triggers x2_handover_handler.cpp;
+    S1-based triggers s1_handover_handler.cpp
+  interview_context: Tests fundamental handover procedure knowledge relevant to LTE
+    mobility performance analysis
+- id: q067
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-handover
+  - x2
+  - s1-ho
+  - path-switch
+  - gtpv2
+  - teid
+  level: senior
+  question: During X2 handover, what is a Path Switch and which GTP tunnels are modified?
+  answer: After the UE attaches to the target eNodeB, the target eNB sends a Path
+    Switch Request (S1AP) to the MME. The MME sends a Modify Bearer Request (GTPv2)
+    to the SGW providing the new S1-U TEID of the target eNB; the SGW re-points its
+    downlink GTP-U tunnel from the source eNB's IP/TEID to the target eNB's IP/TEID.
+    The S5/S8 tunnel between SGW and PGW is not modified — the PGW remains the anchor.
+    The MME then signals the source eNB to release its resources.
+  spec: TS 23.401 §5.5.1.1.2, TS 29.274
+  simulator_trigger: HO command — Modify Bearer Request in x2_path_switch.cpp updating
+    SGW downlink TEID after UE moves
+  interview_context: Tests deep GTP tunnel understanding needed for handover debugging
+    in the simulator
+- id: q068
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-handover
+  - mme
+  - s1-ho
+  level: senior
+  question: Describe the difference between intra-MME and inter-MME S1 handover at
+    the core network level.
+  answer: In intra-MME S1 handover, source and target eNodeBs connect to the same
+    MME; the MME coordinates the Handover Request to the target eNB and updates the
+    bearer path via SGW. In inter-MME S1 handover, the source MME sends a Forward
+    Relocation Request to the target MME via S10 (GTPv2), which sets up new S11/S5
+    bearers with possibly a new SGW; after UE attachment the target MME sends Forward
+    Relocation Complete and the old MME releases all resources. This involves full
+    re-establishment of the GTP tunnel chain.
+  spec: TS 23.401 §5.5.1.2, §5.5.1.3
+  simulator_trigger: HO command with inter-mme=true flag — S10 Forward Relocation
+    Request between two MME simulator instances
+  interview_context: Tests understanding of the GTP re-anchoring complexity introduced
+    by MME changes
+- id: q069
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-handover
+  - mme
+  level: senior
+  question: What is SRVCC and why is it needed in VoLTE networks?
+  answer: SRVCC (Single Radio Voice Call Continuity) enables seamless handover of
+    an ongoing VoLTE/IMS voice call from LTE (PS domain) to 2G/3G (CS domain) when
+    LTE coverage is lost — without SRVCC the call would drop. The MME sends a PS-to-CS
+    HO request to the MSC Server via the Sv interface; the MSC creates a CS call leg
+    while IMS anchors media at the ATCF/ATGW; the S-CSCF is notified via SIP signaling
+    to update the session. SRVCC requires the UE's STN-SR (Session Transfer Number
+    for SRVCC) to be provisioned in the HSS.
+  spec: TS 23.216, TS 23.401
+  simulator_trigger: HO command with srvcc=true — MME sends Sv interface PS-to-CS
+    request after LTE coverage loss detected
+  interview_context: Tests VoLTE-specific handover continuity knowledge required at
+    senior IMS/VoLTE engineering levels
+- id: q070
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-tau
+  - tracking-area
+  - mobility
+  - mme
+  - nas
+  - emm
+  level: engineer
+  question: What triggers a TAU in LTE and what are the different types of TAU?
+  answer: 'A TAU is triggered when: the UE moves into a TA not on its assigned TA
+    list; the periodic TAU timer T3412 expires; the UE transitions to ECM-CONNECTED
+    in a new TA; or the UE changes PLMN or ISR state. TAU types include Normal TAU
+    (TA update without SGW change), TAU with SGW relocation (requires Create Session
+    Request cycle), Combined TAU (also updates VLR for CS fallback), and Periodic
+    TAU (keep-alive confirming UE reachability).'
+  spec: TS 23.401 §5.3.3, TS 24.301
+  simulator_trigger: TAU command in simulator — triggers tau_handler.cpp with configurable
+    tau_type parameter
+  interview_context: Tests mobility management knowledge essential for any MME software
+    engineering role
+- id: q071
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-tau
+  - tracking-area
+  - mobility
+  - mme
+  - diameter
+  - s6a
+  level: senior
+  question: Walk through the key steps of a TAU procedure when the MME changes (inter-MME
+    TAU).
+  answer: The UE sends a TAU Request (with old GUTI) to the new MME; the new MME derives
+    the old MME address from the GUTI and sends a Context Request (S10, GTPv2) to
+    retrieve the UE's MM and bearer context. The new MME optionally re-authenticates,
+    sends an Update Location Request (Diameter ULR) to the HSS over S6a, and receives
+    the subscriber profile in ULA while the HSS cancels the old MME registration via
+    CLR. The new MME sends Modify Bearer Request (S11, GTPv2) to the SGW and returns
+    a TAU Accept with new GUTI and TA list; the UE confirms with TAU Complete.
+  spec: TS 23.401 §5.3.3.1, TS 29.272
+  simulator_trigger: TAU command with inter_mme=true — S10 Context Request/Response
+    between two simulator MME instances
+  interview_context: Tests end-to-end TAU procedure knowledge including cross-MME
+    context transfer and HSS interaction
+- id: q072
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - 4g-tau
+  - tracking-area
+  - mobility
+  - mme
+  - nas
+  level: senior
+  question: What is the difference between TAU in EMM-IDLE and EMM-CONNECTED state?
+  answer: In EMM-IDLE, the UE has no active S1 connection; a TAU requires first establishing
+    an RRC connection and S1 signaling association, making it a TAU without active
+    flag with bearers typically suspended. In EMM-CONNECTED, the UE already has an
+    active S1 connection and bearer context; TAU is more common when the UE moves
+    across TA boundaries while actively transmitting. The Active Flag in the TAU Request
+    indicates whether the UE requests bearer re-activation after TAU, avoiding a separate
+    Service Request.
+  spec: TS 23.401 §5.3.3, TS 24.301 §5.5.3
+  simulator_trigger: TAU command — simulator configures active_flag in TAU Request
+    to test idle vs connected TAU paths
+  interview_context: Tests fine-grained UE state machine knowledge relevant to TAU
+    failure analysis
+- id: q073
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - s1-mme
+  - s1ap
+  - mme
+  - nas
+  level: engineer
+  question: 'Describe the S1-MME interface: protocol stack, messages, and its role.'
+  answer: S1-MME is the control-plane interface between eNodeB and MME, carrying S1AP
+    messages over SCTP/IP. SCTP provides reliable, ordered transport with multi-homing
+    support. Key S1AP messages include UE-associated (Initial UE Message, Initial
+    Context Setup Request/Response, UE Context Release Command) and non-UE-associated
+    (S1 Setup Request/Response, Paging, Reset). NAS PDUs are carried as transparent
+    IEs — the eNodeB does not interpret them. A single eNodeB typically has S1-MME
+    connections to 2–3 MMEs for redundancy.
+  spec: TS 36.413, TS 23.401
+  simulator_trigger: 4G ATTACH command — S1AP InitialUEMessage is the first message
+    from gNB simulator to MME simulator
+  interview_context: Tests precise S1 interface knowledge needed for debugging S1AP
+    setup and UE context issues
+- id: q074
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - s6a
+  - diameter
+  - mme
+  - hss
+  - 4g-auth
+  level: senior
+  question: What Diameter commands are exchanged on the S6a interface between MME
+    and HSS?
+  answer: 'The S6a interface uses Diameter (3GPP Multimedia application, App-ID 16777251).
+    Key command pairs are: AIR/AIA (Authentication-Information-Request/Answer) — MME
+    fetches EPS authentication vectors; ULR/ULA (Update-Location-Request/Answer) —
+    MME registers UE and receives subscription data; CLR/CLA (Cancel-Location-Request/Answer)
+    — HSS deregisters UE from old MME; IDR/IDA (Insert-Subscriber-Data) — HSS pushes
+    updated subscription data; PUR/PUA (Purge-UE) — MME deregisters UE after detach.'
+  spec: TS 29.272
+  simulator_trigger: 4G ATTACH command step 4 — Diameter AIR/AIA; step 5 — ULR/ULA
+    on s6a_client.cpp
+  interview_context: Tests Diameter S6a command knowledge required for HSS troubleshooting
+    in attach failure scenarios
+- id: q075
+  domain: 4g
+  subdomain: bearer
+  tags:
+  - s11
+  - s5s8
+  - gtpv2
+  - mme
+  - sgw
+  - pgw
+  level: engineer
+  question: What is the difference between the S11 and S5/S8 interfaces in LTE?
+  answer: S11 is between MME and SGW, uses GTPv2-C for control-plane bearer management
+    (Create/Modify/Delete Session requests), and carries no user-plane traffic. S5
+    is between SGW and PGW within the same PLMN (non-roaming), carrying both GTPv2-C
+    and GTP-U user data. S8 is functionally identical to S5 but crosses PLMN boundaries
+    for roaming scenarios — an IPX provider typically sits between S8 peers. The SGW
+    acts as a relay, forwarding GTPv2-C messages from S11 to S5 with TEID updates.
+  spec: TS 29.274, TS 23.401
+  simulator_trigger: '4G ATTACH command — Create Session Request chain: MME → SGW
+    (S11) → PGW (S5) in gtpv2_handler.cpp'
+  interview_context: Tests ability to distinguish the control and user plane stacks
+    on each interface

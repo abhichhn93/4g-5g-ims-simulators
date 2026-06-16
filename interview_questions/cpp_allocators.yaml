@@ -1,0 +1,63 @@
+- id: q347
+  domain: cpp
+  subdomain: allocators
+  tags:
+  - pmr
+  level: senior
+  question: Why would you write a custom allocator and what problems does it solve?
+  answer: 'The default allocator uses the global heap (malloc/free), which has non-deterministic
+    latency (due to bookkeeping, lock contention on multithreaded heaps, and fragmentation)
+    and poor cache locality for large numbers of small objects. Custom allocators
+    solve: (1) allocation latency jitter — a pool allocator pre-allocates blocks and
+    returns them in O(1); (2) fragmentation — an arena allocator bumps a pointer through
+    pre-allocated memory and frees it all at once; (3) cache locality — slab allocators
+    keep same-type objects adjacent; (4) debugging — tracking allocators detect leaks
+    and overflows. In telecom, per-message pool allocators ensure predictable memory
+    behaviour for high-throughput Diameter/GTP message processing.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — custom pool allocator for NAS message
+    objects in C++ MME simulation
+  interview_context: Allocator latency is a top-5 source of jitter in telecom packet
+    processing benchmarks; pool allocators are standard practice
+- id: q348
+  domain: cpp
+  subdomain: allocators
+  tags:
+  - pmr
+  level: senior
+  question: Describe the std::allocator interface requirements.
+  answer: 'A C++ allocator must provide: the value_type typedef, an allocate(n) method
+    that returns a T* pointing to storage for n objects of type T (without constructing
+    them), and a deallocate(p, n) method that returns that storage. C++11 added rebind<U>::other
+    for allocating related types. C++17 simplified this via std::allocator_traits,
+    which fills in defaults; a minimal allocator only needs value_type, allocate,
+    and deallocate. The allocator must be equality-comparable (two allocators are
+    equal if memory allocated by one can be deallocated by the other). Stateless allocators
+    must be default-constructible and trivially copyable for container propagation.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — std::allocator interface in telecom message
+    pool allocator implementation
+  interview_context: Understanding allocator requirements is tested when candidates
+    design high-performance control-plane message queues in 4G/5G NFs
+- id: q349
+  domain: cpp
+  subdomain: allocators
+  tags:
+  - pmr
+  level: senior
+  question: What is std::pmr (Polymorphic Memory Resource) and when does it help?
+  answer: 'std::pmr (C++17, header <memory_resource>) decouples container allocation
+    strategy from container type via a runtime-polymorphic memory_resource interface
+    (do_allocate, do_deallocate, do_is_equal). Instead of a template parameter, containers
+    take a pmr::memory_resource* pointer, allowing different allocators (monotonic_buffer_resource
+    for arena allocation, unsynchronized_pool_resource for thread-local pools, synchronized_pool_resource
+    for thread-safe pools) to be swapped at runtime without changing container types.
+    This solves the container type explosion caused by templated allocators. In telecom,
+    pmr enables per-request arenas: allocate a stack buffer, wrap it in monotonic_buffer_resource,
+    pass to all containers processing that request, and free everything at once when
+    the request completes.'
+  spec: null
+  simulator_trigger: 5g-simulator/nrf-go/ — pmr monotonic_buffer_resource for per-request
+    NAS message arena in AMF simulation
+  interview_context: PMR arenas are the modern C++ pattern for request-scoped allocation
+    in 5G NF control plane request handling, replacing manual new/delete

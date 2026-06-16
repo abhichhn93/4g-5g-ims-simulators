@@ -1,0 +1,405 @@
+- id: q073
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - s1-mme
+  - s1ap
+  - mme
+  - nas
+  level: engineer
+  question: 'Describe the S1-MME interface: protocol stack, messages, and its role.'
+  answer: S1-MME is the control-plane interface between eNodeB and MME, carrying S1AP
+    messages over SCTP/IP. SCTP provides reliable, ordered transport with multi-homing
+    support. Key S1AP messages include UE-associated (Initial UE Message, Initial
+    Context Setup Request/Response, UE Context Release Command) and non-UE-associated
+    (S1 Setup Request/Response, Paging, Reset). NAS PDUs are carried as transparent
+    IEs — the eNodeB does not interpret them. A single eNodeB typically has S1-MME
+    connections to 2–3 MMEs for redundancy.
+  spec: TS 36.413, TS 23.401
+  simulator_trigger: 4G ATTACH command — S1AP InitialUEMessage is the first message
+    from gNB simulator to MME simulator
+  interview_context: Tests precise S1 interface knowledge needed for debugging S1AP
+    setup and UE context issues
+- id: q074
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - s6a
+  - diameter
+  - mme
+  - hss
+  - 4g-auth
+  level: senior
+  question: What Diameter commands are exchanged on the S6a interface between MME
+    and HSS?
+  answer: 'The S6a interface uses Diameter (3GPP Multimedia application, App-ID 16777251).
+    Key command pairs are: AIR/AIA (Authentication-Information-Request/Answer) — MME
+    fetches EPS authentication vectors; ULR/ULA (Update-Location-Request/Answer) —
+    MME registers UE and receives subscription data; CLR/CLA (Cancel-Location-Request/Answer)
+    — HSS deregisters UE from old MME; IDR/IDA (Insert-Subscriber-Data) — HSS pushes
+    updated subscription data; PUR/PUA (Purge-UE) — MME deregisters UE after detach.'
+  spec: TS 29.272
+  simulator_trigger: 4G ATTACH command step 4 — Diameter AIR/AIA; step 5 — ULR/ULA
+    on s6a_client.cpp
+  interview_context: Tests Diameter S6a command knowledge required for HSS troubleshooting
+    in attach failure scenarios
+- id: q075
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - s11
+  - s5s8
+  - gtpv2
+  - mme
+  - sgw
+  - pgw
+  level: engineer
+  question: What is the difference between the S11 and S5/S8 interfaces in LTE?
+  answer: S11 is between MME and SGW, uses GTPv2-C for control-plane bearer management
+    (Create/Modify/Delete Session requests), and carries no user-plane traffic. S5
+    is between SGW and PGW within the same PLMN (non-roaming), carrying both GTPv2-C
+    and GTP-U user data. S8 is functionally identical to S5 but crosses PLMN boundaries
+    for roaming scenarios — an IPX provider typically sits between S8 peers. The SGW
+    acts as a relay, forwarding GTPv2-C messages from S11 to S5 with TEID updates.
+  spec: TS 29.274, TS 23.401
+  simulator_trigger: '4G ATTACH command — Create Session Request chain: MME → SGW
+    (S11) → PGW (S5) in gtpv2_handler.cpp'
+  interview_context: Tests ability to distinguish the control and user plane stacks
+    on each interface
+- id: q076
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - gx
+  - diameter
+  - pgw
+  - pcrf
+  - 4g-bearer
+  - qci
+  level: senior
+  question: What is the Gx interface and what protocol does it use?
+  answer: Gx connects the PGW (acting as PCEF) to the PCRF, using Diameter (App-ID
+    16777238) over TCP/SCTP. When a UE attaches and a PDN connection is established,
+    the PGW opens a Gx session with CCR (CC-Request) INITIAL_REQUEST; the PCRF responds
+    with CCA containing PCC Rules (QCI, ARP, GBR, MBR, flow descriptions, charging
+    keys). The PCRF can push updated rules mid-session using RAR (Re-Auth-Request);
+    the PGW responds with RAA. Gx enables dynamic QoS enforcement — e.g., when IMS
+    triggers a dedicated bearer via Rx.
+  spec: TS 29.212
+  simulator_trigger: 4G ATTACH command — PGW sends Gx CCR-Initial to PCRF; CALL command
+    — Gx RAR pushing QCI=1 PCC rule
+  interview_context: Tests Gx/PCC understanding critical for debugging VoLTE bearer
+    establishment failures
+- id: q077
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - gy
+  - diameter
+  - pgw
+  level: senior
+  question: What is the Gy interface and how does it differ from Rf in LTE?
+  answer: Gy is the online charging interface between the PGW and OCS (Online Charging
+    System), using Diameter Credit-Control Application — it checks and reserves credit
+    before delivering service; if credit runs out, the service is immediately terminated
+    or throttled. Rf is the offline charging interface using Diameter Accounting messages
+    (ACR/ACA) to deliver CDRs post-session for batch billing reconciliation. Online
+    (Gy) = pre-paid / real-time credit control; Offline (Rf) = post-paid / batch CDR
+    delivery.
+  spec: TS 32.299, TS 32.240
+  simulator_trigger: CALL command with charging=online flag — PGW sends Diameter CCR
+    to OCS simulator over Gy
+  interview_context: Tests online vs offline charging model distinction fundamental
+    to billing architecture roles
+- id: q078
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - mme
+  - 4g-attach
+  - nas
+  - emm
+  - 4g-auth
+  - 4g-bearer
+  level: engineer
+  question: What are the key functions of the MME in LTE EPC?
+  answer: 'The MME is the primary control-plane node in EPC handling: NAS termination
+    (registration, authentication, attach/detach, TAU, paging); authentication and
+    security (EPS-AKA via S6a, K_eNB distribution); mobility management (UE state,
+    handovers, SGW/PGW selection); bearer management (EPS bearer establishment via
+    S11); and session management (PDN connections, UE IP address). The MME is on the
+    control plane only — no user data flows through it.'
+  spec: TS 23.401 §4.6.2
+  simulator_trigger: 4G ATTACH command — mme_node.cpp is the central orchestrator
+    for all EPC control-plane flows
+  interview_context: Baseline EPC node role question expected at entry-to-mid level
+- id: q079
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - sgw
+  - gtpv2
+  - teid
+  - 4g-handover
+  level: engineer
+  question: What are the key functions of the SGW in LTE?
+  answer: The SGW is the user-plane anchor for intra-LTE mobility and the control-plane
+    relay for session management. Its functions include user-plane routing (forwarding
+    user data between eNodeB via S1-U GTP-U and PGW via S5/S8 GTP-U), mobility anchoring
+    during X2 handover path switches, downlink buffering for idle UEs triggering paging,
+    DSCP packet marking based on QCI, and lawful intercept. The SGW holds both S11
+    (GTPv2-C from MME) and S1-U (GTP-U to eNB) — it is a cross-layer node.
+  spec: TS 23.401 §4.6.3
+  simulator_trigger: 4G ATTACH command — sgw_node.cpp relays GTPv2-C between MME and
+    PGW, manages GTP-U tunnels to eNB
+  interview_context: Tests SGW-specific function knowledge — commonly confused with
+    PGW in interviews
+- id: q080
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - pgw
+  - gtpv2
+  - gx
+  - 4g-bearer
+  - qci
+  level: engineer
+  question: What are the key functions of the PGW in LTE?
+  answer: The PGW is the anchor between EPC and external PDNs. Key functions include
+    IP address allocation (per APN), PCEF — enforcing PCC rules from PCRF via Gx (QoS,
+    charging, flow gating), deep packet inspection for service detection, charging
+    interfaces to OCS (Gy) and CDF (Rf), SGi interface to the external PDN, and UE
+    IP mobility anchor across SGW changes. In 5G, PGW-C evolves to SMF and PGW-U to
+    UPF.
+  spec: TS 23.401 §4.6.3
+  simulator_trigger: 4G ATTACH command — pgw_node.cpp allocates UE IP, applies QoS
+    via Gx, establishes S5/S8 GTP-U tunnel
+  interview_context: Tests PGW function knowledge; the PGW-to-SMF/UPF evolution is
+    a key 5G mapping question
+- id: q081
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - pcrf
+  - gx
+  - rx-interface
+  - ims-epc
+  - qci
+  level: senior
+  question: What is the PCRF and how does it interact with the PGW and IMS?
+  answer: The PCRF makes QoS and charging policy decisions for EPC and IMS, providing
+    PCC rules (flow descriptions, QCI, ARP, GBR/MBR, charging parameters). It interacts
+    with the PGW via Gx for initial and updated PCC rules per PDN session; with the
+    P-CSCF via Rx, which provides application-level media parameters from SDP to derive
+    dedicated bearer requirements (e.g., triggering QCI=1 for VoLTE); and with the
+    HSS/SPR for subscriber policy profiles. The PCRF is the policy bridge between
+    IMS session management and EPC bearer management.
+  spec: TS 23.203, TS 29.212, TS 29.214
+  simulator_trigger: CALL command — PCRF receives Rx AAR from P-CSCF and pushes Gx
+    RAR to PGW for QCI=1 bearer
+  interview_context: Tests the critical P-CSCF/PCRF/PGW interaction chain in VoLTE
+    call bearer setup
+- id: q082
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - hss
+  - diameter
+  - s6a
+  - 4g-auth
+  - cx
+  level: engineer
+  question: What are the key functions of the HSS in LTE?
+  answer: 'The HSS is the master subscriber database for EPS and IMS. EPS functions
+    include: storing IMSI, MSISDN, authentication keys (K), and subscription profiles;
+    generating EPS authentication vectors (via S6a); tracking UE''s current MME registration;
+    and initiating Cancel Location on MME change. IMS functions include: storing IMPI,
+    IMPU, and iFC (initial filter criteria) for service routing; providing IMS-AKA
+    authentication vectors to S-CSCF via Cx; and tracking S-CSCF assignment. The HSS
+    may integrate SLF for multi-HSS deployments.'
+  spec: TS 23.002, TS 29.272, TS 29.228
+  simulator_trigger: 4G ATTACH command — hss_simulator.cpp responds to Diameter AIR,
+    ULR; IMS REGISTER — responds to Cx MAR, SAR
+  interview_context: Tests HSS dual-role knowledge (EPC and IMS) expected at senior
+    level in network function development
+- id: q083
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - gtpv2
+  - teid
+  - tunnel
+  - sgw
+  - pgw
+  level: senior
+  question: What is a TEID and how is it used in GTP tunnels?
+  answer: 'A TEID (Tunnel Endpoint Identifier) is a 32-bit value that uniquely identifies
+    a GTP tunnel endpoint at a given node. When Node A sends a GTP packet to Node
+    B, it uses Node B''s TEID in the header — this tells Node B which tunnel the packet
+    belongs to for demultiplexing. TEIDs are locally significant to the assigning
+    node. For each EPS bearer there is a chain of GTP-U TEIDs: eNB↔SGW (S1-U) and
+    SGW↔PGW (S5/S8); GTPv2-C also uses TEIDs to match requests/responses. Nodes exchange
+    TEIDs in Create Session Request/Response.'
+  spec: TS 29.274 §5.1, TS 29.281
+  simulator_trigger: 4G ATTACH command — TEID allocation and exchange logged in gtpv2_session_manager.cpp
+  interview_context: Tests GTP tunnel endpoint identification knowledge — fundamental
+    for bearer path debugging
+- id: q084
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - gtpv2
+  - teid
+  - tunnel
+  - 4g-bearer
+  - pgw
+  - sgw
+  - mme
+  level: senior
+  question: What GTPv2-C messages are used to establish, modify, and release a dedicated
+    EPS bearer?
+  answer: For dedicated bearer establishment, the PCRF sends PCC rules to PGW via
+    Gx RAR; the PGW sends Create Bearer Request (GTPv2) to SGW then MME, which configures
+    the radio bearer. For modification, the PGW sends Update Bearer Request chain
+    through SGW to MME, which updates radio and responds. For release, the PGW initiates
+    Delete Bearer Request chain (network-initiated), or the UE requests via NAS Bearer
+    Resource Modification Request resulting in a Delete Bearer Request from PGW; PCRF
+    is notified of the final outcome via Gx.
+  spec: TS 23.401 §5.4.2, TS 29.274
+  simulator_trigger: CALL command — dedicated bearer (QCI=1) Create Bearer Request
+    chain from PGW through SGW to MME to eNB
+  interview_context: Tests end-to-end dedicated bearer lifecycle knowledge combining
+    GTPv2, PCRF, and IMS interactions
+- id: q085
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - gtpv2
+  - teid
+  - sgw
+  - pgw
+  - mme
+  level: senior
+  question: What is GTP echo and why is it important in LTE?
+  answer: GTP Echo Request/Response is a keep-alive mechanism used on GTPv2-C and
+    GTP-U interfaces to verify that remote GTP peers are alive and tunnels are functional.
+    If no response is received within timeout and retry count, the tunnel is considered
+    failed and recovery procedures trigger. Critically, the Echo Response carries
+    a Restart Counter — if a peer has restarted, its counter will have changed, alerting
+    the sending node to clear stale tunnel state and re-establish sessions, preventing
+    stale GTP contexts after node failures.
+  spec: TS 29.274 §7.2.1, TS 29.281
+  simulator_trigger: Simulator node restart — GTP echo restart counter change triggers
+    stale context cleanup in gtp_peer_manager.cpp
+  interview_context: Tests fault-detection mechanism knowledge needed for simulator
+    resilience and CHAOS testing
+- id: q086
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - diameter
+  - avp
+  - command-code
+  level: senior
+  question: What are AVPs in Diameter and how are they structured?
+  answer: AVPs (Attribute-Value Pairs) are the fundamental data units in Diameter
+    messages. Each AVP has a 32-bit AVP Code, an AVP Flags byte (M-bit mandates rejection
+    if unrecognized, V-bit indicates vendor-specific), a 24-bit AVP Length, an optional
+    32-bit Vendor-ID (3GPP uses 10415), and variable-length data padded to a 4-byte
+    boundary. AVPs can be grouped to contain nested AVPs, enabling complex structures.
+    Key examples include User-Name (AVP 1 = IMSI), Session-Id (263), and Auth-Application-Id
+    (258).
+  spec: RFC 6733, TS 29.272
+  simulator_trigger: 4G ATTACH command — Diameter AIR message decoded in diameter_codec.cpp
+    showing AVP structure
+  interview_context: Tests Diameter protocol encoding knowledge needed for AVP-level
+    message debugging in the simulator
+- id: q087
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - diameter
+  - avp
+  - command-code
+  - s6a
+  level: senior
+  question: How does a Diameter session work? What is a Session-ID AVP?
+  answer: A Diameter session represents a logical service interaction identified by
+    the Session-Id AVP (code 263), which must be globally unique and is typically
+    constructed as <DiameterIdentity>;<high-32>:<low-32>. Sessions are established
+    with an initial CCR (CC-Request-Type = INITIAL_REQUEST), maintained via interim
+    updates, and terminated with a CCR TERMINATION_REQUEST. Destination-Host and Destination-Realm
+    AVPs route messages; hop-by-hop routing is via DRAs; end-to-end identification
+    uses End-to-End-Identifier.
+  spec: RFC 6733, TS 29.212, TS 29.272
+  simulator_trigger: Gx CCR-Initial session in gx_session_manager.cpp — Session-Id
+    generated at PDN connection establishment
+  interview_context: Tests Diameter session lifecycle needed for Gx/Rx/S6a session
+    debugging in the simulator
+- id: q088
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - diameter
+  - dra
+  - s6a
+  - hss
+  level: senior
+  question: What is a Diameter Routing Agent (DRA) and when is it needed?
+  answer: A DRA is a Diameter proxy or redirect agent that centralizes routing between
+    Diameter peers, avoiding full-mesh connectivity. In a real network, an MME connecting
+    to dozens of HSSs uses a single DRA that routes to the correct HSS based on Destination-Realm/Host,
+    Session-Id, or IMSI range. DRAs also provide load balancing, failover, and in
+    IMS, route Cx messages to the correct HSS in multi-HSS environments. DRAs are
+    mandatory in large operator networks where full-mesh connections are impractical.
+  spec: TS 29.272, RFC 6733
+  simulator_trigger: Simulator DRA node in multi-HSS test scenarios — diameter_routing_agent.cpp
+    in the simulator topology
+  interview_context: Tests operational Diameter topology knowledge for large-scale
+    EPC deployment roles
+- id: q089
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - 4g-attach
+  - nas
+  - emm
+  - mme
+  level: engineer
+  question: What is the difference between ECM-IDLE and ECM-CONNECTED states in LTE,
+    and what transitions them?
+  answer: ECM-IDLE (EPS Connection Management Idle) means the UE has no S1 signaling
+    connection — bearers are suspended and the UE is reachable only via paging. ECM-CONNECTED
+    means an active S1 signaling connection exists between UE, eNodeB, and MME — user
+    data can flow and bearers are active. The UE moves from IDLE to CONNECTED when
+    it sends a Service Request (triggered by uplink data or network paging); it moves
+    back to IDLE after an inactivity timer expires and the network releases the RRC
+    connection via S1 UE Context Release.
+  spec: TS 23.401 §5.3.5
+  simulator_trigger: 4G ATTACH command — UE transitions to ECM-CONNECTED; idle timer
+    expiry triggers ECM-IDLE and S1 release
+  interview_context: Tests UE state machine knowledge fundamental to understanding
+    paging, power saving, and data session management
+- id: q090
+  domain: 4g
+  subdomain: interfaces
+  tags:
+  - s1-mme
+  - mme
+  - nas
+  - emm
+  level: engineer
+  question: What is a Tracking Area List (TAI List) and why does the MME assign multiple
+    TAs to a UE?
+  answer: 'A Tracking Area List (TAI list) is a set of Tracking Area Identities (TAIs)
+    assigned by the MME to the UE in the Attach Accept and TAU Accept messages. Instead
+    of requiring a TAU every time the UE moves to an adjacent cell in a neighboring
+    TA, the UE only triggers a TAU when it enters a TA not on its list — reducing
+    TAU signaling load. The MME balances TAI list size: too small causes frequent
+    TAUs under mobility; too large increases paging overhead since the network must
+    page in all TAs of the list simultaneously.'
+  spec: TS 23.401 §5.3.3
+  simulator_trigger: 4G ATTACH command completion — TAI list assigned in Attach Accept
+    message by mme_node.cpp
+  interview_context: Tests network-level mobility optimization trade-offs important
+    for MME dimensioning roles
