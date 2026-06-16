@@ -174,6 +174,45 @@ std::vector<uint8_t> PcapWriter::buildIPTCP(uint32_t src_ip, uint16_t src_port,
     return frame;
 }
 
+void PcapWriter::writeUdp(const std::vector<uint8_t>& payload,
+                          uint32_t src_ip, uint16_t src_port,
+                          uint32_t dst_ip, uint16_t dst_port) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!open_) return;
+
+    uint16_t udp_len     = uint16_t(8 + payload.size());
+    uint16_t ip_total    = uint16_t(20 + udp_len);
+
+    // ── IP header ─────────────────────────────────────────────
+    std::vector<uint8_t> ip;
+    ip.push_back(0x45); ip.push_back(0x00);
+    putU16(ip, ip_total);
+    putU16(ip, uint16_t(pkt_id_.fetch_add(1)));
+    putU16(ip, 0x4000);
+    ip.push_back(64);
+    ip.push_back(17); // protocol = UDP
+    putU16(ip, 0x0000); // checksum placeholder
+    ip.push_back(uint8_t(src_ip>>24)); ip.push_back(uint8_t(src_ip>>16));
+    ip.push_back(uint8_t(src_ip>>8));  ip.push_back(uint8_t(src_ip));
+    ip.push_back(uint8_t(dst_ip>>24)); ip.push_back(uint8_t(dst_ip>>16));
+    ip.push_back(uint8_t(dst_ip>>8));  ip.push_back(uint8_t(dst_ip));
+    uint16_t ck = ipChecksum(ip.data(), 20);
+    ip[10] = uint8_t(ck >> 8); ip[11] = uint8_t(ck);
+
+    // ── UDP header ────────────────────────────────────────────
+    std::vector<uint8_t> udp;
+    putU16(udp, src_port);
+    putU16(udp, dst_port);
+    putU16(udp, udp_len);
+    putU16(udp, 0x0000); // checksum disabled
+
+    std::vector<uint8_t> frame = buildEthernet();
+    frame.insert(frame.end(), ip.begin(),      ip.end());
+    frame.insert(frame.end(), udp.begin(),     udp.end());
+    frame.insert(frame.end(), payload.begin(), payload.end());
+    writePacket(frame);
+}
+
 void PcapWriter::putU16(std::vector<uint8_t>& v, uint16_t x) {
     v.push_back(uint8_t(x >> 8)); v.push_back(uint8_t(x));
 }

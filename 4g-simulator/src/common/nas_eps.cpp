@@ -76,4 +76,37 @@ std::vector<uint8_t> buildAttachAccept(const uint8_t ue_ip[4]) {
     return nas; // 34 bytes
 }
 
+// ── TAU Request (TS 24.301 §8.2.29) ──────────────────────────
+// Embedded in UL NAS Transport S1AP (eNB→MME).
+// UE sends this when it moves to a new Tracking Area.
+// Old GUTI/IMSI tells the MME which UE context to look up.
+std::vector<uint8_t> buildTauRequest(uint64_t imsi) {
+    std::vector<uint8_t> nas;
+    nas.push_back(0x07);  // PD=7 (EMM), security header=0
+    nas.push_back(0x48);  // Message type: Tracking area updating request
+    nas.push_back(0x00);  // NAS KSI=0 (native, existing security ctx) | EPS update type=0 (TA updating)
+    // Old GUTI encoded as IMSI (UE sends IMSI when no GUTI available, e.g. first attach)
+    auto epsid = encodeEpsIdImsi(imsi);
+    nas.push_back(static_cast<uint8_t>(epsid.size()));
+    nas.insert(nas.end(), epsid.begin(), epsid.end());
+    // UE network capability (reuse same as Attach Request)
+    nas.insert(nas.end(), {0x58, 0x02, 0xe0, 0xe0}); // IEI=0x58, len=2, EEA2+EIA2
+    return nas; // 16 bytes
+}
+
+// ── TAU Accept (TS 24.301 §8.2.28) ──────────────────────────
+// MME sends this to confirm the TAU. UE updates its registered TAI.
+std::vector<uint8_t> buildTauAccept() {
+    return {
+        0x07, 0x49,  // EMM, Tracking area updating accept
+        0x00,        // EPS update result=0 (TA updated), Active flag=0
+        0x5A, 0x49,  // T3412 value IE: IEI=0x5A, 0x49=360s*9 = 54 minutes (standard)
+        0x54, 0x07,  // TAI list IEI=0x54, length=7
+        0x00,        // Partial TAI list: type=0 (consecutive TACs, same PLMN)
+        0x01,        // Number of elements = 2 (element count - 1 = 1)
+        0x04, 0xF4, 0x01,  // PLMN = MCC=404/MNC=10 (coded as 04 F4 01)
+        0x00, 0x02,  // TAC = 2 (new tracking area UE moved into)
+    };
+}
+
 } // namespace nas_eps

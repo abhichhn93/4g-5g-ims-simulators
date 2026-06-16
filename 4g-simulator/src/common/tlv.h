@@ -90,6 +90,21 @@ enum class Tag : uint16_t {
     GX_MAX_UL_BPS   = 0x0404,  // uint32  Max UL bitrate (bps)
     GX_MAX_DL_BPS   = 0x0405,  // uint32  Max DL bitrate (bps)
     GX_RESULT_CODE  = 0x0406,  // uint8   1=SUCCESS (simplified Diameter result)
+
+    // ── TAU IEs (0x0500 – 0x05FF) — TS 24.301 §5.5.3 ─────────────────────
+    TAU_UPDATE_TYPE = 0x0500,  // uint8   0=TA updating, 1=periodic, 4=combined TA/LA
+    TAU_IMSI        = 0x0501,  // uint64  UE's IMSI (sent as old identity)
+
+    // ── S1 Handover IEs (0x0600 – 0x06FF) — TS 36.413 §8.4 ───────────────
+    HO_TYPE         = 0x0600,  // uint8   0=intra-LTE (intralte)
+    HO_CAUSE        = 0x0601,  // uint8   handover-desirable-for-radio-reasons=0
+    HO_TARGET_TAC   = 0x0602,  // uint16  Target TAC (simulated second cell)
+    HO_TARGET_CELL  = 0x0603,  // uint32  Target Cell ID (simulated second cell)
+    HO_SRC_CONTAINER= 0x0604,  // bytes   Source-to-Target Transparent Container (opaque)
+    HO_TGT_CONTAINER= 0x0605,  // bytes   Target-to-Source Transparent Container (opaque)
+    HO_ENB_TEID_NEW = 0x0606,  // uint32  New eNB S1-U TEID on target (after HO)
+    HO_PDCP_SN_UL   = 0x0607,  // uint32  PDCP SN for uplink (eNB Status Transfer)
+    HO_PDCP_SN_DL   = 0x0608,  // uint32  PDCP SN for downlink (eNB Status Transfer)
 };
 
 // ── Frame header: 8 bytes after the 4-byte TCP length prefix ─

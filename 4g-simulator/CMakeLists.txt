@@ -41,3 +41,10 @@ target_include_directories(mme_sim PRIVATE src)
 target_link_libraries(mme_sim Threads::Threads ${PLATFORM_LIBS})
 
 # IMS/VoLTE (mme_ims, ims_server, ue_sim) moved to ../ims-simulator/
+
+# ── Scenario Runner: YAML-driven CLI automation ───────────────
+# Usage: ./scenario_runner scenario.yaml | ./mme_sim
+# Or via Python: python3 test_automation.py scenario.yaml
+add_executable(scenario_runner src/scenario_runner.cpp)
+target_include_directories(scenario_runner PRIVATE src)
+target_link_libraries(scenario_runner Threads::Threads ${PLATFORM_LIBS})

@@ -109,6 +109,60 @@ static void doRegistration(const Socket& amf, int ueId) {
     Logger::step("UE " + ids5g::supi(ueId) + " registration finished -- 5G-GUTI=" + guti);
 }
 
+// PDU Session Establishment: UE requests data connectivity (TS 23.502 §4.3.2)
+static void doPduSession(const Socket& amf, int ueId, int pduSessId = 1,
+                          const std::string& dnn = "internet") {
+    Logger::step("UE " + ids5g::supi(ueId) + " -- PDU Session Establishment");
+    Logger::gnb(Level::BEGINNER, "gNB -> AMF: PDU Session Establishment Request (NAS via N2)");
+    Logger::ie_field("PDU Session ID = " + std::to_string(pduSessId));
+    Logger::ie_field("DNN            = " + dnn + "  (Data Network Name = APN equivalent in 5G)");
+    Logger::ie_field("S-NSSAI        = {sst:1, sd:000001}  (eMBB slice)");
+
+    Logger::gnb(Level::INTERVIEW_T,
+        "INTERVIEW: PDU Session = bearer context in 5G. Default bearer equivalent.");
+    Logger::gnb(Level::INTERVIEW_C,
+        "Each UE can have multiple concurrent PDU Sessions to different DNNs.");
+    Logger::gnb(Level::INTERVIEW_C,
+        "Unlike 4G where bearer QoS is managed by P-GW+PCRF, in 5G SMF+PCF handle it.");
+
+    std::string req = json::obj({
+        {"msgType",      json::str("PduSessionRequest")},
+        {"ranUeNgapId",  json::num(ueId)},
+        {"pduSessionId", json::num(pduSessId)},
+        {"dnn",          json::str(dnn)},
+        {"sNssai",       json::str("{\"sst\":1,\"sd\":\"000001\"}")},
+    });
+    Logger::raw(req);
+    amf.sendFrame(n2Frame(req));
+
+    std::vector<uint8_t> payload;
+    if (!amf.recvFrame(payload)) { Logger::warn(" gNB  ", "AMF closed connection"); return; }
+    std::string text = n2Text(payload);
+    Logger::raw(text);
+
+    if (json::get(text, "msgType") != "PduSessionAccept") {
+        Logger::warn(" gNB  ", "expected PduSessionAccept, got: " + text);
+        return;
+    }
+
+    std::string ue_ip  = json::get(text, "ueIpAddress");
+    std::string upf_ip = json::get(text, "upfIp");
+    std::string upf_teid = json::get(text, "upfTeid");
+
+    Logger::gnb(Level::BEGINNER, "gNB <- AMF: PDU Session Resource Setup (ueIp=" + ue_ip + ")");
+    Logger::ie_field("UE IPv4   = " + ue_ip + "  (assigned by SMF from DNN pool 10.45.0.0/16)");
+    Logger::ie_field("UPF N3 IP = " + upf_ip + "  (gNB creates GTP-U tunnel to this address)");
+    Logger::ie_field("UPF TEID  = " + upf_teid + "  (GTP-U tunnel endpoint identifier)");
+    Logger::gnb(Level::ENGINEER,
+        "gNB programs its GTP-U engine: UL: {UE traffic} → encapsulate GTP-U → UPF " + upf_ip);
+    Logger::gnb(Level::ENGINEER,
+        "DL: GTP-U from UPF → decapsulate → send to UE as plain IP");
+    Logger::gnb(Level::INTERVIEW_C,
+        "User plane path: UE ←(radio)→ gNB ←(N3 GTP-U)→ UPF ←(N6)→ internet");
+
+    Logger::step("PDU SESSION ESTABLISHED: UE has IP=" + ue_ip + "  DNN=" + dnn);
+}
+
 int main() {
     Logger::setSessionFile("g5_gnb_session.log");
     Logger::setLevelFromEnv();
@@ -123,18 +177,24 @@ int main() {
     Logger::sys("gNB: connecting to AMF at " + std::string(AMF_IP) + ":" + std::to_string(AMF_PORT));
     Socket amf = Socket::connectTo(AMF_IP, AMF_PORT);
     Logger::sys("gNB: N2 connection established");
-    Logger::sys("Commands: REG <ueId>   |   QUIT");
+    Logger::sys("Commands: REG <ueId>  |  PDU <ueId> [pduSessId] [dnn]  |  QUIT");
 
     std::string line;
     while (std::getline(std::cin, line)) {
         std::istringstream ss(line);
         std::string cmd; ss >> cmd;
-        if (cmd == "QUIT" || cmd == "quit") break;
-        if (cmd == "REG" || cmd == "reg") {
+        for (auto& c : cmd) c = char(std::toupper(unsigned(c)));
+        if (cmd == "QUIT") break;
+        if (cmd == "REG") {
             int ueId = 1; ss >> ueId;
             doRegistration(amf, ueId);
+        } else if (cmd == "PDU") {
+            int ueId = 1, pduSessId = 1; std::string dnn = "internet";
+            ss >> ueId;
+            if (ss >> pduSessId) { std::string d; if (ss >> d) dnn = d; }
+            doPduSession(amf, ueId, pduSessId, dnn);
         } else if (!cmd.empty()) {
-            Logger::warn(" gNB  ", "unknown command: " + line);
+            Logger::sys("Commands: REG <ueId>  |  PDU <ueId> [pduSessId] [dnn]  |  QUIT");
         }
     }
     Logger::shutdown();

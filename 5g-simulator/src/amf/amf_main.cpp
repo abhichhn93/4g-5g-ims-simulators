@@ -57,6 +57,8 @@ static PcapWriter& pcap() { return PcapWriter::instance(); }
 // (e.g. udm_sim hasn't registered yet) -- logged loudly either way.
 static std::string udmHost = "127.0.0.1";
 static uint16_t    udmPort = 29503;
+static std::string smfHost = "127.0.0.1";
+static uint16_t    smfPort = 29502;
 
 // Open a fresh SBI connection to UDM, send `req`, return the response.
 static HttpMessage callUdm(const std::string& req) {
@@ -72,6 +74,61 @@ static HttpMessage callUdm(const std::string& req) {
                          PcapWriter::IP_UDM, PcapWriter::PORT_SBI,
                          PcapWriter::IP_AMF, PcapWriter::PORT_SBI);
     return resp;
+}
+
+// AMF → SMF: Nsmf_PDUSession_CreateSMContext (TS 29.502 §4.2.2.2)
+static std::string callSmf(const std::string& supi, int pdu_sess_id, const std::string& dnn) {
+    Logger::amf(Level::BEGINNER,
+        "AMF -> SMF: Nsmf_PDUSession_CreateSMContext [TS 29.502 §4.2.2.2]");
+    Logger::ie_field("  SMF will allocate UE IP, set up N4 (PFCP) session with UPF");
+
+    Logger::amf(Level::INTERVIEW_T,
+        "[INTERVIEW] Q: Why does AMF call SMF separately, not handle PDU sessions itself?");
+    Logger::amf(Level::INTERVIEW_C,
+        "A: Separation of concerns. AMF handles mobility (N2, NAS), SMF handles");
+    Logger::amf(Level::INTERVIEW_C,
+        "   sessions (IP allocation, UPF selection, policy). This allows independent");
+    Logger::amf(Level::INTERVIEW_C,
+        "   scaling: more simultaneous PDU sessions → scale SMF, not AMF.");
+
+    std::string body = json::obj({
+        {"supi",         json::str(supi)},
+        {"pduSessionId", json::num(pdu_sess_id)},
+        {"dnn",          json::str(dnn.empty() ? "internet" : dnn)},
+        {"snssai",       json::str("{\"sst\":1,\"sd\":\"000001\"}")},
+        {"servingNssai", json::str("5G:mnc010.mcc404.3gppnetwork.org")},
+        {"anType",       json::str("3GPP_ACCESS")},
+    });
+    std::string req_str = httpBuild(
+        "POST /nsmf-pdusession/v1/sm-contexts HTTP/1.1",
+        body,
+        "Host: smf.5gc.mnc010.mcc404.3gppnetwork.org");
+
+    try {
+        Socket smf = Socket::connectTo(smfHost.c_str(), smfPort);
+        Logger::raw(req_str);
+        pcap().writeAppText(req_str, PcapWriter::IP_AMF, PcapWriter::PORT_SBI,
+                                      PcapWriter::IP_SMF, PcapWriter::PORT_SBI);
+        httpSend(smf, req_str);
+        HttpMessage resp;
+        if (!httpRecv(smf, resp)) {
+            Logger::warn(" AMF  ", "SMF closed connection without response");
+            return "";
+        }
+        Logger::raw(resp.body);
+        pcap().writeAppText(httpBuild(resp.startLine, resp.body),
+                             PcapWriter::IP_SMF, PcapWriter::PORT_SBI,
+                             PcapWriter::IP_AMF, PcapWriter::PORT_SBI);
+        std::string ue_ip = json::get(resp.body, "ueIpAddress");
+        Logger::amf(Level::BEGINNER,
+            "AMF <- SMF: 201 Created  ueIp=" + ue_ip);
+        Logger::ie_field("  UPF GTP-U TEID=0x00000101 (gNB will create GTP-U tunnel to UPF)");
+        return ue_ip;
+    } catch (const std::exception& e) {
+        Logger::warn(" AMF  ", "SMF unreachable: " + std::string(e.what()) +
+                     " — PDU session skipped (run smf_sim first)");
+        return "";
+    }
 }
 
 static void sendToGnb(const Socket& gnb, const std::string& json_text) {
@@ -177,11 +234,62 @@ static void handleAuthResponse(const Socket& gnb, const std::string& text,
     sendToGnb(gnb, out);
 }
 
-static void handleRegistrationComplete(const std::string& text, std::map<int, UeContext>& ctx) {
+static void handleRegistrationComplete(const Socket& gnb, const std::string& text,
+                                       std::map<int, UeContext>& ctx) {
     int ueId = std::stoi(json::get(text, "ranUeNgapId"));
     std::string supi = ctx.count(ueId) ? ctx[ueId].supi : "?";
     Logger::amf(Level::BEGINNER, "AMF <- gNB: RegistrationComplete");
     Logger::step("Registration COMPLETE: " + supi + " is now registered on the 5G core");
+}
+
+// Handle PDU Session Establishment Request from gNB (forwarded from UE NAS)
+static void handlePduSessionRequest(const Socket& gnb, const std::string& text,
+                                    std::map<int, UeContext>& ctx) {
+    int ueId       = std::stoi(json::get(text, "ranUeNgapId"));
+    int pduSessId  = 1;
+    std::string ps = json::get(text, "pduSessionId");
+    if (!ps.empty()) pduSessId = std::stoi(ps);
+    std::string dnn = json::get(text, "dnn");
+    std::string supi = ctx.count(ueId) ? ctx[ueId].supi : ("imsi-404100000000" + std::to_string(ueId));
+
+    Logger::amf(Level::BEGINNER,
+        "AMF <- gNB: PDU Session Establishment Request (NAS over N2/NGAP)");
+    Logger::ie_field("  SUPI         = " + supi);
+    Logger::ie_field("  PDU Session  = " + std::to_string(pduSessId));
+    Logger::ie_field("  DNN          = " + (dnn.empty() ? "internet" : dnn));
+
+    Logger::amf(Level::INTERVIEW_T,
+        "[INTERVIEW] Q: What triggers PDU Session Establishment?");
+    Logger::amf(Level::INTERVIEW_C,
+        "A: UE sends NAS: PDU Session Establishment Request (msg_type=0xC1).");
+    Logger::amf(Level::INTERVIEW_C,
+        "   gNB wraps it in NGAP: UplinkNASTransport → AMF.");
+    Logger::amf(Level::INTERVIEW_C,
+        "   AMF identifies the SM procedure, forwards to SMF: Nsmf_PDUSession_CreateSMContext.");
+    Logger::amf(Level::INTERVIEW_C,
+        "   SMF programs UPF via PFCP, returns UE IP.");
+    Logger::amf(Level::INTERVIEW_C,
+        "   AMF sends NGAP: PDU Session Resource Setup Request to gNB with UE IP + UPF TEID.");
+
+    // Call SMF to create PDU session
+    std::string ue_ip = callSmf(supi, pduSessId, dnn);
+    if (ue_ip.empty()) ue_ip = "10.45.0.2"; // fallback for demo
+
+    // Send PDU Session Accept back to gNB
+    std::string out = json::obj({
+        {"msgType",      json::str("PduSessionAccept")},
+        {"ranUeNgapId",  json::num(ueId)},
+        {"pduSessionId", json::num(pduSessId)},
+        {"ueIpAddress",  json::str(ue_ip)},
+        {"upfIp",        json::str("10.1.0.4")},
+        {"upfTeid",      json::str("0x00000101")},
+        {"dnn",          json::str(dnn.empty() ? "internet" : dnn)},
+    });
+    Logger::amf(Level::BEGINNER,
+        "AMF -> gNB: PDU Session Resource Setup Request  ueIp=" + ue_ip);
+    Logger::ie_field("  gNB will create GTP-U tunnel to UPF (10.1.0.4) using TEID=0x00000101");
+    Logger::ie_field("  User plane is now established: UE ←(radio)→ gNB ←(GTP-U N3)→ UPF ←(N6)→ internet");
+    sendToGnb(gnb, out);
 }
 
 int main() {
@@ -220,8 +328,19 @@ int main() {
         udmPort = 29503;
         Logger::sys("AMF: NRF discovery for UDM failed -- falling back to " + udmHost + ":" + std::to_string(udmPort));
     }
-
     Logger::sys("AMF: SBI peer UDM at " + udmHost + ":" + std::to_string(udmPort));
+
+    // Discover SMF via NRF (for PDU session handling)
+    auto smf = nrfclient::discover(Logger::CLR_AMF, " AMF  ", "SMF");
+    if (smf.found) {
+        smfHost = smf.host;
+        smfPort = smf.port;
+    } else {
+        smfHost = std::getenv("SMF_HOST") ? std::getenv("SMF_HOST") : "127.0.0.1";
+        smfPort = 29502;
+        Logger::sys("AMF: NRF discovery for SMF failed -- falling back to " + smfHost + ":" + std::to_string(smfPort));
+    }
+    Logger::sys("AMF: SBI peer SMF at " + smfHost + ":" + std::to_string(smfPort));
 
     std::map<int, UeContext> ue_ctx;
 
@@ -241,7 +360,8 @@ int main() {
 
             if (msgType == "RegistrationRequest")    handleRegistrationRequest(gnb, text, ue_ctx);
             else if (msgType == "AuthenticationResponse") handleAuthResponse(gnb, text, ue_ctx);
-            else if (msgType == "RegistrationComplete")   handleRegistrationComplete(text, ue_ctx);
+            else if (msgType == "RegistrationComplete")   handleRegistrationComplete(gnb, text, ue_ctx);
+            else if (msgType == "PduSessionRequest")      handlePduSessionRequest(gnb, text, ue_ctx);
             else Logger::warn(" AMF  ", "unknown N2 msgType: " + msgType);
         }
         Logger::amf(Level::BEGINNER, "gNB disconnected");

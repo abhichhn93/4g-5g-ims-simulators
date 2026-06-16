@@ -36,6 +36,13 @@ private:
     void receiveLoop();
     void processCommand(const std::string& cmd);
     void sendInitialUEMessage(uint32_t ue_index);
-    void handleDLNas(const std::vector<uint8_t>& payload);
-    void handleICSR (const std::vector<uint8_t>& payload);
+    void handleDLNas       (const std::vector<uint8_t>& payload);
+    void handleICSR        (const std::vector<uint8_t>& payload);
+    void handleTauAccept   (const std::vector<uint8_t>& payload);
+    void handleHoRequest   (const std::vector<uint8_t>& payload);
+    void handleHoCommand   (const std::vector<uint8_t>& payload);
+    void handleMmeStatusXfer(const std::vector<uint8_t>& payload);
+    void handleUeCtxRelCmd (const std::vector<uint8_t>& payload);
+    void sendTauRequest    (uint32_t mme_id, uint32_t enb_id, uint64_t imsi);
+    void sendHandoverRequired(uint32_t mme_id, uint32_t enb_id);
 };

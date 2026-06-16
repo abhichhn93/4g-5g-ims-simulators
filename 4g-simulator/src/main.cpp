@@ -12,6 +12,7 @@
 #include "common/pcap_writer.h"
 #include "common/thread_pool.h"
 #include "common/metrics.h"
+#include "common/prometheus_server.h"
 #include "enb/enb_node.h"
 #include "mme/mme_node.h"
 #include "hss/hss_node.h"
@@ -84,6 +85,10 @@ int main() {
     PcrfNode pcrf(stop, pcrf_ready);
     EnbNode  enb (stop, enb_ready);
     MmeNode  mme (stop, enb_ready, hss_ready, sgw_ready, metrics);
+
+    // Prometheus scrape endpoint: http://localhost:9090/metrics
+    PrometheusServer prom_server(metrics, 9090);
+    prom_server.start();
 
     // Thread pool for BULK: 8 workers (= hardware_concurrency typical)
     // Created once at startup, reused for all BULK commands
@@ -158,8 +163,37 @@ int main() {
             }
             metrics->printReport();
         }
+        else if (cmd=="TAU") {
+            // TAU <ue_id>  — trigger Tracking Area Update for a registered UE
+            // INTERVIEW: UE moved to a new TA not in its TAI list, or T3412 expired.
+            int ue_id=1; if(!(iss>>ue_id)||ue_id<1) ue_id=1;
+            Logger::sys("TAU " + std::to_string(ue_id) + " — triggering Tracking Area Update");
+            Logger::sys("Flow: UE→TAU Request (UL NAS) → MME validates TAI → TAU Accept (DL NAS)");
+            Logger::sys("TS 23.401 §5.3.3 | TS 24.301 §5.5.3");
+            enb.submitCommand("TAU " + std::to_string(ue_id));
+        }
+        else if (cmd=="HO") {
+            // HO <ue_id>  — trigger S1 Handover for a registered UE (7-step S1 HO flow)
+            // INTERVIEW: intra-LTE S1 HO when X2 link is absent between eNBs.
+            int ue_id=1; if(!(iss>>ue_id)||ue_id<1) ue_id=1;
+            Logger::sys("HO " + std::to_string(ue_id) + " — triggering S1 Handover (7-step flow)");
+            Logger::sys("Flow: HO Required → HO Request → Ack → Command → StatusXfer → Notify → Release");
+            Logger::sys("TS 36.413 §8.4 (S1AP) | TS 23.401 §5.5.1.1.2 (procedures)");
+            enb.submitCommand("HO " + std::to_string(ue_id));
+        }
+        else if (cmd=="MODE") {
+            std::string mode; iss >> mode;
+            for(auto& c:mode) c=char(std::toupper(unsigned(c)));
+            if (mode=="BEGINNER")       Logger::setLevel(Logger::Level::BEGINNER);
+            else if (mode=="ENGINEER")  Logger::setLevel(Logger::Level::ENGINEER);
+            else if (mode=="INTERVIEW") Logger::setLevel(Logger::Level::INTERVIEW_T);
+            else Logger::sys("MODE: use BEGINNER / ENGINEER / INTERVIEW");
+            Logger::sys("Log mode set to " + mode);
+        }
         else {
-            Logger::sys("Unknown: '" + line + "'. Try: CR 1, BULK 5, STATUS, QUIT");
+            Logger::sys("Unknown: '" + line + "'.");
+            Logger::sys("Commands: CR <n>  BULK <n>  TAU <ue_id>  HO <ue_id>  STATUS  MODE <level>  QUIT");
+            Logger::sys("Examples: CR 1   BULK 10   TAU 1   HO 1   MODE BEGINNER");
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -168,6 +202,7 @@ int main() {
 
     Logger::sys("Stopping...");
     stop.store(true);
+    prom_server.stop();
     enb.requestStop();
 
     Logger::sys("joining hss...");  hss_th.join();

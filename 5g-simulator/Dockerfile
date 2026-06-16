@@ -46,7 +46,27 @@ RUN chmod +x entrypoint.sh
 EXPOSE 38412
 ENTRYPOINT ["./entrypoint.sh"]
 
-# ── Stage 5: gNB (interactive CLI -> driven non-interactively) ─
+# ── Stage 5: SMF (SBI HTTP server :29502, PFCP N4 client to UPF) ──
+# CUPS control plane: allocates UE IPs, programs UPF via N4/PFCP.
+FROM debian:bookworm-slim AS smf
+WORKDIR /app
+COPY --from=builder /src/build/smf_sim ./smf_sim
+COPY docker/entrypoint-smf.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
+EXPOSE 29502
+ENTRYPOINT ["./entrypoint.sh"]
+
+# ── Stage 6: UPF (N4 PFCP UDP server :8805) ──────────────────
+# CUPS user plane: GTP-U forwarding, PDR/FAR enforcement.
+FROM debian:bookworm-slim AS upf
+WORKDIR /app
+COPY --from=builder /src/build/upf_sim ./upf_sim
+COPY docker/entrypoint-upf.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
+EXPOSE 8805/udp
+ENTRYPOINT ["./entrypoint.sh"]
+
+# ── Stage 7: gNB (interactive CLI -> driven non-interactively) ─
 FROM python:3.12-slim-bookworm AS gnb
 WORKDIR /app
 COPY --from=builder /src/build/gnb_sim ./gnb_sim

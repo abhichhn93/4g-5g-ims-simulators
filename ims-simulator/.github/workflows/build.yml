@@ -1,0 +1,42 @@
+name: IMS Simulator Build
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'ims-simulator/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'ims-simulator/**'
+
+jobs:
+  cmake-build:
+    name: CMake Build & Smoke Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ims-simulator
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build all targets
+        run: cmake --build build -j4
+
+      - name: Smoke test — IMS single-process (REG + CALL + BYE)
+        run: |
+          printf 'MODE ENGINEER\nREG ALL\nCALL A B\nBYE\nQUIT\n' | timeout 15 ./build/mme_ims || true
+          ls -la ims_capture.pcap && echo "PCAP generated OK"
+
+      - name: Verify pcap is non-empty
+        run: |
+          SIZE=$(stat -c%s ims_capture.pcap 2>/dev/null || stat -f%z ims_capture.pcap)
+          echo "PCAP size: $SIZE bytes"
+          [ "$SIZE" -gt 100 ] && echo "PASS" || (echo "FAIL: pcap too small" && exit 1)

@@ -112,4 +112,108 @@ std::vector<uint8_t> buildInitialContextSetupResponse(uint32_t mme_id, uint32_t 
     return pdu;
 }
 
+// ── Handover S1AP PDU helpers ─────────────────────────────────
+//
+// S1AP APER outer frame structure (derived from existing templates):
+//   Byte 0: PDU type (0x00=initiatingMessage, 0x20=successfulOutcome)
+//   Byte 1: Procedure code (see TS 36.413 §9.1 for procedure list)
+//   Byte 2: Criticality (0x00=reject, 0x40=ignore, 0x80=notify)
+//   Byte 3: Value length (byte count of remaining body)
+//   Byte 4: Extension marker (0x00 = no extensions present)
+//   Byte 5-6: IE count big-endian (e.g. 0x00 0x02 = 2 IEs)
+//
+// Each IE:
+//   2B: IE ID (big-endian, from TS 36.413 §9.2)
+//   1B: criticality (0x00=reject, 0x40=ignore, 0x80=notify)
+//   1B: open-type length (value bytes that follow)
+//   NB: value
+//
+// IE IDs used here:
+//   id-MME-UE-S1AP-ID = 0 (0x0000), id-eNB-UE-S1AP-ID = 8 (0x0008)
+//   id-HandoverType = 1 (0x0001), id-Cause = 2 (0x0002)
+//   id-UE-S1AP-IDs = 99 (0x0063)
+//
+// INTERVIEW NOTE: TS 36.413 §8.4 defines the S1 Handover procedure.
+// It's a 7-step flow: Required→Request→Ack→Command→StatusXfer→Notify→Release.
+
+namespace {
+// Build a minimal but structurally valid S1AP frame for handover messages.
+// 2 primary IEs: MME-UE-S1AP-ID and ENB-UE-S1AP-ID.
+static std::vector<uint8_t> buildHoPdu(uint8_t pdu_type, uint8_t proc_code,
+                                        uint8_t criticality,
+                                        uint32_t mme_id, uint32_t enb_id,
+                                        const std::vector<uint8_t>& extra_ies = {}) {
+    // IEs: [2B ID][1B crit][1B len][NB val]
+    // MME-UE-S1AP-ID (id=0, reject=0x00, 2-byte value)
+    std::vector<uint8_t> ies = {
+        0x00, 0x00,  0x00,  0x02,
+        static_cast<uint8_t>((mme_id >> 8) & 0xFF), static_cast<uint8_t>(mme_id & 0xFF),
+        // ENB-UE-S1AP-ID (id=8, reject=0x00, 2-byte value)
+        0x00, 0x08,  0x00,  0x02,
+        static_cast<uint8_t>((enb_id >> 8) & 0xFF), static_cast<uint8_t>(enb_id & 0xFF),
+    };
+    ies.insert(ies.end(), extra_ies.begin(), extra_ies.end());
+
+    uint8_t n_ies = uint8_t(2 + extra_ies.size() / 6); // each extra IE is ~6 bytes
+    // Body: [ext=0x00][count 2B][IEs]
+    std::vector<uint8_t> body = {0x00, 0x00, n_ies};
+    body.insert(body.end(), ies.begin(), ies.end());
+
+    std::vector<uint8_t> pdu = {pdu_type, proc_code, criticality,
+                                  static_cast<uint8_t>(body.size())};
+    pdu.insert(pdu.end(), body.begin(), body.end());
+    return pdu;
+}
+} // anonymous namespace
+
+std::vector<uint8_t> buildHandoverRequired(uint32_t mme_id, uint32_t enb_id) {
+    // proc=0 (HandoverPreparation), initiating, reject
+    // Extra IE: HandoverType (id=1, reject, 1B: intralte=0)
+    std::vector<uint8_t> extra = {0x00, 0x01, 0x00, 0x01, 0x00,  // HandoverType=intralte
+                                   0x00, 0x02, 0x40, 0x02, 0x00, 0x00}; // Cause=radioNetwork.0
+    return buildHoPdu(0x00, 0x00, 0x00, mme_id, enb_id, extra);
+}
+
+std::vector<uint8_t> buildHandoverRequest(uint32_t mme_id, uint32_t enb_id) {
+    // proc=1 (HandoverResourceAllocation), initiating, reject
+    std::vector<uint8_t> extra = {0x00, 0x01, 0x00, 0x01, 0x00,  // HandoverType=intralte
+                                   0x00, 0x02, 0x40, 0x02, 0x00, 0x00}; // Cause=radioNetwork.0
+    return buildHoPdu(0x00, 0x01, 0x00, mme_id, enb_id, extra);
+}
+
+std::vector<uint8_t> buildHandoverRequestAck(uint32_t mme_id, uint32_t enb_id) {
+    // proc=1, successfulOutcome, ignore
+    return buildHoPdu(0x20, 0x01, 0x40, mme_id, enb_id);
+}
+
+std::vector<uint8_t> buildHandoverCommand(uint32_t mme_id, uint32_t enb_id) {
+    // proc=0, successfulOutcome (HandoverCommand is a successful outcome of HandoverPreparation)
+    return buildHoPdu(0x20, 0x00, 0x00, mme_id, enb_id);
+}
+
+std::vector<uint8_t> buildENBStatusTransfer(uint32_t mme_id, uint32_t enb_id) {
+    // proc=24 (0x18), initiating, ignore
+    return buildHoPdu(0x00, 0x18, 0x40, mme_id, enb_id);
+}
+
+std::vector<uint8_t> buildMMEStatusTransfer(uint32_t mme_id, uint32_t enb_id) {
+    // proc=25 (0x19), initiating, ignore
+    return buildHoPdu(0x00, 0x19, 0x40, mme_id, enb_id);
+}
+
+std::vector<uint8_t> buildHandoverNotify(uint32_t mme_id, uint32_t enb_id) {
+    // proc=2, initiating, ignore
+    return buildHoPdu(0x00, 0x02, 0x40, mme_id, enb_id);
+}
+
+std::vector<uint8_t> buildUEContextReleaseCommand(uint32_t mme_id, uint32_t enb_id) {
+    // proc=23 (0x17), initiating, reject
+    return buildHoPdu(0x00, 0x17, 0x00, mme_id, enb_id);
+}
+
+std::vector<uint8_t> buildUEContextReleaseComplete(uint32_t mme_id, uint32_t enb_id) {
+    // proc=23 (0x17), successfulOutcome, ignore
+    return buildHoPdu(0x20, 0x17, 0x40, mme_id, enb_id);
+}
+
 } // namespace s1ap

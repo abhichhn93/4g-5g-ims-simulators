@@ -85,4 +85,13 @@ private:
     void handleICSetupResponse(const std::vector<uint8_t>& payload);
     void handleAuthSuccess    (uint32_t mme_id);
     bool sendCreateSession    (uint32_t mme_id, uint64_t imsi);
+    // TAU
+    void handleTauRequest     (const std::vector<uint8_t>& payload);
+    // S1 Handover
+    void handleHandoverRequired    (const std::vector<uint8_t>& payload);
+    void handleHandoverRequestAck  (const std::vector<uint8_t>& payload);
+    void handleEnbStatusTransfer   (const std::vector<uint8_t>& payload);
+    void handleHandoverNotify      (const std::vector<uint8_t>& payload);
+    void handleUeContextRelCmpl    (const std::vector<uint8_t>& payload);
+    bool sendModifyBearer          (uint32_t mme_id, uint32_t new_enb_teid);
 };

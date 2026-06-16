@@ -219,10 +219,10 @@ void PcapWriter::writeSIP(const std::string& sip_text,
     std::vector<uint8_t> payload(sip_text.begin(), sip_text.end());
     std::lock_guard<std::mutex> lk(mtx_);
     ensureTcpHandshake(src_ip, PORT_SIP, dst_ip, PORT_SIP);
-    writePacket(buildIPTCP(src_ip, src_port, dst_ip, dst_port, payload, 0x18,
-                            nextSeq(src_ip, src_port, dst_ip, dst_port),
-                            peerSeq(src_ip, src_port, dst_ip, dst_port)));
-    advanceSeq(src_ip, src_port, dst_ip, dst_port, uint32_t(payload.size()));
+    writePacket(buildIPTCP(src_ip, PORT_SIP, dst_ip, PORT_SIP, payload, 0x18,
+                            nextSeq(src_ip, PORT_SIP, dst_ip, PORT_SIP),
+                            peerSeq(src_ip, PORT_SIP, dst_ip, PORT_SIP)));
+    advanceSeq(src_ip, PORT_SIP, dst_ip, PORT_SIP, uint32_t(payload.size()));
 }
 
 void PcapWriter::writeS1AP(const std::string& msg_name,

@@ -1,0 +1,8 @@
+name: "Basic Attach Flow"
+mode: BEGINNER
+steps:
+  - cmd: CR 1
+    expect: REGISTERED
+    delay_ms: 100
+  - cmd: STATUS
+  - cmd: QUIT

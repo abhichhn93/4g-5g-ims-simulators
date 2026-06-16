@@ -53,8 +53,13 @@ void EnbNode::receiveLoop() {
         if (payload.size() < 8) continue;
         MessageReader r(payload);
         switch (r.msgType()) {
-            case MessageType::S1AP_DL_NAS_TRANSPORT:        handleDLNas(payload);  break;
-            case MessageType::S1AP_INITIAL_CONTEXT_SETUP_REQ: handleICSR(payload); break;
+            case MessageType::S1AP_DL_NAS_TRANSPORT:          handleDLNas(payload);       break;
+            case MessageType::S1AP_INITIAL_CONTEXT_SETUP_REQ: handleICSR(payload);        break;
+            case MessageType::S1AP_TAU_ACCEPT:                handleTauAccept(payload);   break;
+            case MessageType::S1AP_HANDOVER_REQUEST:          handleHoRequest(payload);   break;
+            case MessageType::S1AP_HANDOVER_COMMAND:          handleHoCommand(payload);   break;
+            case MessageType::S1AP_MME_STATUS_TRANSFER:       handleMmeStatusXfer(payload); break;
+            case MessageType::S1AP_UE_CONTEXT_RELEASE_CMD:    handleUeCtxRelCmd(payload); break;
             default: Logger::warn("eNB","[rx_th] unknown: "+std::string(msg_type_str(r.msgType())));
         }
     }
@@ -217,6 +222,17 @@ void EnbNode::processCommand(const std::string& cmd) {
     if (cmd.size()>=2 && cmd.substr(0,2)=="CR") {
         int n=1; try{if(cmd.size()>3) n=std::stoi(cmd.substr(3));}catch(...){}
         for(int i=0;i<n&&!stop_.load();++i) sendInitialUEMessage(next_enb_ue_id_++);
+    } else if (cmd.size()>=3 && cmd.substr(0,3)=="TAU") {
+        // TAU <ue_id>  — trigger Tracking Area Update for an attached UE
+        uint32_t ue_id=1; try{if(cmd.size()>4) ue_id=std::stoi(cmd.substr(4));}catch(...){}
+        uint64_t imsi = BASE_IMSI + ue_id;
+        Logger::enb(Logger::Level::ENGINEER, "[cmd] TAU triggered for UE " + std::to_string(ue_id));
+        sendTauRequest(ue_id, ue_id, imsi);  // mme_id≈enb_id for single-UE sim
+    } else if (cmd.size()>=2 && cmd.substr(0,2)=="HO") {
+        // HO <ue_id>  — trigger S1 Handover for an attached UE
+        uint32_t ue_id=1; try{if(cmd.size()>3) ue_id=std::stoi(cmd.substr(3));}catch(...){}
+        Logger::enb(Logger::Level::ENGINEER, "[cmd] HO triggered for UE " + std::to_string(ue_id));
+        sendHandoverRequired(ue_id, ue_id);
     }
 }
 
@@ -253,3 +269,231 @@ void EnbNode::submitCommand(const std::string& cmd) {
     cmd_cv_.notify_one();
 }
 void EnbNode::requestStop() { cmd_cv_.notify_all(); }
+
+// ═══════════════════════════════════════════════════════════
+// TAU — eNB-side sender and accept handler
+// ═══════════════════════════════════════════════════════════
+void EnbNode::sendTauRequest(uint32_t mme_id, uint32_t enb_id, uint64_t imsi) {
+    if (!mme_conn_.valid()) { Logger::warn("eNB","TAU: no MME connection"); return; }
+
+    Logger::enb(Logger::Level::ENGINEER,
+        "[TAU] → TAU Request  IMSI=" + std::to_string(imsi) + " (simulating UE moved to new TAI)");
+    Logger::ie_field("  BEGINNER: UE tells MME it moved to a new Tracking Area.");
+    Logger::ie_field("  INTERVIEW: Periodic TAU: UE also sends even without moving (T3412 timer).");
+
+    // PCAP: UL NAS TAU Request wrapped in S1AP UL NAS Transport
+    PcapWriter::instance().writeS1AP("NAS-TauReq(UL)",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildUlNasTransport(mme_id, enb_id, nas_eps::buildTauRequest(imsi)));
+
+    std::lock_guard<std::mutex> lk(mme_send_mtx_);
+    MessageWriter w(MessageType::S1AP_TAU_REQUEST, next_seq_++);
+    w.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+    w.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
+    w.writeU64(Tag::TAU_IMSI,       imsi);
+    w.writeU8 (Tag::TAU_UPDATE_TYPE, 0x00);  // TA updating
+    mme_conn_.sendFrame(w.frame());
+}
+
+void EnbNode::handleTauAccept(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id=0, enb_id=0;
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id = r.readU32(); break;
+            default: r.skip(); break;
+        }
+    }
+    Logger::enb(Logger::Level::ENGINEER, "[TAU] ← TAU Accept — UE context updated ✓");
+    Logger::ie_field("  BEGINNER: Network confirmed the UE's new location. Tracking area updated.");
+    Logger::ie_field("  INTERVIEW: TAU Accept carries new TAI list so UE won't TAU again in same area.");
+
+    PcapWriter::instance().writeS1AP("NAS-TauAccept(DL)",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildDlNasTransport(mme_id, enb_id, nas_eps::buildTauAccept()));
+    Logger::sys("TAU COMPLETE: UE successfully updated to new Tracking Area.");
+}
+
+// ═══════════════════════════════════════════════════════════
+// S1 HANDOVER — eNB-side sender and handlers (TS 36.413 §8.4)
+// ═══════════════════════════════════════════════════════════
+void EnbNode::sendHandoverRequired(uint32_t mme_id, uint32_t enb_id) {
+    if (!mme_conn_.valid()) { Logger::warn("eNB","HO: no MME connection"); return; }
+
+    Logger::enb(Logger::Level::ENGINEER,
+        "[HO] Step1 → HandoverRequired  (RRM decided: A3 event triggered)");
+    Logger::ie_field("  BEGINNER: eNB tells MME 'I want to hand this UE to another cell'.");
+    Logger::ie_field("  INTERVIEW: A3 event: RSRP(neighbor) - RSRP(serving) > threshold.");
+    Logger::ie_field("  S1 HO used when NO X2 link between eNBs or inter-MME required.");
+
+    PcapWriter::instance().writeS1AP("S1AP-HandoverRequired",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildHandoverRequired(mme_id, enb_id));
+
+    std::lock_guard<std::mutex> lk(mme_send_mtx_);
+    MessageWriter w(MessageType::S1AP_HANDOVER_REQUIRED, next_seq_++);
+    w.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+    w.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
+    w.writeU64(Tag::TAU_IMSI,       BASE_IMSI + mme_id);
+    w.writeU8 (Tag::HO_TYPE,  0);   // intralte
+    w.writeU8 (Tag::HO_CAUSE, 0);   // radioNetwork:handover-desirable
+    mme_conn_.sendFrame(w.frame());
+}
+
+void EnbNode::handleHoRequest(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id=0, enb_id=0;
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id = r.readU32(); break;
+            default: r.skip(); break;
+        }
+    }
+    Logger::enb(Logger::Level::ENGINEER, "[HO] Step2 ← HandoverRequest (target eNB: allocating resources)");
+    Logger::ie_field("  BEGINNER: MME asked the target cell to prepare for the UE.");
+    Logger::ie_field("  INTERVIEW: Target eNB sets up DRB, creates uplink GTP-U endpoint.");
+
+    PcapWriter::instance().writeS1AP("S1AP-HandoverRequest",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildHandoverRequest(mme_id, enb_id));
+
+    uint32_t new_teid = next_enb_teid_.fetch_add(1);
+    Logger::enb(Logger::Level::ENGINEER,
+        "[HO] Step3 → HandoverRequestAck  new eNB TEID=" + std::to_string(new_teid));
+
+    PcapWriter::instance().writeS1AP("S1AP-HandoverRequestAck",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildHandoverRequestAck(mme_id, enb_id));
+
+    std::lock_guard<std::mutex> lk(mme_send_mtx_);
+    MessageWriter ack(MessageType::S1AP_HANDOVER_REQUEST_ACK, next_seq_++);
+    ack.writeU32(Tag::MME_UE_S1AP_ID,  mme_id);
+    ack.writeU32(Tag::ENB_UE_S1AP_ID,  enb_id);
+    ack.writeU32(Tag::HO_ENB_TEID_NEW, new_teid);
+    mme_conn_.sendFrame(ack.frame());
+}
+
+void EnbNode::handleHoCommand(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id=0, enb_id=0;
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id = r.readU32(); break;
+            default: r.skip(); break;
+        }
+    }
+    Logger::enb(Logger::Level::ENGINEER, "[HO] Step4 ← HandoverCommand — forwarding RRC reconfig to UE");
+    Logger::ie_field("  BEGINNER: eNB tells UE 'disconnect from me, go connect to the target cell'.");
+    Logger::ie_field("  INTERVIEW: UE goes into RRC HO Execution — random access to target cell.");
+
+    PcapWriter::instance().writeS1AP("S1AP-HandoverCommand",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildHandoverCommand(mme_id, enb_id));
+
+    // UE completes: send ENBStatusTransfer then HandoverNotify from "target" eNB
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    Logger::enb(Logger::Level::ENGINEER, "[HO] Step5 → ENBStatusTransfer  PDCP SN state");
+    PcapWriter::instance().writeS1AP("S1AP-ENBStatusTransfer",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildENBStatusTransfer(mme_id, enb_id));
+
+    {
+        std::lock_guard<std::mutex> lk(mme_send_mtx_);
+        MessageWriter est(MessageType::S1AP_ENB_STATUS_TRANSFER, next_seq_++);
+        est.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+        est.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
+        est.writeU32(Tag::HO_PDCP_SN_UL, 42);
+        est.writeU32(Tag::HO_PDCP_SN_DL, 37);
+        mme_conn_.sendFrame(est.frame());
+    }
+}
+
+void EnbNode::handleMmeStatusXfer(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id=0, enb_id=0, pdcp_ul=0, pdcp_dl=0;
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id  = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id  = r.readU32(); break;
+            case Tag::HO_PDCP_SN_UL:  pdcp_ul = r.readU32(); break;
+            case Tag::HO_PDCP_SN_DL:  pdcp_dl = r.readU32(); break;
+            default: r.skip(); break;
+        }
+    }
+    Logger::enb(Logger::Level::ENGINEER,
+        "[HO] Step5b ← MMEStatusTransfer  UL_SN=" + std::to_string(pdcp_ul)
+        + " DL_SN=" + std::to_string(pdcp_dl));
+    Logger::ie_field("  BEGINNER: MME forwarded the PDCP state so target eNB can reorder packets.");
+    Logger::ie_field("  INTERVIEW: This enables lossless HO — no packet loss during radio switch.");
+
+    PcapWriter::instance().writeS1AP("S1AP-MMEStatusTransfer",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildMMEStatusTransfer(mme_id, enb_id));
+
+    // Target eNB got PDCP state → UE attached to target → send HandoverNotify
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    Logger::enb(Logger::Level::ENGINEER, "[HO] Step6 → HandoverNotify  UE is now in target cell ✓");
+
+    PcapWriter::instance().writeS1AP("S1AP-HandoverNotify",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildHandoverNotify(mme_id, enb_id));
+
+    std::lock_guard<std::mutex> lk(mme_send_mtx_);
+    MessageWriter notify(MessageType::S1AP_HANDOVER_NOTIFY, next_seq_++);
+    notify.writeU32(Tag::MME_UE_S1AP_ID,  mme_id);
+    notify.writeU32(Tag::ENB_UE_S1AP_ID,  enb_id);
+    notify.writeU32(Tag::HO_ENB_TEID_NEW, next_enb_teid_.load() - 1);
+    mme_conn_.sendFrame(notify.frame());
+}
+
+void EnbNode::handleUeCtxRelCmd(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id=0, enb_id=0;
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id = r.readU32(); break;
+            default: r.skip(); break;
+        }
+    }
+    Logger::enb(Logger::Level::ENGINEER,
+        "[HO] Step7 ← UEContextReleaseCommand — releasing source resources");
+    Logger::ie_field("  BEGINNER: MME tells old eNB 'the UE has gone, release your resources'.");
+    Logger::ie_field("  INTERVIEW: After this, old eNB TEID is freed. Data flows only via target.");
+
+    PcapWriter::instance().writeS1AP("S1AP-UEContextReleaseCmd",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildUEContextReleaseCommand(mme_id, enb_id));
+
+    PcapWriter::instance().writeS1AP("S1AP-UEContextReleaseCmpl",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildUEContextReleaseComplete(mme_id, enb_id));
+
+    std::lock_guard<std::mutex> lk(mme_send_mtx_);
+    MessageWriter cmpl(MessageType::S1AP_UE_CONTEXT_RELEASE_CMPL, next_seq_++);
+    cmpl.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+    cmpl.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
+    mme_conn_.sendFrame(cmpl.frame());
+
+    Logger::sys("S1 HANDOVER COMPLETE: UE seamlessly moved to target cell. Old resources freed.");
+}

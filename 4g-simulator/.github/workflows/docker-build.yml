@@ -1,21 +1,46 @@
-name: Docker Build
+name: 4G Simulator Build
 
 on:
   push:
     branches: [ main ]
+    paths:
+      - '4g-simulator/**'
   pull_request:
     branches: [ main ]
+    paths:
+      - '4g-simulator/**'
 
 jobs:
-  build:
+  cmake-build:
+    name: CMake Build & Smoke Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 4g-simulator
     steps:
       - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build -j4
+      - name: Smoke test
+        run: |
+          printf 'MODE ENGINEER\nCR 1\nQUIT\n' | timeout 15 ./build/mme_sim || true
+          ls -la mme_capture.pcap && echo "PCAP OK"
 
+  docker-build:
+    name: Docker Image Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 4g-simulator
+    steps:
+      - uses: actions/checkout@v4
       - name: Build Docker image
         run: docker build -t mme-sim:ci .
-
-      - name: Smoke test — run one UE attach flow and check PCAP output
+      - name: Smoke test in Docker
         run: |
           docker run --rm --entrypoint sh mme-sim:ci -c \
             "printf 'CR 1\nQUIT\n' | ./mme_sim && ls -la mme_capture.pcap"

@@ -1,0 +1,47 @@
+# IMS Simulator — Docker Compose
+#
+# Architecture:
+#   ims-server: P-CSCF + S-CSCF + HSS + MTAS in one process
+#   ue-sim:     SIP UA (REGISTER + INVITE + BYE), scripted by env vars
+#
+# How to run:
+#   docker-compose up --build
+#   docker-compose logs -f ue-sim    # watch SIP signalling
+#   docker cp ims-server-1:/app/ims_capture.pcap ./  # grab PCAP
+#
+# Scale UE sim for more calls:
+#   docker-compose up --scale ue-sim=3
+#   (each replica gets different REG_UES, MAKE_CALLS from env)
+#
+# INTERVIEW: "How would you test IMS at scale?"
+#   "Multiple ue_sim containers, each registering N UEs and making
+#    calls. The IMS server is the single concurrency bottleneck here
+#    (same thread-per-connection pattern as mme_sim). In production,
+#    S-CSCF is stateless and horizontally scaled behind a load balancer."
+services:
+  ims-server:
+    build:
+      context: .
+      target: ims-server
+    image: ims-server:latest
+    container_name: ims-server
+    ports:
+      - "5060:5060"     # SIP signalling
+      - "3868:3868"     # Diameter Cx (HSS ↔ S-CSCF)
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-ENGINEER}
+
+  ue-sim:
+    build:
+      context: .
+      target: ue-sim
+    image: ims-ue-sim:latest
+    container_name: ims-ue-sim
+    environment:
+      - IMS_HOST=ims-server
+      - IMS_PORT=5060
+      - REG_UES=${REG_UES:-3}
+      - MAKE_CALLS=${MAKE_CALLS:-2}
+      - LOG_MODE=${LOG_MODE:-ENGINEER}
+    depends_on:
+      - ims-server

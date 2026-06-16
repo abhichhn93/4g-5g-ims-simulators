@@ -1,0 +1,151 @@
+# IMS Simulator — Kubernetes Manifests
+#
+# Architecture:
+#   ims-server: P-CSCF + S-CSCF + HSS + MTAS in one binary.
+#               SIP port 5060 (TCP+UDP), Diameter 3868.
+#   ue-sim:     SIP UA for load generation (Job, not Deployment — runs once).
+#
+# INTERVIEW: "How would you separate P-CSCF and S-CSCF in K8s?"
+# A: "Different Deployments with their own Services. P-CSCF is the
+#    UE-facing edge node (SIP proxy), S-CSCF is the serving node
+#    (authentication, registration binding, session routing to AS).
+#    Mw interface (SIP) connects them. Cx interface (Diameter/SIP)
+#    connects S-CSCF to HSS for authentication and subscriber data.
+#    HPA on S-CSCF scales the registration/session load independently."
+#
+# INTERVIEW: "What does a P-CSCF crash look like in K8s?"
+# A: "If liveness probe fails → K8s restarts the pod. SIP registrations
+#    are lost (in-memory only in this sim). Real P-CSCF: registration
+#    state is in Redis/shared store. K8s readiness probe prevents new
+#    SIP traffic from routing to the restarting pod while it recovers."
+#
+# POD CRASH DEMO:
+#   kubectl delete pod -l app=ims-server    # force crash
+#   kubectl get pods -w                     # watch restart
+#   kubectl logs -l app=ims-server --previous  # logs from crashed pod
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ims-server
+  labels:
+    app: ims-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ims-server
+  template:
+    metadata:
+      labels:
+        app: ims-server
+    spec:
+      containers:
+        - name: ims-server
+          image: ims-server:latest
+          imagePullPolicy: Never
+          env:
+            - name: LOG_LEVEL
+              value: ENGINEER
+          ports:
+            - containerPort: 5060
+              protocol: TCP
+              name: sip-tcp
+            - containerPort: 5060
+              protocol: UDP
+              name: sip-udp
+            - containerPort: 3868
+              protocol: TCP
+              name: diameter
+          livenessProbe:
+            tcpSocket:
+              port: 5060
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 5060
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ims-server-svc
+  labels:
+    app: ims-server
+spec:
+  selector:
+    app: ims-server
+  ports:
+    - port: 5060
+      targetPort: 5060
+      protocol: TCP
+      name: sip-tcp
+    - port: 5060
+      targetPort: 5060
+      protocol: UDP
+      name: sip-udp
+    - port: 3868
+      targetPort: 3868
+      protocol: TCP
+      name: diameter
+  type: ClusterIP
+---
+# HPA for IMS server (S-CSCF is the bottleneck: auth + session routing)
+# INTERVIEW: P-CSCF is typically unscaled (few, edge-deployed).
+#            S-CSCF scales with registered UE count and active sessions.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ims-server-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ims-server
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# UE simulator Job — runs once, generates SIP load, then exits cleanly.
+# Use a Job (not Deployment) for one-shot traffic generation.
+# Scale parallelism for bulk load: parallelism: 10 = 10 concurrent UE sims.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ims-ue-sim
+spec:
+  parallelism: 1
+  completions: 1
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ue-sim
+          image: ims-ue-sim:latest
+          imagePullPolicy: Never
+          env:
+            - name: IMS_HOST
+              value: ims-server-svc
+            - name: IMS_PORT
+              value: "5060"
+            - name: REG_UES
+              value: "5"
+            - name: MAKE_CALLS
+              value: "3"
+            - name: LOG_MODE
+              value: ENGINEER

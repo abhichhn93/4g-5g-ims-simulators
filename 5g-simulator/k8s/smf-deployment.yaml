@@ -1,0 +1,108 @@
+# SMF — Session Management Function
+#
+# CUPS control plane: manages PDU session lifecycle, allocates UE IPs,
+# programs UPF via N4/PFCP. Independently scalable from AMF and UPF.
+#
+# replicas: 2 — shows SMF horizontal scaling for high PDU session load.
+# In production: SMF is stateless between sessions (session context is
+# in a DB/UDSF), so adding replicas is safe. K8s Service distributes
+# AMF → SMF SBI calls across replicas.
+#
+# HPA: scales based on CPU (PDU session creation is CPU-bound due to
+# PFCP encoding and IP allocation). Real trigger: custom metric
+# pdu_sessions_per_second from Prometheus if SMF exposes it.
+#
+# INTERVIEW Q: "How do you scale SMF without losing in-flight sessions?"
+# A: "SMF stores session context externally (UDSF, TS 23.501 §5.4.7.5).
+#    All replicas read/write the same UDSF, so any pod handles any request.
+#    N4 sessions with UPF are per-SEID; UPF association is to the SMF's
+#    Node-ID, not a specific pod — so UPF path changes gracefully."
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: g5-smf
+  labels:
+    app: g5-smf
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: g5-smf
+  template:
+    metadata:
+      labels:
+        app: g5-smf
+    spec:
+      containers:
+        - name: smf-sim
+          image: g5-smf:latest
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: g5-plmn-config
+          env:
+            - name: NRF_HOST
+              value: g5-nrf-svc
+            - name: SMF_HOST
+              value: g5-smf-svc
+            - name: UPF_HOST
+              value: g5-upf-svc
+          ports:
+            - containerPort: 29502
+              name: sbi
+          livenessProbe:
+            tcpSocket:
+              port: 29502
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            tcpSocket:
+              port: 29502
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: g5-smf-svc
+  labels:
+    app: g5-smf
+spec:
+  selector:
+    app: g5-smf
+  ports:
+    - port: 29502
+      targetPort: 29502
+      name: sbi
+  type: ClusterIP
+---
+# HPA: scale SMF replicas 2-8 based on CPU (PDU session creation load)
+# INTERVIEW: "What metric drives your HPA?"
+# A: "CPU in this demo. In prod: custom Prometheus metric
+#    smf_pdu_sessions_created_per_second via prometheus-adapter.
+#    When sessions/sec > threshold → scale out to handle burst."
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: g5-smf-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: g5-smf
+  minReplicas: 1
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

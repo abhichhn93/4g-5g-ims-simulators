@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'mme-sim'
+    static_configs:
+      - targets: ['mme-sim:9090']
+    metrics_path: '/metrics'
+    # INTERVIEW: In K8s this block is replaced by a ServiceMonitor CRD
+    # targeting pods with label app=mme-sim. Prometheus Operator picks
+    # it up automatically — no static_configs needed.

@@ -112,9 +112,15 @@ void MmeNode::enbReceiveLoop() {
         if (payload.size() < 8) continue;
         MessageReader r(payload);
         switch (r.msgType()) {
-            case MessageType::S1AP_INITIAL_UE_MSG:          handleInitialUEMsg(payload);    break;
-            case MessageType::S1AP_UL_NAS_TRANSPORT:        handleULNasTransport(payload);  break;
-            case MessageType::S1AP_INITIAL_CONTEXT_SETUP_RSP: handleICSetupResponse(payload); break;
+            case MessageType::S1AP_INITIAL_UE_MSG:           handleInitialUEMsg(payload);       break;
+            case MessageType::S1AP_UL_NAS_TRANSPORT:         handleULNasTransport(payload);     break;
+            case MessageType::S1AP_INITIAL_CONTEXT_SETUP_RSP: handleICSetupResponse(payload);   break;
+            case MessageType::S1AP_TAU_REQUEST:              handleTauRequest(payload);         break;
+            case MessageType::S1AP_HANDOVER_REQUIRED:        handleHandoverRequired(payload);   break;
+            case MessageType::S1AP_HANDOVER_REQUEST_ACK:     handleHandoverRequestAck(payload); break;
+            case MessageType::S1AP_ENB_STATUS_TRANSFER:      handleEnbStatusTransfer(payload);  break;
+            case MessageType::S1AP_HANDOVER_NOTIFY:          handleHandoverNotify(payload);     break;
+            case MessageType::S1AP_UE_CONTEXT_RELEASE_CMPL: handleUeContextRelCmpl(payload);   break;
             default: Logger::warn("MME","[mme_th] unexpected: "+std::string(msg_type_str(r.msgType())));
         }
     }
@@ -492,4 +498,385 @@ void MmeNode::printStatus() const {
             "  State=" + emm_state_str(ctx.emm_state) +
             "  IP=" + (b ? b->ue_ip : "-"));
     });
+}
+
+// ═════════════════════════════════════════════════════════════
+// TAU — Tracking Area Update (TS 24.301 §5.5.3)
+// ═════════════════════════════════════════════════════════════
+void MmeNode::handleTauRequest(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id = 0, enb_id = 0;
+    uint64_t imsi   = 0;
+    uint8_t  tau_type = 0;
+
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id   = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id   = r.readU32(); break;
+            case Tag::TAU_IMSI:       imsi      = r.readU64(); break;
+            case Tag::TAU_UPDATE_TYPE:tau_type  = r.readU8();  break;
+            default: r.skip(); break;
+        }
+    }
+
+    // ── BEGINNER ──────────────────────────────────────────────
+    VLog::step(1, 3, "TRACKING AREA UPDATE REQUEST",
+               "UE", Logger::CLR_ENB, "eNB → MME", Logger::CLR_MME)
+        .ie("NAS Type",   "0x48 = TAU Request [TS 24.301 §8.2.29]")
+        .ie("IMSI",       std::to_string(imsi))
+        .ie("Update Type",tau_type == 0 ? "TA updating" : "periodic TAU")
+        .ie("Old TAI",    "MCC=404 MNC=10 TAC=1  (UE came from cell 1)")
+        .state("UE", "REGISTERED → TAU_PENDING")
+        .next("MME validates: is the new TAI in our served-TAI-list?")
+        .flush();
+
+    // ── ENGINEER ──────────────────────────────────────────────
+    Logger::mme(Logger::Level::ENGINEER,
+        "[TAU] Lookup UE context mme_id=" + std::to_string(mme_id));
+    Logger::ie_field("  TS 23.401 §5.3.3: MME checks if new TAI is in its TA list.");
+    Logger::ie_field("  If TAI not served → TAU Reject with cause #13 (roaming not allowed).");
+    Logger::ie_field("  SIM: TAI accepted — same MME, just moved to adjacent cell (TAC=2).");
+
+    // ── INTERVIEW ─────────────────────────────────────────────
+    Logger::mme(Logger::Level::INTERVIEW_T,
+        "[INTERVIEW] Q: When does a UE send TAU Request?");
+    Logger::mme(Logger::Level::INTERVIEW_C,
+        "A: When UE moves to a new Tracking Area that is NOT in its Tracking Area List.");
+    Logger::mme(Logger::Level::INTERVIEW_C,
+        "   The TAI list is given during Attach and refreshed in each TAU Accept.");
+    Logger::mme(Logger::Level::INTERVIEW_C,
+        "   Periodic TAU: UE sends TAU even without moving, just to keep context alive.");
+    Logger::mme(Logger::Level::INTERVIEW_C,
+        "   TS 23.401 §5.3.3.1: if MME changes, old MME context is transferred via S10.");
+
+    // PCAP: TAU Request (UL NAS Transport eNB→MME)
+    PcapWriter::instance().writeS1AP("NAS-TauRequest(UL)",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildUlNasTransport(mme_id, enb_id, nas_eps::buildTauRequest(imsi)));
+
+    // ── STEP 2: Send TAU Accept ────────────────────────────────
+    VLog::step(2, 3, "TRACKING AREA UPDATE ACCEPT",
+               "MME", Logger::CLR_MME, "eNB → UE", Logger::CLR_ENB)
+        .ie("NAS Type",  "0x49 = TAU Accept [TS 24.301 §8.2.28]")
+        .ie("EPS Update Result", "TA updated (0x00)")
+        .ie("T3412",     "54 minutes — periodic TAU timer reset")
+        .ie("TAI List",  "MCC=404 MNC=10 TAC=2 — new served TA added to UE's list")
+        .state("UE", "TAU_PENDING → REGISTERED")
+        .next("UE sends TAU Complete (for GUTI reallocation, else flow ends here)")
+        .flush();
+
+    Logger::ie_field("  ENGINEER: No S-GW path update needed (same S-GW, intra-SGW TAU).");
+    Logger::ie_field("  REAL: if S-GW changes → MME creates new session on new S-GW, deletes old.");
+    Logger::ie_field("  INTERVIEW: TAU differs from Attach: no re-authentication if context valid.");
+
+    MessageWriter tauacc(MessageType::S1AP_TAU_ACCEPT, next_seq_++);
+    tauacc.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+    tauacc.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
+    tauacc.writeU8 (Tag::TAU_UPDATE_TYPE, 0x00);  // TA updated
+    enb_conn_.sendFrame(tauacc.frame());
+
+    // PCAP: TAU Accept (DL NAS Transport MME→eNB)
+    PcapWriter::instance().writeS1AP("NAS-TauAccept(DL)",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildDlNasTransport(mme_id, enb_id, nas_eps::buildTauAccept()));
+
+    VLog::step(3, 3, "TAU COMPLETE  ✓",
+               "MME", Logger::CLR_MME, nullptr, nullptr)
+        .ie("Result", "UE successfully updated its Tracking Area")
+        .ie("Context", "Bearer preserved, IP unchanged — seamless mobility")
+        .state("UE", "REGISTERED (new TAI=2)")
+        .flush();
+}
+
+// ═════════════════════════════════════════════════════════════
+// S1 HANDOVER — TS 36.413 §8.4 (7-step flow)
+// ═════════════════════════════════════════════════════════════
+void MmeNode::handleHandoverRequired(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id = 0, enb_id = 0; uint64_t imsi = 0;
+
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id = r.readU32(); break;
+            case Tag::TAU_IMSI:       imsi   = r.readU64(); break;
+            default: r.skip(); break;
+        }
+    }
+
+    VLog::step(1, 7, "HANDOVER REQUIRED  [TS 36.413 §8.4]",
+               "src-eNB", Logger::CLR_ENB, "MME", Logger::CLR_MME)
+        .ie("S1AP Proc",  "HandoverPreparation — procedure code 0")
+        .ie("IMSI",       std::to_string(imsi))
+        .ie("HO Type",    "intralte (intra-frequency, same MME)")
+        .ie("Cause",      "radioNetwork: handover-desirable-for-radio-reasons")
+        .ie("Target",     "eNB cell TAC=2 (simulated adjacent cell)")
+        .ie("Src Cntr",   "Source-to-Target Transparent Container (RRC config, opaque to MME)")
+        .state("UE", "REGISTERED → HO_PREPARATION")
+        .next("MME sends HandoverRequest to target eNB to reserve resources")
+        .flush();
+
+    Logger::mme(Logger::Level::ENGINEER,
+        "[HO] Step 1: HandoverRequired received  mme_id=" + std::to_string(mme_id));
+    Logger::ie_field("  TS 36.413 §8.4.1: MME selects target eNB from TargetID IE.");
+    Logger::ie_field("  SIM: target eNB = same connection (intra-eNB, different cell).");
+
+    Logger::mme(Logger::Level::INTERVIEW_T,
+        "[INTERVIEW] Q: What triggers a Handover Required?");
+    Logger::mme(Logger::Level::INTERVIEW_C,
+        "A: RRM (Radio Resource Management) in the eNB. When a neighbour cell RSRP");
+    Logger::mme(Logger::Level::INTERVIEW_C,
+        "   exceeds the serving cell by A3-event threshold, eNB decides to hand off.");
+    Logger::mme(Logger::Level::INTERVIEW_C,
+        "   S1 HO is used when source and target eNBs do NOT have X2 link (or it fails).");
+
+    PcapWriter::instance().writeS1AP("S1AP-HandoverRequired",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildHandoverRequired(mme_id, enb_id));
+
+    // ── STEP 2: HandoverRequest to target eNB ─────────────────
+    VLog::step(2, 7, "HANDOVER REQUEST  [TS 36.413 §8.4.2]",
+               "MME", Logger::CLR_MME, "tgt-eNB", Logger::CLR_ENB)
+        .ie("S1AP Proc", "HandoverResourceAllocation — procedure code 1")
+        .ie("HO Type",   "intralte")
+        .ie("SecurityCtx","KeNB* — new AS security key for target cell")
+        .ie("E-RABs",    "EBI=5, QCI=9 — default bearer to setup at target")
+        .ie("Tgt Cntr",  "Source-to-Target Transparent Container forwarded")
+        .state("tgt-eNB", "IDLE → PREPARING_HO")
+        .next("Target eNB allocates radio resources, sends Handover Request Ack")
+        .flush();
+
+    Logger::ie_field("  REAL: MME also derives KeNB* from current KeNB (AS key refresh).");
+    Logger::ie_field("  REAL: Target eNB decodes the RRC reconfiguration from the Transparent Container.");
+
+    MessageWriter hor(MessageType::S1AP_HANDOVER_REQUEST, next_seq_++);
+    hor.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+    hor.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
+    hor.writeU8 (Tag::HO_TYPE, 0);  // intralte
+    enb_conn_.sendFrame(hor.frame());
+
+    PcapWriter::instance().writeS1AP("S1AP-HandoverRequest",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildHandoverRequest(mme_id, enb_id));
+}
+
+void MmeNode::handleHandoverRequestAck(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id = 0, enb_id = 0, new_teid = 0;
+
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id   = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id   = r.readU32(); break;
+            case Tag::HO_ENB_TEID_NEW:new_teid  = r.readU32(); break;
+            default: r.skip(); break;
+        }
+    }
+
+    VLog::step(3, 7, "HANDOVER REQUEST ACK  [TS 36.413 §8.4.2]",
+               "tgt-eNB", Logger::CLR_ENB, "MME", Logger::CLR_MME)
+        .ie("S1AP Proc",    "HandoverResourceAllocation — successful outcome")
+        .ie("new eNB TEID", std::to_string(new_teid) + " (target cell S1-U TEID)")
+        .ie("Tgt Cntr",     "Target-to-Source Transparent Container (RRC reconfig for UE)")
+        .state("tgt-eNB", "PREPARING_HO → READY")
+        .next("MME sends HandoverCommand to source eNB — tells UE to move now")
+        .flush();
+
+    Logger::ie_field("  REAL: MME stores new target TEID for later Modify Bearer to S-GW.");
+    Logger::ie_field("  REAL: Transparent Container carries RRCConnectionReconfiguration for UE.");
+
+    PcapWriter::instance().writeS1AP("S1AP-HandoverRequestAck",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildHandoverRequestAck(mme_id, enb_id));
+
+    // Store new eNB TEID in UE context for later path switch
+    auto ctx = ue_store_.find(mme_id);
+    if (ctx) { auto* b = ctx->defaultBearer(); if (b) b->enb_s1u_teid = new_teid; }
+
+    // ── STEP 4: HandoverCommand to source eNB ─────────────────
+    VLog::step(4, 7, "HANDOVER COMMAND  [TS 36.413 §8.4.1]",
+               "MME", Logger::CLR_MME, "src-eNB", Logger::CLR_ENB)
+        .ie("S1AP Proc", "HandoverPreparation — successful outcome")
+        .ie("Contents",  "Target-to-Source Transparent Container (for UE)")
+        .ie("Meaning",   "Source eNB: forward this to UE, UE will disconnect from you")
+        .state("src-eNB", "SERVING → RELEASING")
+        .state("UE",      "HO_PREPARATION → HO_EXECUTION")
+        .next("UE connects to target cell, source eNB sends ENBStatusTransfer")
+        .flush();
+
+    Logger::ie_field("  INTERVIEW: After HandoverCommand, UE is in RRC HO Execution state.");
+    Logger::ie_field("  REAL: UE reads RRCConnectionReconfiguration, sync to target cell, sends Complete.");
+
+    MessageWriter hocmd(MessageType::S1AP_HANDOVER_COMMAND, next_seq_++);
+    hocmd.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+    hocmd.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
+    enb_conn_.sendFrame(hocmd.frame());
+
+    PcapWriter::instance().writeS1AP("S1AP-HandoverCommand",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildHandoverCommand(mme_id, enb_id));
+}
+
+void MmeNode::handleEnbStatusTransfer(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id = 0, enb_id = 0, pdcp_ul = 0, pdcp_dl = 0;
+
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id  = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id  = r.readU32(); break;
+            case Tag::HO_PDCP_SN_UL:  pdcp_ul = r.readU32(); break;
+            case Tag::HO_PDCP_SN_DL:  pdcp_dl = r.readU32(); break;
+            default: r.skip(); break;
+        }
+    }
+
+    VLog::step(5, 7, "ENB STATUS TRANSFER  [TS 36.413 §8.4.3]",
+               "src-eNB", Logger::CLR_ENB, "MME", Logger::CLR_MME)
+        .ie("Proc",     "eNBStatusTransfer — procedure code 24")
+        .ie("PDCP SN UL", std::to_string(pdcp_ul) + " (next expected uplink seq num)")
+        .ie("PDCP SN DL", std::to_string(pdcp_dl) + " (downlink seq num for re-ordering)")
+        .ie("Purpose",  "Allows lossless handover — target eNB reorders in-flight packets")
+        .next("MME forwards PDCP status to target eNB (MMEStatusTransfer)")
+        .flush();
+
+    Logger::ie_field("  INTERVIEW: Why send PDCP SNs? In-flight packets may arrive out-of-order.");
+    Logger::ie_field("  Target eNB uses SN to re-order SDUs before delivering to UE.");
+    Logger::ie_field("  Without this: packet loss during HO → TCP stall → user sees stutter.");
+
+    PcapWriter::instance().writeS1AP("S1AP-ENBStatusTransfer",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildENBStatusTransfer(mme_id, enb_id));
+
+    // Forward to target eNB (same eNB in our sim)
+    MessageWriter mst(MessageType::S1AP_MME_STATUS_TRANSFER, next_seq_++);
+    mst.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+    mst.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
+    mst.writeU32(Tag::HO_PDCP_SN_UL, pdcp_ul);
+    mst.writeU32(Tag::HO_PDCP_SN_DL, pdcp_dl);
+    enb_conn_.sendFrame(mst.frame());
+
+    PcapWriter::instance().writeS1AP("S1AP-MMEStatusTransfer",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildMMEStatusTransfer(mme_id, enb_id));
+}
+
+void MmeNode::handleHandoverNotify(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id = 0, enb_id = 0, new_teid = 0;
+
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id   = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id   = r.readU32(); break;
+            case Tag::HO_ENB_TEID_NEW:new_teid  = r.readU32(); break;
+            default: r.skip(); break;
+        }
+    }
+
+    VLog::step(6, 7, "HANDOVER NOTIFY  [TS 36.413 §8.4.3]",
+               "tgt-eNB", Logger::CLR_ENB, "MME", Logger::CLR_MME)
+        .ie("Proc",    "HandoverNotification — procedure code 2")
+        .ie("ECGI",    "E-CGI of target cell — UE is now HERE")
+        .ie("TAI",     "New Tracking Area (TAC=2)")
+        .state("UE", "HO_EXECUTION → REGISTERED (target cell)")
+        .next("MME sends GTP Modify Bearer to S-GW (path switch to new eNB)")
+        .flush();
+
+    Logger::ie_field("  INTERVIEW: HandoverNotify is the 'UE landed' signal.");
+    Logger::ie_field("  After this: MME MUST redirect user-plane to target eNB via Modify Bearer.");
+
+    PcapWriter::instance().writeS1AP("S1AP-HandoverNotify",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildHandoverNotify(mme_id, enb_id));
+
+    // Path switch: Modify Bearer to S-GW with new eNB's TEID
+    auto ctx = ue_store_.find(mme_id);
+    uint32_t final_teid = new_teid ? new_teid : (ctx && ctx->defaultBearer() ? ctx->defaultBearer()->enb_s1u_teid : 200);
+    sendModifyBearer(mme_id, final_teid);
+
+    // Release source eNB context
+    MessageWriter relcmd(MessageType::S1AP_UE_CONTEXT_RELEASE_CMD, next_seq_++);
+    relcmd.writeU32(Tag::MME_UE_S1AP_ID, mme_id);
+    relcmd.writeU32(Tag::ENB_UE_S1AP_ID, enb_id);
+    relcmd.writeU8 (Tag::HO_CAUSE, 0);  // handover-desirable
+    enb_conn_.sendFrame(relcmd.frame());
+
+    PcapWriter::instance().writeS1AP("S1AP-UEContextReleaseCmd",
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        s1ap::buildUEContextReleaseCommand(mme_id, enb_id));
+}
+
+void MmeNode::handleUeContextRelCmpl(const std::vector<uint8_t>& payload) {
+    uint32_t mme_id = 0, enb_id = 0;
+    MessageReader r(payload);
+    while (r.hasMore()) {
+        Tag tag; uint16_t len; if (!r.peek(tag, len)) break;
+        switch (tag) {
+            case Tag::MME_UE_S1AP_ID: mme_id = r.readU32(); break;
+            case Tag::ENB_UE_S1AP_ID: enb_id = r.readU32(); break;
+            default: r.skip(); break;
+        }
+    }
+
+    VLog::step(7, 7, "UE CONTEXT RELEASE COMPLETE  ✓  HANDOVER DONE",
+               "src-eNB", Logger::CLR_ENB, "MME", Logger::CLR_MME)
+        .ie("Proc",   "UEContextRelease — procedure code 23")
+        .ie("Result", "Source eNB released radio and S1 resources")
+        .state("src-eNB", "RELEASING → IDLE")
+        .state("UE",      "REGISTERED (target cell, seamless handover)")
+        .flush();
+
+    Logger::ie_field("  INTERVIEW: The full S1 HO takes 50-80ms in production.");
+    Logger::ie_field("  X2 HO (when X2 link exists) is faster: 30-50ms, no MME involvement.");
+    Logger::ie_field("  S1 HO is mandatory fallback: no X2, or inter-MME, or inter-SGW cases.");
+    Logger::sys("HO COMPLETE: UE seamlessly moved from TAC=1 to TAC=2. Bearer preserved.");
+
+    PcapWriter::instance().writeS1AP("S1AP-UEContextReleaseCmpl",
+        PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
+        PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
+        s1ap::buildUEContextReleaseComplete(mme_id, enb_id));
+    (void)enb_id;
+}
+
+bool MmeNode::sendModifyBearer(uint32_t mme_id, uint32_t new_enb_teid) {
+    auto ctx = ue_store_.find(mme_id);
+    uint64_t imsi = ctx ? ctx->imsi : 0;
+
+    Logger::mme(Logger::Level::ENGINEER,
+        "[HO] Path switch: Modify Bearer → S-GW with new eNB TEID=" + std::to_string(new_enb_teid));
+    Logger::ie_field("  REAL: S-GW re-routes downlink GTP-U tunnel to new eNB's S1-U TEID.");
+    Logger::ie_field("  This is the 'path switch' — user plane now flows through target eNB.");
+
+    PcapWriter::instance().writeGTPv2(GtpMsgType::MODIFY_BEARER_REQ, 0,
+        PcapWriter::IP_MME, 2123, PcapWriter::IP_SGW, 2123);
+
+    MessageWriter req(MessageType::GTP_MODIFY_BEARER_REQ, next_seq_++);
+    req.writeU32(Tag::GTP_ENB_TEID, new_enb_teid);
+    req.writeU64(Tag::GTP_IMSI,     imsi);
+    sgw_udp_.sendTo(req.udpPayload(), SGW_IP, SGW_PORT);
+
+    std::vector<uint8_t> resp; sockaddr_in sgw_addr{};
+    if (!sgw_udp_.recvWithTimeout(resp, sgw_addr, 3000)) {
+        Logger::warn("MME", "[HO] Modify Bearer timeout"); return false;
+    }
+    PcapWriter::instance().writeGTPv2(GtpMsgType::MODIFY_BEARER_RSP, 0,
+        PcapWriter::IP_SGW, 2123, PcapWriter::IP_MME, 2123);
+    Logger::mme(Logger::Level::ENGINEER, "[HO] Modify Bearer RSP ✓ — data path switched");
+    return true;
 }

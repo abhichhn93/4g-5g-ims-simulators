@@ -19,14 +19,19 @@ print(f"WARNING: AMF {host}:38412 never became reachable, starting anyway", file
 PY
 
 # REG_UES = how many UEs THIS gNB registers on startup (default 2).
+# PDU_SESSIONS = if non-zero, each registered UE also establishes a
+# PDU session after registration (triggers AMF→SMF→UPF PFCP flow).
 # Scaling this Deployment to N replicas = N independent gNBs, each
-# registering REG_UES UEs against the same AMF -- the simplest possible
-# "bulk registration" traffic-generator knob.
+# registering REG_UES UEs -- simplest "bulk registration" knob.
 N="${REG_UES:-2}"
+PDU="${PDU_SESSIONS:-1}"
 {
   i=1
   while [ "$i" -le "$N" ]; do
     echo "REG $i"
+    if [ "$PDU" -gt "0" ]; then
+      echo "PDU $i 1 internet"
+    fi
     i=$((i + 1))
   done
   echo "QUIT"

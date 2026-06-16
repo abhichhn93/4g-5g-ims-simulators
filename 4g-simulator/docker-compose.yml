@@ -1,9 +1,69 @@
+# 4G EPC Simulator — Docker Compose
+#
+# Architecture:
+#   mme-sim:    The full 4G EPC (eNB+MME+HSS+S-GW+P-GW+PCRF in one binary).
+#               Exposes Prometheus /metrics on :9090 (PrometheusServer class).
+#   prometheus: Scrapes mme-sim:9090/metrics every 15s.
+#   grafana:    Visualises attach latency P50/P95/P99, throughput (port 3000).
+#
+# How to run:
+#   docker-compose up --build -d
+#   docker-compose exec mme-sim /bin/sh  # drop into CLI
+#   curl http://localhost:9090/metrics   # raw Prometheus text
+#   open http://localhost:3000           # Grafana (admin/admin)
+#
+# INTERVIEW: "Walk me through your observability setup."
+#   "mme_sim exposes /metrics on :9090 with raw TCP (no libs).
+#    Prometheus scrapes every 15s via docker network DNS.
+#    ServiceMonitor CRD in K8s picks it up automatically.
+#    Grafana dashboard plots P95/P99 attach latency.
+#    HPA triggers scale-out when P99 > 1500ms."
+#
+# K8s equivalent: see k8s/4g/ (Deployment + Service + HPA + ServiceMonitor)
 services:
   mme-sim:
     build: .
     image: mme-sim:latest
     container_name: mme-sim
+    stdin_open: true
+    tty: true
     ports:
-      - "8080:8080"   # browse/curl the generated mme_capture.pcap
+      - "9090:9090"   # Prometheus /metrics scrape endpoint
+      - "8080:8080"   # pcap file download (legacy)
     volumes:
-      - ./output:/data
+      - pcap-output:/data
+    environment:
+      - LOG_MODE=${LOG_MODE:-ENGINEER}
+
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: g4-prometheus
+    ports:
+      - "9091:9090"   # Prometheus UI (host:9091 to avoid clash with mme-sim)
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+    depends_on:
+      - mme-sim
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: g4-grafana
+    ports:
+      - "3000:3000"   # Grafana UI (admin/admin by default)
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+
+volumes:
+  pcap-output:
+  prometheus-data:
+  grafana-data:

@@ -30,6 +30,36 @@ services:
     depends_on:
       - nrf-sim
 
+  upf-sim:
+    build:
+      context: .
+      target: upf
+    image: g5-upf:latest
+    container_name: g5-upf
+    environment:
+      - NRF_HOST=nrf-sim
+      - UPF_HOST=upf-sim
+    ports:
+      - "8805:8805/udp"  # N4 PFCP
+    depends_on:
+      - nrf-sim
+
+  smf-sim:
+    build:
+      context: .
+      target: smf
+    image: g5-smf:latest
+    container_name: g5-smf
+    environment:
+      - NRF_HOST=nrf-sim
+      - SMF_HOST=smf-sim
+      - UPF_HOST=upf-sim
+    ports:
+      - "29502:29502"   # Nsmf SBI
+    depends_on:
+      - nrf-sim
+      - upf-sim
+
   amf-sim:
     build:
       context: .
@@ -40,11 +70,13 @@ services:
       - NRF_HOST=nrf-sim
       - AMF_SELF_HOST=amf-sim
       - UDM_HOST=udm-sim
+      - SMF_HOST=smf-sim
     ports:
       - "38412:38412"   # N2 (NGAP port), exposed for curiosity/tools
     depends_on:
       - nrf-sim
       - udm-sim
+      - smf-sim
 
   gnb-sim:
     build:
@@ -55,5 +87,6 @@ services:
     environment:
       - AMF_HOST=amf-sim
       - REG_UES=2
+      - PDU_SESSIONS=1
     depends_on:
       - amf-sim

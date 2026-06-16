@@ -41,9 +41,19 @@ public:
                        uint32_t src_ip, uint16_t src_port,
                        uint32_t dst_ip, uint16_t dst_port);
 
+    // Write a raw UDP datagram (used for PFCP on UDP/8805).
+    // PFCP (TS 29.244) uses UDP — no connection setup needed.
+    void writeUdp(const std::vector<uint8_t>& payload,
+                  uint32_t src_ip, uint16_t src_port,
+                  uint32_t dst_ip, uint16_t dst_port);
+
+    static constexpr uint16_t PORT_PFCP = 8805; // TS 29.244 §7.1
+
     // Node IPs used in pcap frames — 10.1.0.x range, separate from the
     // 4G simulator's 10.0.0.x range so a future combined 4G+5G capture
     // can tell the two cores apart at a glance.
+    static constexpr uint32_t IP_SMF_CONTROL = 0x0A010003; // alias used in SMF for clarity
+
     static constexpr uint32_t IP_GNB = 0x0A010001; // 10.1.0.1
     static constexpr uint32_t IP_AMF = 0x0A010002; // 10.1.0.2
     static constexpr uint32_t IP_SMF = 0x0A010003; // 10.1.0.3

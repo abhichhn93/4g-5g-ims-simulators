@@ -33,3 +33,19 @@ add_executable(amf_sim
 )
 target_include_directories(amf_sim PRIVATE src)
 target_link_libraries(amf_sim Threads::Threads)
+
+# ── SMF — SBI HTTP server :29502, N4 PFCP client to UPF ──────
+add_executable(smf_sim
+    src/smf/smf_main.cpp
+    src/common/pcap_writer.cpp
+)
+target_include_directories(smf_sim PRIVATE src)
+target_link_libraries(smf_sim Threads::Threads)
+
+# ── UPF — N4 PFCP UDP server :8805, programs dataplane ───────
+add_executable(upf_sim
+    src/upf/upf_main.cpp
+    src/common/pcap_writer.cpp
+)
+target_include_directories(upf_sim PRIVATE src)
+target_link_libraries(upf_sim Threads::Threads)

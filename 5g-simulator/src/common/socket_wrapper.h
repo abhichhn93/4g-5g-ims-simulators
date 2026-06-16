@@ -101,3 +101,36 @@ public:
 private:
     int fd_;
 };
+
+// ── Minimal UDP socket wrapper (used for PFCP N4 in SMF/UPF) ─
+class UdpSocket {
+public:
+    UdpSocket() : fd_(-1) {}
+    ~UdpSocket() { if(fd_>=0){::close(fd_);fd_=-1;} }
+    UdpSocket(const UdpSocket&) = delete;
+    UdpSocket& operator=(const UdpSocket&) = delete;
+
+    void bind(const char* ip, uint16_t port) {
+        fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (fd_ < 0) throw std::runtime_error("UDP socket() failed");
+        int opt=1; ::setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        sockaddr_in a{}; a.sin_family=AF_INET; a.sin_port=htons(port);
+        ::inet_pton(AF_INET, ip, &a.sin_addr);
+        if (::bind(fd_, (sockaddr*)&a, sizeof(a)) < 0)
+            throw std::runtime_error("UDP bind() failed port " + std::to_string(port));
+    }
+
+    bool sendTo(const std::vector<uint8_t>& buf, const char* host, uint16_t port) {
+        addrinfo hints{}; hints.ai_family=AF_INET; hints.ai_socktype=SOCK_DGRAM;
+        addrinfo* res=nullptr;
+        if (::getaddrinfo(host, std::to_string(port).c_str(), &hints, &res) != 0 || !res)
+            return false;
+        bool ok = ::sendto(fd_, buf.data(), buf.size(), 0, res->ai_addr, res->ai_addrlen) > 0;
+        ::freeaddrinfo(res);
+        return ok;
+    }
+
+    bool valid() const { return fd_ >= 0; }
+private:
+    int fd_;
+};

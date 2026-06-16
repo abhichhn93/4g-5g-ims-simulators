@@ -1,0 +1,14 @@
+name: "Attach + TAU + S1 Handover"
+mode: ENGINEER
+steps:
+  - cmd: CR 1
+    expect: REGISTERED
+    delay_ms: 200
+  - cmd: TAU 1
+    expect: TAU COMPLETE
+    delay_ms: 300
+  - cmd: HO 1
+    expect: HANDOVER COMPLETE
+    delay_ms: 500
+  - cmd: STATUS
+  - cmd: QUIT

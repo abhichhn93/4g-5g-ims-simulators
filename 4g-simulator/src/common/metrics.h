@@ -68,6 +68,52 @@ public:
 
     int completedCount() const { return completed_.load(); }
 
+    // Prometheus text exposition format (TS: scrape every 15s by default)
+    // Format: https://prometheus.io/docs/instrumenting/exposition_formats/
+    std::string prometheusText() const {
+        std::lock_guard<std::mutex> lk(mutex_);
+        std::string out;
+        out.reserve(1024);
+
+        int n = int(latencies_ms_.size());
+        double avg_ms = 0, p50 = 0, p95 = 0, p99 = 0, mn = 0, mx = 0, tput = 0;
+        if (n > 0) {
+            auto sorted = latencies_ms_;
+            std::sort(sorted.begin(), sorted.end());
+            double sum = std::accumulate(sorted.begin(), sorted.end(), 0.0);
+            avg_ms = sum / n;
+            p50 = percentile(sorted, 0.50);
+            p95 = percentile(sorted, 0.95);
+            p99 = percentile(sorted, 0.99);
+            mn  = sorted.front();
+            mx  = sorted.back();
+            auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - bulk_start_).count();
+            tput = n * 1000.0 / double(total_ms > 0 ? total_ms : 1);
+        }
+
+        auto line = [&](const char* name, const char* help, const char* type,
+                        double value, const char* labels = "") {
+            out += "# HELP "; out += name; out += ' '; out += help; out += '\n';
+            out += "# TYPE "; out += name; out += ' '; out += type; out += '\n';
+            out += name;
+            if (labels && labels[0]) { out += '{'; out += labels; out += '}'; }
+            out += ' '; out += fmt(value); out += '\n';
+        };
+
+        line("mme_attach_total", "Total UE attaches recorded", "counter", double(n));
+        line("mme_attach_latency_ms", "Attach latency mean (ms)", "gauge", avg_ms, "quantile=\"mean\"");
+        line("mme_attach_latency_ms", "Attach latency P50 (ms)", "gauge", p50, "quantile=\"0.50\"");
+        line("mme_attach_latency_ms", "Attach latency P95 (ms)", "gauge", p95, "quantile=\"0.95\"");
+        line("mme_attach_latency_ms", "Attach latency P99 (ms)", "gauge", p99, "quantile=\"0.99\"");
+        line("mme_attach_latency_ms_min", "Attach latency min (ms)", "gauge", mn);
+        line("mme_attach_latency_ms_max", "Attach latency max (ms)", "gauge", mx);
+        line("mme_attach_throughput", "Attaches per second (recent bulk)", "gauge", tput);
+        line("mme_expected_ues", "Expected UEs in current batch", "gauge", double(expected_));
+        line("mme_registered_ues", "UEs that completed attach", "gauge", double(completed_.load()));
+        return out;
+    }
+
     void printReport() const {
         std::lock_guard<std::mutex> lk(mutex_);
         if (latencies_ms_.empty()) {

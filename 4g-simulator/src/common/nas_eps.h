@@ -38,4 +38,10 @@ extern const std::vector<uint8_t> SECURITY_MODE_COMMAND;   // 7 bytes
 extern const std::vector<uint8_t> SECURITY_MODE_COMPLETE;  // 2 bytes
 extern const std::vector<uint8_t> ATTACH_COMPLETE;         // 7 bytes (incl. ESM Activate Default Bearer Accept)
 
+// TAU (Tracking Area Update) NAS messages — TS 24.301 §5.5.3
+// TAU Request: UE → eNB → MME when UE enters a new Tracking Area
+std::vector<uint8_t> buildTauRequest(uint64_t imsi);
+// TAU Accept: MME → eNB → UE confirming the new TAI, updating T3412 timer
+std::vector<uint8_t> buildTauAccept();
+
 } // namespace nas_eps

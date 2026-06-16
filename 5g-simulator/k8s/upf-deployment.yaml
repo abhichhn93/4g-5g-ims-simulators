@@ -1,0 +1,101 @@
+# UPF — User Plane Function
+#
+# CUPS user plane: GTP-U forwarding, PFCP rule enforcement.
+# UPF is the "bump in the wire" — packets flow through it, not through AMF/SMF.
+#
+# NOTE on UPF scaling in K8s:
+# UPF is stateful (GTP-U tunnels, active bearers). Scaling requires a
+# load balancer that understands GTP-U TEID — typically NOT a standard
+# K8s Service. In production (e.g. Nokia SEBA, Ericsson vUPF):
+#   - ECMP routing at the data plane level
+#   - Consistent hashing on UE IP or TEID
+#   - UPF selection done by SMF (not random LB)
+# For this sim: replicas: 1 (single UPF, realistic for dev demo).
+# HPA is still shown for the interview discussion value.
+#
+# INTERVIEW Q: "Can you HPA a UPF?"
+# A: "Not naively. UPF is stateful — each active GTP-U session is bound
+#    to a specific UPF instance via its N3 IP:TEID. Scaling out means
+#    new sessions go to new UPF; existing sessions stay on old UPF.
+#    Graceful handoff requires path switch: SMF sends PFCP Session
+#    Modification to old UPF (delete PDR), creates new N4 on new UPF,
+#    updates AMF with new UPF TEID, AMF tells gNB. This is the ULCL
+#    (UpLink CL) or branching point concept in TS 23.501 §5.6.4."
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: g5-upf
+  labels:
+    app: g5-upf
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: g5-upf
+  template:
+    metadata:
+      labels:
+        app: g5-upf
+    spec:
+      containers:
+        - name: upf-sim
+          image: g5-upf:latest
+          imagePullPolicy: Never
+          env:
+            - name: NRF_HOST
+              value: g5-nrf-svc
+            - name: UPF_HOST
+              value: g5-upf-svc
+          ports:
+            - containerPort: 8805
+              protocol: UDP
+              name: pfcp
+          livenessProbe:
+            exec:
+              command: ["true"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: g5-upf-svc
+  labels:
+    app: g5-upf
+spec:
+  selector:
+    app: g5-upf
+  ports:
+    - port: 8805
+      targetPort: 8805
+      protocol: UDP
+      name: pfcp
+  type: ClusterIP
+---
+# HPA for UPF — shown for interview value, NOT recommended in production
+# (stateful GTP-U sessions). See comment above.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: g5-upf-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: g5-upf
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80

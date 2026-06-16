@@ -1,0 +1,125 @@
+# Prometheus + ServiceMonitor for 4G MME simulator
+#
+# INTERVIEW: "How does Prometheus discover your MME pods in K8s?"
+# A: "ServiceMonitor CRD (Prometheus Operator). It targets pods with
+#    label app=mme-sim, scrapes :9090/metrics every 15s.
+#    No static_configs needed — Prometheus discovers pods dynamically
+#    as HPA adds/removes replicas. Each replica exports its own metrics."
+#
+# DEPLOY ORDER:
+#   1. kubectl apply -f deployment.yaml service.yaml
+#   2. kubectl apply -f prometheus.yaml  (after Prometheus Operator installed)
+#
+# WITHOUT OPERATOR (plain Prometheus):
+#   Use docker-compose instead: it has a static prometheus.yml target.
+
+# ── ConfigMap: Prometheus config (used by plain deployment below) ──
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: g4-prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+      - job_name: 'mme-sim'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: mme-sim
+            action: keep
+          - source_labels: [__address__]
+            regex: (.+):\d+
+            target_label: __address__
+            replacement: ${1}:9090
+---
+# ── Prometheus Deployment (stand-alone, no Operator needed) ───
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: g4-prometheus
+  labels:
+    app: g4-prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: g4-prometheus
+  template:
+    metadata:
+      labels:
+        app: g4-prometheus
+    spec:
+      serviceAccountName: prometheus-sa
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.51.2
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.retention.time=7d"
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: g4-prometheus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: g4-prometheus-svc
+spec:
+  selector:
+    app: g4-prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+  type: ClusterIP
+---
+# ServiceAccount + RBAC so Prometheus can list pods for kubernetes_sd
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-role
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, endpoints]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-role
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-sa
+    namespace: default
+---
+# Expose Prometheus via NodePort for minikube access:
+#   minikube service g4-prometheus-np --url
+apiVersion: v1
+kind: Service
+metadata:
+  name: g4-prometheus-np
+spec:
+  selector:
+    app: g4-prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+      nodePort: 30090
+  type: NodePort

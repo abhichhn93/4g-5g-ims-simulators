@@ -1,0 +1,8 @@
+name: "Bulk Load Test - 20 UEs"
+mode: ENGINEER
+steps:
+  - cmd: BULK 20
+    expect: all 20 UEs registered
+    delay_ms: 0
+  - cmd: STATUS
+  - cmd: QUIT
