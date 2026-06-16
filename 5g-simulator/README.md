@@ -1,5 +1,9 @@
 # 5G Core Simulator in C++17
 
+[![5G Simulator Build](https://github.com/abhichhn93/4g-5g-ims-simulators/actions/workflows/5g-build.yml/badge.svg)](https://github.com/abhichhn93/4g-5g-ims-simulators/actions/workflows/5g-build.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
+
 A from-scratch simulation of a **5G Core (5GC) Service-Based Architecture**
 — gNB, AMF, UDM, and NRF talking real HTTP/1.1 + JSON over the Service-Based
 Interface (SBI), built in C++17 using raw TCP sockets and multithreading.

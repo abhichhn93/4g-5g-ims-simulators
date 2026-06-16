@@ -13,6 +13,7 @@
 #include "common/thread_pool.h"
 #include "common/metrics.h"
 #include "common/prometheus_server.h"
+#include "common/chaos_mode.h"
 #include "enb/enb_node.h"
 #include "mme/mme_node.h"
 #include "hss/hss_node.h"
@@ -190,10 +191,15 @@ int main() {
             else Logger::sys("MODE: use BEGINNER / ENGINEER / INTERVIEW");
             Logger::sys("Log mode set to " + mode);
         }
+        else if (cmd=="CHAOS") {
+            std::string arg; iss >> arg;
+            for(auto& c:arg) c=char(std::toupper(unsigned(c)));
+            Chaos::setEnabled(arg == "ON");
+        }
         else {
             Logger::sys("Unknown: '" + line + "'.");
-            Logger::sys("Commands: CR <n>  BULK <n>  TAU <ue_id>  HO <ue_id>  STATUS  MODE <level>  QUIT");
-            Logger::sys("Examples: CR 1   BULK 10   TAU 1   HO 1   MODE BEGINNER");
+            Logger::sys("Commands: CR <n>  BULK <n>  TAU <ue_id>  HO <ue_id>  STATUS  MODE <level>  CHAOS <on|off>  QUIT");
+            Logger::sys("Examples: CR 1   BULK 10   TAU 1   HO 1   MODE BEGINNER   CHAOS ON");
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));

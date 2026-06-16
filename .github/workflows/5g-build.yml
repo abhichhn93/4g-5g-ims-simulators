@@ -1,0 +1,43 @@
+name: 5G Simulator Build
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '5g-simulator/**'
+      - '.github/workflows/5g-build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '5g-simulator/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ make
+
+      - name: Configure CMake
+        working-directory: 5g-simulator
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        working-directory: 5g-simulator
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Smoke test — binaries exist
+        run: |
+          test -f 5g-simulator/build/nrf_sim
+          test -f 5g-simulator/build/udm_sim
+          test -f 5g-simulator/build/amf_sim
+          test -f 5g-simulator/build/gnb_sim
+          test -f 5g-simulator/build/smf_sim
+          test -f 5g-simulator/build/upf_sim
+
+      - name: Smoke test — NRF starts
+        run: |
+          cd 5g-simulator/build
+          timeout 3 ./nrf_sim || true

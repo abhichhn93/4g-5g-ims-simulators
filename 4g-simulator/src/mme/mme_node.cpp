@@ -5,6 +5,8 @@
 #include "common/subscriber_profile.h"
 #include "common/nas_eps.h"
 #include "common/s1ap_codec.h"
+#include "common/json_event_log.h"
+#include "common/chaos_mode.h"
 #include <chrono>
 #include <thread>
 #include <cstdio>
@@ -196,7 +198,8 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
       // PCAP: real Diameter AIR header → Wireshark shows "Diameter"
       PcapWriter::instance().writeDiameter(
           DiameterCmd::AUTH_INFO, DiameterApp::S6A, true,
-          PcapWriter::IP_MME, 3868, PcapWriter::IP_HSS, 3868); }
+          PcapWriter::IP_MME, 3868, PcapWriter::IP_HSS, 3868);
+      JsonEventLog::logEvent("MME", "HSS", "Diameter AIR", "S6a", 3868, "4g"); }
 
     // BLOCK on cv.wait (hss_rx_th is PRODUCER, this thread is CONSUMER)
     Logger::mme(Logger::Level::ENGINEER, "[mme_th] cv.wait — blocking until HSS AIA arrives [condition_variable]");
@@ -207,6 +210,13 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
       av = pending_auth_[imsi]; pending_auth_.erase(imsi); }
 
     { auto c = ue_store_.find(mme_id); if(c){ c->auth = av; c->emm_state=EmmState::AUTH_PENDING; } }
+
+    // ── CHAOS: random AIA drop (HSS overload simulation) ──────
+    if (Chaos::rollDrop("Diameter AIA", "HSS", "MME",
+        "MME runs T3 timer (TS 29.272 §16) and retransmits AIR up to 3 times before Attach Reject.")) {
+        Logger::mme(Logger::Level::BEGINNER, "[CHAOS] Auth vectors dropped — UE attach will be rejected (retry)");
+        return;  // Drop this attach flow; in a real MME it would retry
+    }
 
     // ── STEP 3: AIA received ──────────────────────────────────
     char rand_hex[33]={}, xres_hex[17]={}, autn_hex[33]={};
@@ -226,6 +236,7 @@ void MmeNode::handleInitialUEMsg(const std::vector<uint8_t>& payload) {
     PcapWriter::instance().writeDiameter(
         DiameterCmd::AUTH_INFO, DiameterApp::S6A, false,
         PcapWriter::IP_HSS, 3868, PcapWriter::IP_MME, 3868);
+    JsonEventLog::logEvent("HSS", "MME", "Diameter AIA", "S6a", 3868, "4g");
 
     // Send Auth Request to eNB (DL NAS Transport)
     // ── STEP 4: NAS Auth Request ──────────────────────────────
@@ -356,6 +367,7 @@ void MmeNode::handleAuthSuccess(uint32_t mme_id) {
         .flush();
     PcapWriter::instance().writeGTPv2(GtpMsgType::CREATE_SESSION_REQ, 0,
         PcapWriter::IP_MME, 2123, PcapWriter::IP_SGW, 2123);
+    JsonEventLog::logEvent("MME", "SGW", "GTPv2 Create Session Request", "S11", 2123, "4g");
     Logger::mme(Logger::Level::ENGINEER, "[mme_th] → Starting GTP-C session setup (Phase 3)");
     if (!sendCreateSession(mme_id, ctx->imsi)) return;
 
@@ -582,6 +594,7 @@ void MmeNode::handleTauRequest(const std::vector<uint8_t>& payload) {
         PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
         PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
         s1ap::buildDlNasTransport(mme_id, enb_id, nas_eps::buildTauAccept()));
+    JsonEventLog::logEvent("MME", "UE", "NAS TAU Accept", "S1-MME", 36412, "4g");
 
     VLog::step(3, 3, "TAU COMPLETE  ✓",
                "MME", Logger::CLR_MME, nullptr, nullptr)
@@ -638,6 +651,7 @@ void MmeNode::handleHandoverRequired(const std::vector<uint8_t>& payload) {
         PcapWriter::IP_ENB, PcapWriter::PORT_S1AP,
         PcapWriter::IP_MME, PcapWriter::PORT_S1AP,
         s1ap::buildHandoverRequired(mme_id, enb_id));
+    JsonEventLog::logEvent("eNB", "MME", "S1AP HandoverRequired", "S1-MME", 36412, "4g");
 
     // ── STEP 2: HandoverRequest to target eNB ─────────────────
     VLog::step(2, 7, "HANDOVER REQUEST  [TS 36.413 §8.4.2]",

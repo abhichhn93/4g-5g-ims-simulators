@@ -20,6 +20,7 @@
 #include "common/aka_lite.h"
 #include "common/ids5g.h"
 #include "common/logger.h"
+#include "common/chaos_mode.h"
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
@@ -28,22 +29,34 @@
 
 using Logger::Level;
 
-static void doRegistration(const Socket& amf, int ueId) {
+static void doRegistration(const Socket& amf, int ueId, const std::string& slice = "embb") {
     std::string suci = ids5g::suci(ueId);
     std::string k    = aka::kFor(ids5g::msin(ueId));
 
-    Logger::step("UE " + ids5g::supi(ueId) + " -- Registration");
+    // NSSAI: SST=1 eMBB, SST=2 URLLC  (TS 23.501 §5.15)
+    int sst = (slice == "urllc") ? 2 : 1;
+    std::string sd  = (sst == 2) ? "000002" : "000001";
+
+    Logger::step("UE " + ids5g::supi(ueId) + " -- Registration [slice=" + slice + "]");
     Logger::gnb(Level::BEGINNER, "gNB -> AMF: RegistrationRequest");
     Logger::ie_field("SUCI = " + suci);
+    Logger::ie_field("Requested NSSAI: SST=" + std::to_string(sst) + " SD=" + sd +
+                     "  (" + slice + " slice)");
     Logger::gnb(Level::INTERVIEW_T,
         "SUCI travels over the air instead of SUPI/IMSI so a passive "
         "radio eavesdropper can't track the subscriber (TS 33.501 §6.12).");
+    Logger::gnb(Level::INTERVIEW_T,
+        "NSSAI (Network Slice Selection Assistance Information) tells AMF which slice to use. "
+        "SST=1 eMBB (enhanced Mobile Broadband), SST=2 URLLC (Ultra-Reliable Low-Latency). "
+        "AMF queries NRF for NFs belonging to the requested slice. Ref: TS 23.501 §5.15.2.");
 
+    std::string nssai = "{\"sst\":" + std::to_string(sst) + ",\"sd\":\"" + sd + "\"}";
     std::string req = json::obj({
         {"msgType", json::str("RegistrationRequest")},
         {"ranUeNgapId", json::num(ueId)},
         {"suci", json::str(suci)},
         {"registrationType", json::str("initial")},
+        {"requestedNssai", json::str(nssai)},
     });
     Logger::raw(req);
     amf.sendFrame(n2Frame(req));
@@ -187,14 +200,26 @@ int main() {
         if (cmd == "QUIT") break;
         if (cmd == "REG") {
             int ueId = 1; ss >> ueId;
-            doRegistration(amf, ueId);
+            std::string slice = "embb";
+            std::string token;
+            while (ss >> token) {
+                if (token == "--slice") { ss >> slice; for (auto& c : slice) c = char(std::tolower(unsigned(c))); }
+            }
+            if (slice != "embb" && slice != "urllc") {
+                Logger::sys("Usage: REG <ueId> [--slice embb|urllc]"); slice = "embb";
+            }
+            doRegistration(amf, ueId, slice);
         } else if (cmd == "PDU") {
             int ueId = 1, pduSessId = 1; std::string dnn = "internet";
             ss >> ueId;
             if (ss >> pduSessId) { std::string d; if (ss >> d) dnn = d; }
             doPduSession(amf, ueId, pduSessId, dnn);
+        } else if (cmd == "CHAOS") {
+            std::string arg; ss >> arg;
+            for (auto& c : arg) c = char(std::toupper(unsigned(c)));
+            Chaos::setEnabled(arg == "ON");
         } else if (!cmd.empty()) {
-            Logger::sys("Commands: REG <ueId>  |  PDU <ueId> [pduSessId] [dnn]  |  QUIT");
+            Logger::sys("Commands: REG <ueId>  |  PDU <ueId> [pduSessId] [dnn]  |  CHAOS <on|off>  |  QUIT");
         }
     }
     Logger::shutdown();

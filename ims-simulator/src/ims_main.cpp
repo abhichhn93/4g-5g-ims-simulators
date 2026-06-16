@@ -11,6 +11,8 @@
 #include "common/visual_logger.h"
 #include "common/pcap_writer.h"
 #include "common/socket_wrapper.h"
+#include "common/json_event_log.h"
+#include "common/chaos_mode.h"
 #include "common/tlv.h"
 #include "ims/sip.h"
 #include "ims/sip_text.h"
@@ -94,6 +96,7 @@ static void doRegister(const std::string& id) {
 
     std::string sip = SipText::buildRegister(ue.impu, ue.ip, ue.cseq++);
     pcapSip(sip, PcapWriter::IP_UE, PcapWriter::IP_PCSCF);
+    JsonEventLog::logEvent("UE", "P-CSCF", "SIP REGISTER", "Gm", 5060, "ims");
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
@@ -116,6 +119,7 @@ static void doRegister(const std::string& id) {
         .flush();
     PcapWriter::instance().writeDiameter(DiameterCmd::SERVER_ASSIGNMENT, DiameterApp::CX, true,
         PcapWriter::IP_SCSCF, PcapWriter::PORT_DIA, PcapWriter::IP_HSS, PcapWriter::PORT_DIA);
+    JsonEventLog::logEvent("S-CSCF", "HSS", "Diameter SAR", "Cx", 3868, "ims");
     PcapWriter::instance().writeDiameter(DiameterCmd::SERVER_ASSIGNMENT, DiameterApp::CX, false,
         PcapWriter::IP_HSS, PcapWriter::PORT_DIA, PcapWriter::IP_SCSCF, PcapWriter::PORT_DIA);
 
@@ -162,6 +166,7 @@ static void doCall(const std::string& caller_id, const std::string& callee_id) {
 
     std::string invite = SipText::buildInvite(caller.impu, callee.impu, caller.ip, call_id, caller.cseq);
     pcapSip(invite, PcapWriter::IP_UE, PcapWriter::IP_PCSCF);
+    JsonEventLog::logEvent("UE", "P-CSCF", "SIP INVITE", "Gm", 5060, "ims");
 
     std::this_thread::sleep_for(std::chrono::milliseconds(80));
 
@@ -227,9 +232,17 @@ static void doCall(const std::string& caller_id, const std::string& callee_id) {
         .next("Caller sends ACK → P-CSCF sends Diameter Rx AAR to PCRF → QCI=1 bearer!")
         .flush();
     std::string ok200inv = SipText::build200Invite(caller.impu, callee.impu, callee.ip, call_id, callee.cseq);
-    pcapSip(ok200inv, 0x7F000002, PcapWriter::IP_SCSCF); // UE-B → S-CSCF
-    pcapSip(ok200inv, PcapWriter::IP_SCSCF, PcapWriter::IP_PCSCF);
-    pcapSip(ok200inv, PcapWriter::IP_PCSCF, PcapWriter::IP_UE);
+    // CHAOS: randomly corrupt the SIP 200 OK (20%) → P-CSCF retransmits
+    if (Chaos::rollCorrupt("SIP 200 OK INVITE", "UE-B", "P-CSCF",
+        "P-CSCF detects bad Content-Length or Via mismatch → drops → S-CSCF retransmits "
+        "200 OK per RFC 3261 §17.1.2.2 until ACK timer expires (64*T1 = 32s)")) {
+        Logger::sys("[CHAOS] 200 OK corrupted — P-CSCF will trigger retransmission");
+        pcapSip("CORRUPT-SIP/2.0 200 OK\r\n", 0x7F000002, PcapWriter::IP_SCSCF);
+    } else {
+        pcapSip(ok200inv, 0x7F000002, PcapWriter::IP_SCSCF); // UE-B → S-CSCF
+        pcapSip(ok200inv, PcapWriter::IP_SCSCF, PcapWriter::IP_PCSCF);
+        pcapSip(ok200inv, PcapWriter::IP_PCSCF, PcapWriter::IP_UE);
+    }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(80));
 
@@ -403,6 +416,7 @@ static void doBye(const std::string& caller_id = "A", const std::string& callee_
 
     pcapSip(SipText::buildBye(caller.impu, callee.impu, call_id, caller.cseq),
             PcapWriter::IP_UE, PcapWriter::IP_PCSCF);
+    JsonEventLog::logEvent("UE", "P-CSCF", "SIP BYE", "Gm", 5060, "ims");
     pcapSip(SipText::buildBye(caller.impu, callee.impu, call_id, caller.cseq),
             PcapWriter::IP_PCSCF, PcapWriter::IP_SCSCF);
 
@@ -525,7 +539,12 @@ int main() {
         else if (cmd == "WAIT") doCallWait();
         else if (cmd == "BARR") doBarring();
         else if (cmd == "BYE")  doBye();
-        else Logger::sys("Unknown. Try: REG ALL, CALL A B, CONF, WAIT, BARR, BYE, STATUS, QUIT");
+        else if (cmd == "CHAOS") {
+            std::string arg; iss >> arg;
+            for (auto& c : arg) c = char(std::toupper(unsigned(c)));
+            Chaos::setEnabled(arg == "ON");
+        }
+        else Logger::sys("Unknown. Try: REG ALL, CALL A B, CONF, WAIT, BARR, BYE, CHAOS ON, STATUS, QUIT");
 
         if (!stop.load()) std::cout << "\nims-sim> " << std::flush;
     }

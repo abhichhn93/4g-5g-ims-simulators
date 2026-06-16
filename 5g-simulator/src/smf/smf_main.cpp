@@ -50,6 +50,7 @@
 #include "common/pcap_writer.h"
 #include "common/logger.h"
 #include "common/nrf_client.h"
+#include "common/json_event_log.h"
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
@@ -281,8 +282,10 @@ static std::string setupN4Session(const std::string& ue_ip, uint32_t pdu_session
     // PCAP: write PFCP frames over UDP
     pcap().writeUdp(req_pdu, PcapWriter::IP_SMF, PcapWriter::PORT_PFCP,
                              PcapWriter::IP_UPF,  PcapWriter::PORT_PFCP);
+    JsonEventLog::logEvent("SMF", "UPF", "PFCP Session Establishment Request", "N4", 8805, req_pdu, "5g");
     pcap().writeUdp(rsp_pdu, PcapWriter::IP_UPF,  PcapWriter::PORT_PFCP,
                              PcapWriter::IP_SMF, PcapWriter::PORT_PFCP);
+    JsonEventLog::logEvent("UPF", "SMF", "PFCP Session Establishment Response", "N4", 8805, rsp_pdu, "5g");
 
     Logger::smf(Level::BEGINNER,
         "SMF <- UPF: N4 PFCP Session Establishment Response — cause=Request Accepted");

@@ -43,8 +43,24 @@ target_link_libraries(mme_sim Threads::Threads ${PLATFORM_LIBS})
 # IMS/VoLTE (mme_ims, ims_server, ue_sim) moved to ../ims-simulator/
 
 # ── Scenario Runner: YAML-driven CLI automation ───────────────
-# Usage: ./scenario_runner scenario.yaml | ./mme_sim
-# Or via Python: python3 test_automation.py scenario.yaml
 add_executable(scenario_runner src/scenario_runner.cpp)
 target_include_directories(scenario_runner PRIVATE src)
 target_link_libraries(scenario_runner Threads::Threads ${PLATFORM_LIBS})
+
+# ── O-RAN E2 Interface Stub ───────────────────────────────────
+# Two standalone binaries demonstrating O-RAN xApp ↔ eNB E2 flow:
+#   ./e2_agent  (start first — eNB E2 termination point, port 36421)
+#   ./xapp_sim  (connects to e2_agent, sends RIC Control Request)
+add_executable(e2_agent
+    src/o_ran/e2_agent.cpp
+    src/common/pcap_writer.cpp
+)
+target_include_directories(e2_agent PRIVATE src)
+target_link_libraries(e2_agent Threads::Threads ${PLATFORM_LIBS})
+
+add_executable(xapp_sim
+    src/o_ran/xapp_main.cpp
+    src/common/pcap_writer.cpp
+)
+target_include_directories(xapp_sim PRIVATE src)
+target_link_libraries(xapp_sim Threads::Threads ${PLATFORM_LIBS})

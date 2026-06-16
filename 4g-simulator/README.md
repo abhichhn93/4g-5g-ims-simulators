@@ -1,5 +1,9 @@
 # 4G EPC Simulator in C++17
 
+[![4G Simulator Build](https://github.com/abhichhn93/4g-5g-ims-simulators/actions/workflows/4g-build.yml/badge.svg)](https://github.com/abhichhn93/4g-5g-ims-simulators/actions/workflows/4g-build.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
+
 A production-grade simulation of a complete **4G LTE Core Network**,
 built entirely from scratch in C++17 using raw TCP/UDP sockets, multithreading, and real
 protocol message encoding.

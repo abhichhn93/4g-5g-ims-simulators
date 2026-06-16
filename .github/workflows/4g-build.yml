@@ -1,0 +1,37 @@
+name: 4G Simulator Build
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '4g-simulator/**'
+      - '.github/workflows/4g-build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '4g-simulator/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ make
+
+      - name: Configure CMake
+        working-directory: 4g-simulator
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        working-directory: 4g-simulator
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Smoke test — binary exists
+        run: test -f 4g-simulator/build/mme_sim
+
+      - name: Smoke test — help output
+        run: |
+          cd 4g-simulator/build
+          echo "QUIT" | timeout 5 ./mme_sim || true

@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Telecom Simulator — Live Visualizer</title>
+<style>
+  :root {
+    --bg:      #0d1117;
+    --panel:   #161b22;
+    --border:  #30363d;
+    --text:    #c9d1d9;
+    --muted:   #8b949e;
+    --accent:  #58a6ff;
+    --green:   #3fb950;
+    --orange:  #d29922;
+    --red:     #f85149;
+    --purple:  #bc8cff;
+    --yellow:  #e3b341;
+    --arrow-c: #58a6ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px; height: 100vh; display: flex; flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 20px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 16px; font-weight: 600; flex: 1; }
+  #conn-indicator {
+    display: flex; align-items: center; gap: 6px; font-size: 12px;
+  }
+  #conn-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--red); transition: background 0.3s;
+  }
+  #conn-dot.connected { background: var(--green); }
+
+  /* ── Tabs ── */
+  nav {
+    display: flex; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  nav button {
+    padding: 8px 24px; background: none; border: none; color: var(--muted);
+    cursor: pointer; font-size: 14px; font-weight: 500;
+    border-bottom: 2px solid transparent; transition: all 0.2s;
+  }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  nav button:hover  { color: var(--text); }
+
+  /* ── Main area ── */
+  #main { flex: 1; display: flex; overflow: hidden; }
+
+  /* ── Ladder pane ── */
+  #ladder-pane {
+    flex: 1; overflow: hidden; position: relative;
+    border-right: 1px solid var(--border);
+  }
+  #ladder-scroll { width: 100%; height: 100%; overflow-y: auto; padding: 0 12px 60px; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 380px; display: flex; flex-direction: column; overflow: hidden;
+  }
+  #sidebar-header {
+    padding: 10px 14px; font-weight: 600; font-size: 13px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  #sidebar-content { flex: 1; overflow-y: auto; padding: 12px; }
+
+  /* ── Lifelines ── */
+  #lifeline-header {
+    display: flex; position: sticky; top: 0; z-index: 10;
+    background: var(--bg); padding: 8px 0 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .lifeline-label {
+    flex: 1; text-align: center; font-size: 11px; font-weight: 700;
+    padding: 4px; color: var(--muted); letter-spacing: 0.5px;
+  }
+  #arrow-area { position: relative; min-height: 400px; }
+
+  /* ── Arrows ── */
+  .arrow-row {
+    display: flex; align-items: center; padding: 3px 0;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } }
+  .arrow-spacer { flex: 1; }
+  .arrow-line {
+    position: relative; flex: 1; height: 2px;
+    background: linear-gradient(90deg, var(--arrow-c), var(--arrow-c));
+    display: flex; align-items: center; justify-content: center;
+  }
+  .arrow-line::after {
+    content: '▶'; position: absolute; right: -8px;
+    color: var(--arrow-c); font-size: 10px; line-height: 1;
+  }
+  .arrow-line.left::after { content: '◀'; right: auto; left: -8px; }
+  .arrow-label {
+    position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; white-space: nowrap; font-weight: 600;
+    color: var(--text); background: var(--bg); padding: 1px 4px;
+    border-radius: 3px; cursor: pointer;
+  }
+  .arrow-label:hover { color: var(--accent); }
+  .arrow-caption {
+    font-size: 11px; color: var(--muted);
+    padding: 1px 4px; white-space: nowrap;
+    max-width: 200px; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ── Lifeline vertical lines ── */
+  .vline {
+    position: absolute; top: 0; bottom: 0; width: 1px;
+    background: var(--border); z-index: 0;
+  }
+
+  /* Node color map */
+  .node-UE      { color: #e3b341; } .node-eNB     { color: #3fb950; }
+  .node-gNB     { color: #3fb950; } .node-MME     { color: #58a6ff; }
+  .node-AMF     { color: #58a6ff; } .node-HSS     { color: #d29922; }
+  .node-UDM     { color: #d29922; } .node-SMF     { color: #bc8cff; }
+  .node-NRF     { color: #d2a8ff; } .node-UPF     { color: #ffa657; }
+  .node-SGW     { color: #a5d6ff; } .node-PGW     { color: #79c0ff; }
+  .node-PCRF    { color: #56d364; } .node-PCSCF   { color: #e6a6ff; }
+  .node-SCSCF   { color: #b392f0; } .node-MTAS    { color: #f8c678; }
+  .node-IMSHSS  { color: #e3b341; }
+
+  /* ── Beginner mode pastel arrows ── */
+  body.beginner .arrow-line { background: #3a4a5c; }
+  body.beginner .arrow-line::after { color: #79aed6; }
+  body.beginner .arrow-label { color: #79aed6; }
+
+  /* ── Question card ── */
+  .q-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px; margin-bottom: 10px;
+    animation: fadeIn 0.3s ease;
+  }
+  .q-card .q-text { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .q-card .q-answer {
+    font-size: 12px; color: var(--muted); display: none;
+    line-height: 1.6; white-space: pre-wrap;
+  }
+  .q-card.open .q-answer { display: block; }
+  .q-card .q-toggle {
+    font-size: 11px; color: var(--accent); cursor: pointer;
+    margin-bottom: 6px; display: block;
+  }
+  .q-card .q-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .badge {
+    font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600;
+    background: #21262d; color: var(--muted); border: 1px solid var(--border);
+  }
+  .badge.domain-4g       { background: #0d2744; color: #79c0ff; border-color: #1f6feb; }
+  .badge.domain-5g       { background: #1a1c4b; color: #b392f0; border-color: #6e40c9; }
+  .badge.domain-ims      { background: #2d1b00; color: #ffa657; border-color: #9e6a03; }
+  .badge.domain-cpp      { background: #0d3426; color: #56d364; border-color: #238636; }
+  .badge.level-senior    { background: #3d1a00; color: #f8a947; border-color: #bd5a00; }
+  .badge.level-engineer  { background: #161b22; color: #c9d1d9; border-color: #30363d; }
+
+  /* ── Hex panel ── */
+  #hex-panel {
+    position: fixed; right: 390px; bottom: 0; width: 360px;
+    max-height: 40vh; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 6px 6px 0 0;
+    padding: 12px; overflow-y: auto; display: none; z-index: 100;
+  }
+  #hex-panel h3 { font-size: 12px; font-weight: 700; margin-bottom: 8px; color: var(--accent); }
+  #hex-panel pre { font-family: monospace; font-size: 11px; color: var(--muted); white-space: pre-wrap; }
+  #hex-close {
+    float: right; cursor: pointer; color: var(--red); font-size: 14px; font-weight: bold;
+  }
+
+  /* ── Event log ── */
+  #event-log {
+    font-family: monospace; font-size: 11px; color: var(--muted);
+    overflow-y: auto; max-height: 100%; word-break: break-all; line-height: 1.5;
+  }
+  #event-log .log-line { padding: 2px 0; border-bottom: 1px solid #21262d; }
+
+  /* ── Empty state ── */
+  #empty-state {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; color: var(--muted);
+  }
+  #empty-state p { margin-top: 8px; font-size: 13px; }
+  #empty-state code {
+    display: block; margin-top: 12px; padding: 8px 16px;
+    background: var(--panel); border-radius: 4px; font-size: 12px;
+    color: var(--accent);
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📡 Telecom Simulator — Live Visualizer</h1>
+  <div id="conn-indicator">
+    <div id="conn-dot"></div>
+    <span id="conn-text">Disconnected</span>
+  </div>
+</header>
+
+<nav>
+  <button class="active" onclick="setTab('beginner')" id="tab-beginner">BEGINNER</button>
+  <button onclick="setTab('engineer')"  id="tab-engineer">ENGINEER</button>
+  <button onclick="setTab('interview')" id="tab-interview">INTERVIEW</button>
+</nav>
+
+<div id="main">
+  <div id="ladder-pane">
+    <div id="ladder-scroll">
+      <div id="lifeline-header"><!-- filled by JS --></div>
+      <div id="arrow-area">
+        <div id="empty-state">
+          <div style="font-size:40px">📡</div>
+          <p>Waiting for simulator events…</p>
+          <code>python3 tools/viz_server.py</code>
+          <p style="margin-top:12px; font-size:12px">then run: <code style="display:inline; padding:2px 6px;">CR 1</code> in the simulator</p>
+        </div>
+        <!-- arrows injected here -->
+      </div>
+    </div>
+  </div>
+
+  <div id="sidebar">
+    <div id="sidebar-header" id="sidebar-label">Event Details</div>
+    <div id="sidebar-content">
+      <p style="color:var(--muted); font-size:12px">Click any arrow label to see details and interview questions here.</p>
+    </div>
+  </div>
+</div>
+
+<div id="hex-panel">
+  <span id="hex-close" onclick="closeHex()">✕</span>
+  <h3 id="hex-title">Hex Dump</h3>
+  <pre id="hex-content"></pre>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+let currentTab = 'beginner';
+let events = [];
+let ws;
+
+// Node ordering per simulator type
+const NODE_ORDER = {
+  '4g':  ['UE', 'eNB', 'MME', 'HSS', 'SGW', 'PGW', 'PCRF'],
+  '5g':  ['gNB', 'AMF', 'UDM', 'AUSF', 'NRF', 'SMF', 'UPF'],
+  'ims': ['UE', 'P-CSCF', 'S-CSCF', 'MTAS', 'IMS-HSS'],
+};
+const NODE_ALIAS = {
+  'SGW':'SGW', 'S-GW':'SGW', 'PGW':'PGW', 'P-GW':'PGW',
+  'PCSCF':'P-CSCF', 'SCSCF':'S-CSCF', 'IMSHSS':'IMS-HSS',
+};
+
+function normalizeNode(n) { return NODE_ALIAS[n] || n; }
+
+// Active nodes detected from events
+let activeNodes = [];
+let activeSim   = null;
+
+function detectNodes(ev) {
+  const from = normalizeNode(ev.from || '');
+  const to   = normalizeNode(ev.to   || '');
+  const sim  = ev.sim || '4g';
+  if (activeSim !== sim) {
+    activeSim   = sim;
+    activeNodes = [...(NODE_ORDER[sim] || ['UE', 'eNB', 'MME'])];
+    renderLifelineHeader();
+  }
+  [from, to].forEach(n => {
+    if (n && !activeNodes.includes(n)) {
+      activeNodes.push(n);
+      renderLifelineHeader();
+    }
+  });
+}
+
+// ── Lifeline header ────────────────────────────────────────────────────────────
+function renderLifelineHeader() {
+  const hdr = document.getElementById('lifeline-header');
+  hdr.innerHTML = activeNodes.map(n => {
+    const cls = 'node-' + n.replace(/[^A-Za-z]/g,'').toUpperCase().slice(0,6);
+    return `<div class="lifeline-label ${cls}">${n}</div>`;
+  }).join('');
+}
+
+// ── Arrow rendering ────────────────────────────────────────────────────────────
+function appendArrow(ev, idx) {
+  const area   = document.getElementById('arrow-area');
+  const empty  = document.getElementById('empty-state');
+  if (empty) empty.style.display = 'none';
+
+  const from = normalizeNode(ev.from || '');
+  const to   = normalizeNode(ev.to   || '');
+  const fi   = activeNodes.indexOf(from);
+  const ti   = activeNodes.indexOf(to);
+  const n    = activeNodes.length;
+  if (fi < 0 || ti < 0 || n === 0) return;
+
+  const row = document.createElement('div');
+  row.className = 'arrow-row';
+  row.style.position = 'relative';
+
+  // Build columns
+  const cols = [];
+  const left   = Math.min(fi, ti);
+  const right  = Math.max(fi, ti);
+  const goLeft = ti < fi;
+
+  for (let i = 0; i < n; i++) {
+    if (i < left || i > right) {
+      cols.push(`<div class="arrow-spacer"></div>`);
+    } else if (i === left) {
+      // If goLeft, arrowhead is on left; else arrowhead right
+      const lbl = ev.msg || '';
+      const caption = currentTab === 'beginner' ? (ev.beginner_text || '') :
+                      currentTab === 'engineer' ? `${ev.interface || ''} :${ev.port || ''}` : lbl;
+      const lineClass = goLeft ? 'arrow-line left' : 'arrow-line';
+      cols.push(`
+        <div class="arrow-spacer"></div>
+        <div class="${lineClass}" style="flex:${right - left}">
+          <span class="arrow-label" onclick="showDetails(${idx})">${lbl}</span>
+          ${currentTab !== 'interview' ? `<span class="arrow-caption" title="${caption}" style="margin-top:18px; position:absolute; bottom:-16px; left:50%; transform:translateX(-50%)">${caption.substring(0,40)}</span>` : ''}
+        </div>
+      `);
+    } else if (i <= right) {
+      // skip — part of the span
+    }
+  }
+  // trailing spacer
+  cols.push(`<div class="arrow-spacer"></div>`);
+
+  row.innerHTML = cols.join('');
+  row.style.marginBottom = '24px';
+  area.appendChild(row);
+
+  // Auto-scroll
+  const scroll = document.getElementById('ladder-scroll');
+  scroll.scrollTop = scroll.scrollHeight;
+}
+
+// ── Sidebar / detail panel ─────────────────────────────────────────────────────
+function showDetails(idx) {
+  const ev = events[idx];
+  if (!ev) return;
+  const sc = document.getElementById('sidebar-content');
+
+  let html = `<div style="margin-bottom:12px">
+    <div style="font-size:13px; font-weight:700; color:var(--accent)">${ev.msg || ''}</div>
+    <div style="font-size:11px; color:var(--muted); margin-top:4px">${ev.from} → ${ev.to} | ${ev.interface||''} :${ev.port||''}</div>
+  </div>`;
+
+  if (currentTab === 'beginner' && ev.beginner_text) {
+    html += `<div style="background:var(--panel); padding:10px; border-radius:6px; font-size:13px; line-height:1.6; margin-bottom:12px;">${ev.beginner_text}</div>`;
+  }
+
+  if (currentTab === 'engineer' && ev.hex) {
+    html += `<button onclick="showHex(${idx})" style="padding:5px 12px; background:#21262d; border:1px solid var(--border); color:var(--accent); border-radius:4px; cursor:pointer; font-size:12px; margin-bottom:12px">Show Hex Dump</button>`;
+  }
+
+  if (ev._matched_questions && ev._matched_questions.length) {
+    html += `<div style="font-weight:600; font-size:12px; margin-bottom:8px; color:var(--muted)">INTERVIEW QUESTIONS</div>`;
+    ev._matched_questions.forEach((q, i) => {
+      const domain = q.domain || (ev.sim === '4g' ? '4g' : ev.sim === '5g' ? '5g' : 'ims');
+      html += `<div class="q-card" id="qcard-${idx}-${i}">
+        <div class="q-text">${q.question || ''}</div>
+        <span class="q-toggle" onclick="toggleQ(${idx},${i})">▶ Show Answer</span>
+        <div class="q-answer">${q.answer || ''}</div>
+        <div class="q-badges">
+          <span class="badge domain-${domain}">${domain.toUpperCase()}</span>
+          <span class="badge level-${q.level||'engineer'}">${(q.level||'engineer').toUpperCase()}</span>
+          ${(q.tags||[]).slice(0,3).map(t=>`<span class="badge">${t}</span>`).join('')}
+        </div>
+      </div>`;
+    });
+  } else if (ev.interview_q) {
+    html += `<div class="q-card" id="qcard-${idx}-em">
+      <div class="q-text">${ev.interview_q}</div>
+      <span class="q-toggle" onclick="toggleQem(${idx})">▶ Show Answer</span>
+      <div class="q-answer">${ev.interview_a || ''}</div>
+    </div>`;
+  }
+
+  sc.innerHTML = html;
+}
+
+function toggleQ(idx, qi) {
+  const card = document.getElementById(`qcard-${idx}-${qi}`);
+  if (!card) return;
+  card.classList.toggle('open');
+  card.querySelector('.q-toggle').textContent = card.classList.contains('open') ? '▼ Hide Answer' : '▶ Show Answer';
+}
+function toggleQem(idx) {
+  const card = document.getElementById(`qcard-${idx}-em`);
+  if (!card) return;
+  card.classList.toggle('open');
+  card.querySelector('.q-toggle').textContent = card.classList.contains('open') ? '▼ Hide Answer' : '▶ Show Answer';
+}
+
+function showHex(idx) {
+  const ev = events[idx];
+  if (!ev || !ev.hex) return;
+  const hex = ev.hex;
+  let formatted = '';
+  for (let i = 0; i < hex.length; i += 32) {
+    const chunk = hex.substring(i, i+32);
+    const addr  = ('0000' + (i/2).toString(16)).slice(-4);
+    const bytes = chunk.match(/.{1,2}/g).join(' ');
+    formatted  += `${addr}  ${bytes}\n`;
+  }
+  document.getElementById('hex-title').textContent = ev.msg + ' — hex dump';
+  document.getElementById('hex-content').textContent = formatted;
+  document.getElementById('hex-panel').style.display = 'block';
+}
+function closeHex() { document.getElementById('hex-panel').style.display = 'none'; }
+
+// ── Tabs ───────────────────────────────────────────────────────────────────────
+function setTab(tab) {
+  currentTab = tab;
+  document.body.className = tab;
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  // Re-render ladder with new tab
+  document.getElementById('arrow-area').innerHTML = '<div id="empty-state" style="display:none"></div>';
+  activeNodes = [];
+  activeSim   = null;
+  events.forEach((ev, i) => {
+    detectNodes(ev);
+    appendArrow(ev, i);
+  });
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+function connect() {
+  const dot  = document.getElementById('conn-dot');
+  const text = document.getElementById('conn-text');
+  ws = new WebSocket('ws://localhost:8765');
+
+  ws.onopen = () => {
+    dot.classList.add('connected');
+    text.textContent = 'Connected';
+  };
+  ws.onclose = () => {
+    dot.classList.remove('connected');
+    text.textContent = 'Disconnected — reconnecting…';
+    setTimeout(connect, 2000);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'connected') {
+      document.getElementById('conn-text').textContent =
+        `Connected (${msg.questions_loaded} questions, ${msg.tag_rules} rules)`;
+      return;
+    }
+    if (msg.type === 'event') {
+      const ev = msg.data;
+      const idx = events.length;
+      events.push(ev);
+      detectNodes(ev);
+      appendArrow(ev, idx);
+
+      // Auto-show interview cards if in INTERVIEW tab
+      if (currentTab === 'interview' && ev._matched_questions?.length) {
+        showDetails(idx);
+      }
+    }
+  };
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+setTab('beginner');
+connect();
+</script>
+</body>
+</html>

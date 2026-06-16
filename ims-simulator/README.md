@@ -1,5 +1,9 @@
 # IMS / VoLTE Simulator in C++17
 
+[![IMS Simulator Build](https://github.com/abhichhn93/4g-5g-ims-simulators/actions/workflows/ims-build.yml/badge.svg)](https://github.com/abhichhn93/4g-5g-ims-simulators/actions/workflows/ims-build.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](../LICENSE)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
+
 A from-scratch simulation of the **IMS (IP Multimedia Subsystem)** — the SIP +
 Diameter network that carries VoLTE voice calls — built in C++17 using raw
 TCP sockets, multithreading, and real protocol message encoding (SIP text

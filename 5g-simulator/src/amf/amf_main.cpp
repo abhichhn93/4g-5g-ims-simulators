@@ -25,6 +25,8 @@
 #include "common/logger.h"
 #include "common/ids5g.h"
 #include "common/nrf_client.h"
+#include "common/json_event_log.h"
+#include "common/chaos_mode.h"
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
@@ -47,6 +49,7 @@ struct UeContext {
     std::string suci;
     std::string supi;
     std::string xresStar;
+    std::string nssai;   // requested S-NSSAI JSON, e.g. {"sst":2,"sd":"000002"}
 };
 
 static PcapWriter& pcap() { return PcapWriter::instance(); }
@@ -123,6 +126,7 @@ static std::string callSmf(const std::string& supi, int pdu_sess_id, const std::
         Logger::amf(Level::BEGINNER,
             "AMF <- SMF: 201 Created  ueIp=" + ue_ip);
         Logger::ie_field("  UPF GTP-U TEID=0x00000101 (gNB will create GTP-U tunnel to UPF)");
+        JsonEventLog::logEvent("AMF", "SMF", "HTTP SMF PDUSession", "N11/SBI", 29502, "5g");
         return ue_ip;
     } catch (const std::exception& e) {
         Logger::warn(" AMF  ", "SMF unreachable: " + std::string(e.what()) +
@@ -142,10 +146,23 @@ static void sendToGnb(const Socket& gnb, const std::string& json_text) {
 static void handleRegistrationRequest(const Socket& gnb, const std::string& text,
                                        std::map<int, UeContext>& ctx) {
     int ueId = std::stoi(json::get(text, "ranUeNgapId"));
-    std::string suci = json::get(text, "suci");
+    std::string suci  = json::get(text, "suci");
+    std::string nssai = json::get(text, "requestedNssai");  // e.g. {"sst":2,"sd":"000002"}
+
+    // Derive slice name for logging
+    std::string sliceName = "eMBB";
+    if (nssai.find("\"sst\":2") != std::string::npos) sliceName = "URLLC";
+    else if (nssai.find("\"sst\":1") != std::string::npos) sliceName = "eMBB";
 
     Logger::step("Registration started: " + suci);
     Logger::amf(Level::BEGINNER, "AMF <- gNB: RegistrationRequest (ranUeNgapId=" + std::to_string(ueId) + ")");
+    Logger::ie_field("Requested NSSAI = " + (nssai.empty() ? "{sst:1}" : nssai) + "  (slice: " + sliceName + ")");
+    { std::string sst = (sliceName == "URLLC") ? "2" : "1";
+      Logger::amf(Level::INTERVIEW_T,
+        std::string("AMF checks Subscribed NSSAI from UDM vs Requested NSSAI. "
+        "Only Allowed NSSAI is returned in RegistrationAccept. "
+        "NRF discovery is then filtered by the allowed slice — "
+        "NRF returns only SMFs/UPFs that serve SST=") + sst); }
     Logger::ie_field("SUCI = " + suci);
     Logger::amf(Level::INTERVIEW_C,
         "AMF stores a UeContext{suci,supi,xresStar} for this ranUeNgapId in "
@@ -157,6 +174,19 @@ static void handleRegistrationRequest(const Socket& gnb, const std::string& text
     std::string req = httpBuild("POST /nudm-ueau/v2/" + suci + "/security-information/generate-auth-data HTTP/1.1",
                                  body, "Host: udm.5gc." + ids5g::plmnDomain() + ".3gppnetwork.org");
     Logger::amf(Level::BEGINNER, "AMF -> UDM: Nudm_UEAuthentication_Get (SBI/HTTP)");
+    JsonEventLog::logEvent("AMF", "UDM", "HTTP UDM Authentication", "N8/SBI", 29503, "5g");
+
+    // CHAOS: random NRF/UDM discovery drop (20%)
+    if (Chaos::rollDrop("Nudm_UEAuthentication_Get", "AMF", "UDM",
+        "AMF implements exponential backoff (RFC 6585): 1s → 2s → 4s retries. "
+        "After 3 failures, Registration Reject (cause: UDM unreachable) is sent.")) {
+        std::string reject = json::obj({{"msgType", json::str("RegistrationReject")},
+                                         {"ranUeNgapId", json::str("0")},
+                                         {"cause", json::str("chaos-udm-drop")}});
+        sendToGnb(gnb, reject);
+        return;
+    }
+
     HttpMessage resp = callUdm(req);
 
     std::string rand     = json::get(resp.body, "rand");
@@ -169,7 +199,7 @@ static void handleRegistrationRequest(const Socket& gnb, const std::string& text
     Logger::ie_field("AUTN  = " + autn);
     Logger::ie_field("XRES* = " + xresStar + "  (cached by AMF, never sent to UE)");
 
-    ctx[ueId] = {suci, supi, xresStar};
+    ctx[ueId] = {suci, supi, xresStar, nssai};
 
     std::string out = json::obj({
         {"msgType", json::str("AuthenticationRequest")},
@@ -223,14 +253,18 @@ static void handleAuthResponse(const Socket& gnb, const std::string& text,
     guti << "5g-guti-" << ids5g::mcc() << "-" << ids5g::mnc() << "-amf01-"
          << std::setw(5) << std::setfill('0') << ueId;
 
+    // Echo back the requested NSSAI as allowed (real AMF also checks subscription)
+    const std::string& allowedNssai = c.nssai.empty() ? "[{\"sst\":1,\"sd\":\"000001\"}]"
+                                                       : "[" + c.nssai + "]";
     std::string out = json::obj({
         {"msgType", json::str("RegistrationAccept")},
         {"ranUeNgapId", json::num(ueId)},
         {"5gGuti", json::str(guti.str())},
-        {"allowedNssai", "[{\"sst\":1,\"sd\":\"000001\"}]"},
+        {"allowedNssai", allowedNssai},
     });
     Logger::amf(Level::BEGINNER, "AMF -> gNB: RegistrationAccept (5G-GUTI=" + guti.str() + ")");
-    Logger::ie_field("Allowed NSSAI = [{sst:1, sd:\"000001\"}]");
+    Logger::ie_field("Allowed NSSAI = " + allowedNssai);
+    JsonEventLog::logEvent("AMF", "gNB", "HTTP AMF Registration", "N2/NGAP", 38412, "5g");
     sendToGnb(gnb, out);
 }
 

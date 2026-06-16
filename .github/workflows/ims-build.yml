@@ -1,0 +1,39 @@
+name: IMS Simulator Build
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'ims-simulator/**'
+      - '.github/workflows/ims-build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'ims-simulator/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ make
+
+      - name: Configure CMake
+        working-directory: ims-simulator
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        working-directory: ims-simulator
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Smoke test — binaries exist
+        run: |
+          test -f ims-simulator/build/ims_server
+          test -f ims-simulator/build/ue_sim
+
+      - name: Smoke test — server smoke
+        run: |
+          cd ims-simulator/build
+          timeout 3 ./ims_server || true
