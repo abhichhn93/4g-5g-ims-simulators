@@ -184,6 +184,12 @@ public:
         w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_SDP)),
                    "audio:" + std::to_string(cfg_.rtp_port) + "/AMR-WB;a=sendonly");
         conn_.sendFrame(w.frame());
+        PcapWriter::instance().writeSIP(
+            SipText::buildReInvite(cfg_.impu, callee_impu_, cfg_.ip, current_call_id_, next_seq_,
+                "v=0\r\no=ue 1 1 IN IP4 " + cfg_.ip + "\r\ns=-\r\nt=0 0\r\n"
+                "m=audio " + std::to_string(cfg_.rtp_port) + " RTP/AVP 98\r\n"
+                "a=rtpmap:98 AMR-WB/16000\r\na=sendonly\r\n"),
+            ue_ip_num(), 5060, PcapWriter::IP_PCSCF, 5060);
         print("  Callee hears hold music — P-CSCF updates Rx (reduces bearer to one-way)");
     }
 
@@ -200,6 +206,12 @@ public:
         w.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_SDP)),
                    "audio:" + std::to_string(cfg_.rtp_port) + "/AMR-WB;a=sendrecv");
         conn_.sendFrame(w.frame());
+        PcapWriter::instance().writeSIP(
+            SipText::buildReInvite(cfg_.impu, callee_impu_, cfg_.ip, current_call_id_, next_seq_,
+                "v=0\r\no=ue 1 1 IN IP4 " + cfg_.ip + "\r\ns=-\r\nt=0 0\r\n"
+                "m=audio " + std::to_string(cfg_.rtp_port) + " RTP/AVP 98\r\n"
+                "a=rtpmap:98 AMR-WB/16000\r\na=sendrecv\r\n"),
+            ue_ip_num(), 5060, PcapWriter::IP_PCSCF, 5060);
     }
 
     void doConference(const std::string& third_id) {
@@ -283,6 +295,14 @@ public:
             "audio:" + std::to_string(cfg_.rtp_port) + "/AMR-WB;"
             "video:" + std::to_string(cfg_.rtp_port+2) + "/H264/90000;a=sendrecv");
         conn_.sendFrame(w.frame());
+        PcapWriter::instance().writeSIP(
+            SipText::buildReInvite(cfg_.impu, callee_impu_, cfg_.ip, current_call_id_, next_seq_,
+                "v=0\r\no=ue 1 1 IN IP4 " + cfg_.ip + "\r\ns=-\r\nt=0 0\r\n"
+                "m=audio " + std::to_string(cfg_.rtp_port) + " RTP/AVP 98\r\n"
+                "a=rtpmap:98 AMR-WB/16000\r\na=sendrecv\r\n"
+                "m=video " + std::to_string(cfg_.rtp_port+2) + " RTP/AVP 100\r\n"
+                "a=rtpmap:100 H264/90000\r\na=sendrecv\r\n"),
+            ue_ip_num(), 5060, PcapWriter::IP_PCSCF, 5060);
     }
 
     void doVoice() {
@@ -299,6 +319,13 @@ public:
             "audio:" + std::to_string(cfg_.rtp_port) + "/AMR-WB;"
             "video:0/H264/90000;port=0;a=sendrecv");
         conn_.sendFrame(w.frame());
+        PcapWriter::instance().writeSIP(
+            SipText::buildReInvite(cfg_.impu, callee_impu_, cfg_.ip, current_call_id_, next_seq_,
+                "v=0\r\no=ue 1 1 IN IP4 " + cfg_.ip + "\r\ns=-\r\nt=0 0\r\n"
+                "m=audio " + std::to_string(cfg_.rtp_port) + " RTP/AVP 98\r\n"
+                "a=rtpmap:98 AMR-WB/16000\r\na=sendrecv\r\n"
+                "m=video 0 RTP/AVP 100\r\na=rtpmap:100 H264/90000\r\n"),
+            ue_ip_num(), 5060, PcapWriter::IP_PCSCF, 5060);
     }
 
     void doBye() {
@@ -375,6 +402,16 @@ private:
                 print("  Codec: AMR-WB 12.65kbps — voice sounds like in the room");
                 print("  QCI=1 dedicated bearer active (via P-CSCF → Rx AAR → PCRF)");
                 print("  Type HOLD / BYE / CONF C");
+
+                print("→ SIP ACK  (completing 3-way handshake)");
+                MessageWriter ackw(static_cast<MessageType>(uint16_t(SipMsgType::SIP_ACK)), next_seq_++);
+                ackw.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID)), current_call_id_);
+                ackw.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_FROM)),    cfg_.impu);
+                ackw.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_TO)),      callee_impu_);
+                conn_.sendFrame(ackw.frame());
+                PcapWriter::instance().writeSIP(
+                    SipText::buildAck(cfg_.impu, callee_impu_, current_call_id_, next_seq_),
+                    ue_ip_num(), 5060, PcapWriter::IP_PCSCF, 5060);
             } else if (reason == "re-INVITE-HOLD") {
                 printBanner("⏸  OTHER SIDE PUT ON HOLD", Logger::CLR_SGW);
                 print("  SDP: a=sendonly — you hear hold music");
@@ -462,10 +499,10 @@ private:
             break;
 
         case SipMsgType::SIP_ACK:
-            if (state_ == UeState::RINGING) {
-                state_ = UeState::IN_CALL;
-                print("← ACK  (call confirmed)");
-            }
+            print("← ACK  (3-way handshake complete — call fully established)");
+            PcapWriter::instance().writeSIP(
+                SipText::buildAck(caller_impu_, cfg_.impu, current_call_id_, 1),
+                PcapWriter::IP_PCSCF, 5060, ue_ip_num(), 5060);
             break;
 
         default:
@@ -493,8 +530,8 @@ private:
 
     uint32_t ue_ip_num() const {
         if (cfg_.label == "UE-A") return PcapWriter::IP_UE;
-        if (cfg_.label == "UE-B") return 0x7F000002;
-        return 0x7F000003;
+        if (cfg_.label == "UE-B") return PcapWriter::IP_UE_B;
+        return PcapWriter::IP_UE_C;
     }
 
     UeConfig     cfg_;

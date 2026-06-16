@@ -94,6 +94,12 @@ public:
     static constexpr uint32_t IP_PCSCF = 0x0A000008; // 10.0.0.8
     static constexpr uint32_t IP_SCSCF = 0x0A000009; // 10.0.0.9
     static constexpr uint32_t IP_MTAS  = 0x0A00000A; // 10.0.0.10
+    // IMS multi-terminal UEs (matches SipText::IP_UE_B/IP_UE_C string consts).
+    // Numerically equal to IP_ENB/IP_MME above — harmless, IMS and 4G write
+    // to separate pcap files/binaries.
+    static constexpr uint32_t IP_UE_B  = 0x0A000002; // 10.0.0.2
+    static constexpr uint32_t IP_UE_C  = 0x0A000003; // 10.0.0.3
+    static constexpr uint32_t IP_MRFC  = 0x0A00000B; // 10.0.0.11 — MRFC conference bridge
 
     static constexpr uint16_t PORT_S1AP  = 36412;  // Industry standard (SCTP)
     static constexpr uint16_t PORT_DIA   = 3868;

@@ -8,6 +8,7 @@
 #include <fstream>
 #include <filesystem>
 #include <string>
+#include <cstdlib>
 
 // ============================================================
 // COLOR-CODED LOGGER — every node has its own ANSI color
@@ -48,7 +49,18 @@ constexpr const char* CLR_STEP   = "\033[1;37m";    // Bold White    — step ba
 constexpr const char* CLR_RESET  = "\033[0m";
 
 inline std::mutex& getMutex() { static std::mutex m; return m; }
-inline Level& getGlobalLevel() { static Level l = Level::ENGINEER; return l; }
+
+// LOG_LEVEL env var: BEGINNER | ENGINEER (default) | INTERVIEW_C | INTERVIEW_T
+inline Level levelFromEnv() {
+    const char* e = std::getenv("LOG_LEVEL");
+    if (!e) return Level::ENGINEER;
+    std::string s(e);
+    if (s == "BEGINNER")    return Level::BEGINNER;
+    if (s == "INTERVIEW_C") return Level::INTERVIEW_C;
+    if (s == "INTERVIEW_T") return Level::INTERVIEW_T;
+    return Level::ENGINEER;
+}
+inline Level& getGlobalLevel() { static Level l = levelFromEnv(); return l; }
 
 inline std::ofstream& getLogFile() {
     static std::ofstream file;
@@ -102,7 +114,10 @@ inline void print(Level level, const char* color, const char* tag, const std::st
 }
 
 // IE detail line — indented, white, no timestamp (part of previous log)
+// Suppressed in BEGINNER mode (its parent ENGINEER header line is also
+// suppressed there, so this would otherwise print as an orphaned line).
 inline void ie_field(const std::string& msg) {
+    if (getGlobalLevel() == Level::BEGINNER) return;
     std::lock_guard<std::mutex> lk(getMutex());
     std::cout << CLR_IE << "         │  " << msg << CLR_RESET << "\n";
     auto& f = getLogFile();

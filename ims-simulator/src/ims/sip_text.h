@@ -221,6 +221,30 @@ inline std::string buildBye(const std::string& from_impu,
     return ss.str();
 }
 
+// ── SIP re-INVITE ─────────────────────────────────────────────
+// Generic re-INVITE builder for HOLD/RESUME/VIDEO/VOICE.
+// Caller supplies the SDP body directly (controls a=sendonly/sendrecv,
+// m=video port=0, etc.) so each scenario shows the relevant SDP diff.
+inline std::string buildReInvite(const std::string& from_impu,
+                                  const std::string& to_impu,
+                                  const std::string& from_ip,
+                                  const std::string& call_id,
+                                  int cseq,
+                                  const std::string& sdp_body) {
+    std::ostringstream ss;
+    ss << "INVITE " << to_impu << " SIP/2.0\r\n"
+       << "Via: SIP/2.0/TCP " << from_ip << ":5060;branch=z9hG4bKre" << cseq << "\r\n"
+       << "Max-Forwards: 70\r\n"
+       << "From: " << from_impu << ";tag=re" << cseq << "\r\n"
+       << "To: " << to_impu << "\r\n"
+       << "Call-ID: " << call_id << "\r\n"
+       << "CSeq: " << cseq << " INVITE\r\n"
+       << "Content-Type: application/sdp\r\n"
+       << "Content-Length: " << sdp_body.size() << "\r\n\r\n"
+       << sdp_body;
+    return ss.str();
+}
+
 // ── SIP 603 Decline (call barring) ────────────────────────────
 inline std::string build603(const std::string& from_impu,
                               const std::string& to_impu,

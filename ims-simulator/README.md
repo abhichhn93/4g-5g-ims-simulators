@@ -77,7 +77,7 @@ QUIT           → Shutdown (saves ims_capture.pcap)
 
 ```bash
 # Terminal 1 — start the server first
-cd build && ./ims_server
+cd build && ./ims_server        # or LOG_LEVEL=BEGINNER ./ims_server
 
 # Terminals 2-4 — one UE each
 cd build && ./ue_sim A
@@ -85,12 +85,59 @@ cd build && ./ue_sim B
 cd build && ./ue_sim C
 ```
 
-Each `ue_sim` accepts: `REG CALL ACCEPT REJECT HOLD RESUME VIDEO VOICE CONF BYE STATUS QUIT`.
+**LOG_LEVEL** controls verbosity on the **server** terminal only:
+
+| Value | Output |
+|-------|--------|
+| `ENGINEER` (default) | Raw SIP IEs, Diameter AVPs, 3GPP references — interview prep level |
+| `BEGINNER` | Plain-English story ("UE-B's phone is ringing", "call set up") — no jargon |
+
+**Server commands** (type in the server terminal while it's running):
+
+| Command | What it does |
+|---------|-------------|
+| `STATUS` | Show registered UEs and active calls |
+| `BARR A\|B\|C` | Enable call barring for a UE (MTAS BAOC) — next CALL to that UE gets 603 Decline |
+| `UNBARR A\|B\|C` | Lift call barring |
+| `QUIT` | Shutdown server |
+
+**Two-party call demo (IMS-1):**
+1. `REG` in UE-A and UE-B terminals
+2. `STATUS` on the server shows both UEs with their Contact/IP address
+3. `CALL B` in UE-A → UE-B shows `📞 INCOMING CALL`
+4. `ACCEPT` in UE-B → full 180 Ringing → 200 OK → ACK flow visible on both terminals
+5. Server prints a call-established summary (ENGINEER: raw SIP IEs; BEGINNER: plain English)
+
+**IMS-3 call barring demo:** Type `BARR B` in server → `CALL B` from UE-A → UE-A sees 603 Decline. `UNBARR B` restores.
+
+**IMS-3 call waiting demo:** With A-B call active, UE-C types `CALL B` → server logs call-waiting, UE-B shows second `📞 INCOMING CALL`.
+
+**IMS-4 conferencing:** While in A-B call, UE-A types `CONF C` → UE-C gets `👥 CONFERENCE INVITE` → `ACCEPT` → 3-way conference active. Server shows MRFC VLog.
+
+**IMS-5 mid-call features (from UE-A):**
+- `HOLD` — re-INVITE with `a=sendonly`; callee hears hold music
+- `RESUME` — re-INVITE with `a=sendrecv`; bidirectional voice restored
+- `VIDEO` — re-INVITE adding `m=video H264/90000`; QCI=2 bearer added
+- `VOICE` — re-INVITE setting `m=video port=0`; QCI=2 bearer released
+
+Each `ue_sim` accepts: `REG  CALL A|B|C  ACCEPT  REJECT  HOLD  RESUME  VIDEO  VOICE  CONF C  BYE  STATUS  QUIT`.
 This mode writes `ims_server_capture.pcap` plus one pcap per UE; merge them with:
 
 ```bash
 ./merge_pcap.sh   # -> build/ims_combined.pcap
 ```
+
+**PCAP IP→node mapping** (use as Wireshark display-filter reference):
+
+| IP | Node | Constant |
+|----|------|----------|
+| 10.0.0.1 | UE-A | `IP_UE` |
+| 10.0.0.2 | UE-B | `IP_UE_B` |
+| 10.0.0.3 | UE-C | `IP_UE_C` |
+| 10.0.0.8 | P-CSCF | `IP_PCSCF` |
+| 10.0.0.9 | S-CSCF | `IP_SCSCF` |
+| 10.0.0.10 | MTAS | `IP_MTAS` |
+| 10.0.0.11 | MRFC (conference bridge) | `IP_MRFC` |
 
 ---
 

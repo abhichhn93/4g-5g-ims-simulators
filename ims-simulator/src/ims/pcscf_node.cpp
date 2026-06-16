@@ -1,5 +1,4 @@
-#include "ims/pcscf_node.h"
-#include "common/logger.h"
+#include "ims/pcscf_node.h"#include "common/logger.h"
 #include "common/pcap_writer.h"
 #include "common/visual_logger.h"
 #include "ims/sip_text.h"
@@ -47,7 +46,7 @@ void PcscfNode::printStatus() {
     for (auto& [impu, ses] : ue_by_impu_) {
         std::string label = impu.find("+919000000001") != std::string::npos ? "UE-A" :
                             impu.find("+919000000002") != std::string::npos ? "UE-B" : "UE-C";
-        Logger::sys("  " + label + " : REGISTERED  IMPU=" + impu);
+        Logger::sys("  " + label + " : REGISTERED  IMPU=" + impu + "  Contact=" + ses->ip);
     }
     {
         std::lock_guard<std::mutex> lk2(call_mtx_);
@@ -137,6 +136,20 @@ static std::string ueLabel(const std::string& impu) {
     return impu;
 }
 
+// Map a UE's IMPU to its pcap IP — numeric (PcapWriter) and string (SipText) forms.
+static uint32_t ueIp(const std::string& impu) {
+    std::string label = ueLabel(impu);
+    if (label == "UE-B") return PcapWriter::IP_UE_B;
+    if (label == "UE-C") return PcapWriter::IP_UE_C;
+    return PcapWriter::IP_UE;
+}
+static std::string ueIpStr(const std::string& impu) {
+    std::string label = ueLabel(impu);
+    if (label == "UE-B") return IP_UE_B;
+    if (label == "UE-C") return IP_UE_C;
+    return IP_UE_A;
+}
+
 // Diagram helpers — all delegated to ims_diagrams.h
 
 void PcscfNode::handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload) {
@@ -164,7 +177,7 @@ void PcscfNode::handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload
         Logger::ie_field("  Contact: " + contact + "  (4G IP from EPC P-GW!)");
         Logger::ie_field("  P-Access-Network-Info: 3GPP-E-UTRAN-FDD");
         Diag::Registration(impu, contact);
-        { std::lock_guard<std::mutex> lk(ue_mtx_); ses->impu = impu; ue_by_impu_[impu] = ses; }
+        { std::lock_guard<std::mutex> lk(ue_mtx_); ses->impu = impu; ses->ip = contact; ue_by_impu_[impu] = ses; }
         sendToScscf(payload);
         // PCAP
         PcapWriter::instance().writeSIP(
@@ -185,6 +198,12 @@ void PcscfNode::handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload
         }
         Diag::CallSetup(caller_impu, to);
         sendToScscf(payload);
+        Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: added hop headers before forwarding to S-CSCF →");
+        Logger::ie_field("  + Via: SIP/2.0/TCP 10.0.0.8:5060;branch=z9hG4bK-pcscf  ← P-CSCF stamps itself");
+        Logger::ie_field("  + Route: <sip:scscf.ims...;lr>  ← service route to S-CSCF");
+        Logger::ie_field("  + P-Visited-Network-ID: mnc010.mcc404.3gppnetwork.org");
+        Logger::ie_field("  Unchanged: From, To, Call-ID, CSeq, SDP");
+        Logger::pcscf(Logger::Level::BEGINNER, "P-CSCF stamped its address on the INVITE — replies will come back through here");
         PcapWriter::instance().writeSIP(
             SipText::buildInvite(caller_impu, to, "10.0.0.x", call_id, 1),
             PcapWriter::IP_PCSCF, 5060, PcapWriter::IP_SCSCF, 5060);
@@ -217,7 +236,9 @@ void PcscfNode::handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload
         sendToScscf(payload);
         // Clean up routing
         { std::lock_guard<std::mutex> lk2(call_mtx_);
-          call_to_caller_.erase(call_id); call_to_callee_.erase(call_id); }
+          call_to_caller_.erase(call_id);
+          call_to_callee_.erase(call_id);
+          call_invite_delivered_.erase(call_id); }
         break;
     }
     default:
@@ -245,10 +266,78 @@ void PcscfNode::handleFromScscf(const std::vector<uint8_t>& payload) {
     switch (type) {
 
     case SipMsgType::SIP_INVITE: {
-        // S-CSCF delivering INVITE to callee UE
-        Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: routing INVITE → " + ueLabel(to));
-        Logger::ie_field("  MTAS checked: OIP OK, no barring");
+        // Distinguish initial INVITE from re-INVITE (HOLD/VIDEO/RESUME/conf sub-call)
+        // using a dedicated delivered-set — call_to_callee_ is populated by handleFromUe
+        // on every INVITE (including re-INVITEs), so it can't be used as the guard.
+        bool is_reinvite;
+        { std::lock_guard<std::mutex> lk(call_mtx_);
+          is_reinvite = (call_invite_delivered_.count(call_id) > 0);
+          if (!is_reinvite) {
+              call_invite_delivered_.insert(call_id);
+              // Conference sub-calls (call_id+"-conf") arrive from S-CSCF without prior
+              // registration from handleFromUe — register them now so 200 OK can route back.
+              if (call_to_caller_.find(call_id) == call_to_caller_.end() && !from.empty())
+                  call_to_caller_[call_id] = from;
+              if (call_to_callee_.find(call_id) == call_to_callee_.end() && !to.empty())
+                  call_to_callee_[call_id] = to;
+          }
+        }
+
+        Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: routing " +
+            std::string(is_reinvite ? "re-INVITE" : "INVITE") + " → " + ueLabel(to));
+
+        if (!is_reinvite) {
+            // IMS-2 Hop 3 — routing header diff (only meaningful for new INVITE)
+            Logger::ie_field("  MTAS checked: OIP OK, no barring");
+            Logger::pcscf(Logger::Level::BEGINNER,
+                ueLabel(to) + "'s phone is ringing — incoming call from " + ueLabel(from));
+            Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: stripped routing headers before delivering to UE →");
+            Logger::ie_field("  - Route headers consumed  (each proxy pops its own Route)");
+            Logger::ie_field("  - Via: SIP/2.0/TCP 10.0.0.9:5070 removed  (S-CSCF Via popped)");
+            Logger::ie_field("  Kept: From, To, Call-ID, SDP, P-Asserted-Identity");
+            Logger::pcscf(Logger::Level::BEGINNER,
+                "Routing labels stripped — only the call details arrive at " + ueLabel(to) + "'s phone");
+
+            // IMS-3 — call waiting detection
+            bool callee_busy = false;
+            { std::lock_guard<std::mutex> lk(call_mtx_);
+              for (auto& [cid, cee] : call_to_callee_)
+                if (cee == to && cid != call_id) { callee_busy = true; break; }
+            }
+            if (callee_busy) {
+                Logger::pcscf(Logger::Level::ENGINEER,
+                    "P-CSCF: MTAS → Call Waiting! " + ueLabel(to) + " is in a call — ringing second line");
+                Logger::ie_field("  CW service (MMTEL TS 24.173 §7.6): INVITE still delivered to callee");
+                Logger::ie_field("  Callee sees call-waiting indicator; can ACCEPT (hold current) or REJECT");
+                Logger::pcscf(Logger::Level::BEGINNER,
+                    ueLabel(to) + " is already on a call — their phone rings a second time (call waiting)");
+            }
+        } else {
+            Logger::pcscf(Logger::Level::BEGINNER, ueLabel(to) + "'s call is being modified");
+        }
+
         sendToUe(to, payload);
+
+        if (!is_reinvite) {
+            // SIM: P-CSCF synthesizes 180 Ringing the moment the INVITE is
+            // successfully delivered to the callee's terminal — a documented
+            // simplification vs. real IMS, where 180 Ringing originates from
+            // the callee's own UE stack. Still causally real: it only fires
+            // after delivery succeeds.
+            MessageWriter ring(static_cast<MessageType>(uint16_t(SipMsgType::SIP_180_RINGING)), next_seq_++);
+            ring.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID)), call_id);
+            ring.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_FROM)),    from);
+            ring.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_TO)),      to);
+            ring.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_REASON)),  "INVITE");
+            Logger::pcscf(Logger::Level::ENGINEER,
+                "P-CSCF: → 180 Ringing → " + ueLabel(from) + "  (" + ueLabel(to) + " alerting)");
+            Logger::pcscf(Logger::Level::BEGINNER,
+                ueLabel(from) + " hears ringback — " + ueLabel(to) + "'s phone is ringing");
+            sendToUe(from, ring.udpPayload());
+            PcapWriter::instance().writeSIP(
+                SipText::build180Ringing(from, to, call_id, 1),
+                PcapWriter::IP_PCSCF, 5060, ueIp(from), 5060);
+        }
         break;
     }
 
@@ -310,27 +399,123 @@ void PcscfNode::handleFromScscf(const std::vector<uint8_t>& payload) {
             Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: 200 OK (" + reason + ") → " + ueLabel(target));
 
             if (reason == "INVITE" || reason.empty()) {
+                std::string callee;
+                { std::lock_guard<std::mutex> lk2(call_mtx_);
+                  auto it = call_to_callee_.find(call_id);
+                  if (it != call_to_callee_.end()) callee = it->second; }
                 Logger::ie_field("  SDP answer: " + (sdp.empty() ? "AMR-WB/16000 HD Voice" : sdp));
+                Logger::pcscf(Logger::Level::BEGINNER, ueLabel(callee) + " answered — call connected!");
                 Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: → Rx AAR to PCRF — QCI=1 dedicated bearer!");
                 sendRxAAR(target, call_id);
+                PcapWriter::instance().writeSIP(
+                    SipText::build200Invite(callee, target, ueIpStr(callee), call_id, 1),
+                    PcapWriter::IP_SCSCF, 5060, ueIp(target), 5060);
             } else if (reason == "CONFERENCE") {
-                // Diagram shown by S-CSCF when conference is set up
+                Logger::pcscf(Logger::Level::BEGINNER, "3-way conference is live — all 3 can talk now");
+                Logger::pcscf(Logger::Level::ENGINEER,
+                    "P-CSCF: conference 200 OK → " + ueLabel(target) + "  (MRFC bridge active)");
+                PcapWriter::instance().writeSIP(
+                    SipText::build200Invite(to, target, ueIpStr(to), call_id, 1),
+                    PcapWriter::IP_MRFC, 5060, ueIp(target), 5060);
             } else if (reason == "re-INVITE-HOLD") {
                 std::string callee;
                 { std::lock_guard<std::mutex> lk2(call_mtx_);
                   auto it = call_to_callee_.find(call_id);
                   if (it != call_to_callee_.end()) callee = it->second; }
                 Diag::Hold(target, callee);
+                Logger::pcscf(Logger::Level::BEGINNER, ueLabel(target) + " put the call on hold");
+                Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: HOLD 200 OK → " + ueLabel(target) + " + notifying " + ueLabel(callee));
+                PcapWriter::instance().writeSIP(
+                    SipText::buildReInvite(target, callee, ueIpStr(target), call_id, 1,
+                        "v=0\r\no=ue 1 1 IN IP4 " + ueIpStr(target) + "\r\ns=-\r\nt=0 0\r\n"
+                        "m=audio 50000 RTP/AVP 98\r\na=rtpmap:98 AMR-WB/16000\r\na=sendonly\r\n"),
+                    PcapWriter::IP_SCSCF, 5060, ueIp(callee), 5060);
+                if (!callee.empty()) sendToUe(callee, payload);
             } else if (reason == "re-INVITE-RESUME") {
                 std::string callee;
                 { std::lock_guard<std::mutex> lk2(call_mtx_);
                   auto it = call_to_callee_.find(call_id);
                   if (it != call_to_callee_.end()) callee = it->second; }
                 Diag::Resume(target, callee);
+                Logger::pcscf(Logger::Level::BEGINNER, "Call resumed — both sides talking again");
+                Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: RESUME 200 OK → " + ueLabel(target) + " + notifying " + ueLabel(callee));
+                PcapWriter::instance().writeSIP(
+                    SipText::buildReInvite(target, callee, ueIpStr(target), call_id, 1,
+                        "v=0\r\no=ue 1 1 IN IP4 " + ueIpStr(target) + "\r\ns=-\r\nt=0 0\r\n"
+                        "m=audio 50000 RTP/AVP 98\r\na=rtpmap:98 AMR-WB/16000\r\na=sendrecv\r\n"),
+                    PcapWriter::IP_SCSCF, 5060, ueIp(callee), 5060);
+                if (!callee.empty()) sendToUe(callee, payload);
+            } else if (reason == "VIDEO-ADD") {
+                std::string callee;
+                { std::lock_guard<std::mutex> lk2(call_mtx_);
+                  auto it = call_to_callee_.find(call_id);
+                  if (it != call_to_callee_.end()) callee = it->second; }
+                Logger::pcscf(Logger::Level::BEGINNER, "Video is now active — both sides on video call");
+                Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: VIDEO-ADD 200 OK → " + ueLabel(target) + " + notifying " + ueLabel(callee));
+                PcapWriter::instance().writeSIP(
+                    SipText::buildReInvite(target, callee, ueIpStr(target), call_id, 1,
+                        "v=0\r\no=ue 1 1 IN IP4 " + ueIpStr(target) + "\r\ns=-\r\nt=0 0\r\n"
+                        "m=audio 50000 RTP/AVP 98\r\na=rtpmap:98 AMR-WB/16000\r\na=sendrecv\r\n"
+                        "m=video 50002 RTP/AVP 100\r\na=rtpmap:100 H264/90000\r\na=sendrecv\r\n"),
+                    PcapWriter::IP_SCSCF, 5060, ueIp(callee), 5060);
+                if (!callee.empty()) sendToUe(callee, payload);
+            } else if (reason == "VIDEO-REMOVE") {
+                std::string callee;
+                { std::lock_guard<std::mutex> lk2(call_mtx_);
+                  auto it = call_to_callee_.find(call_id);
+                  if (it != call_to_callee_.end()) callee = it->second; }
+                Logger::pcscf(Logger::Level::BEGINNER, "Video dropped — voice-only call active");
+                Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: VIDEO-REMOVE 200 OK → " + ueLabel(target) + " + notifying " + ueLabel(callee));
+                PcapWriter::instance().writeSIP(
+                    SipText::buildReInvite(target, callee, ueIpStr(target), call_id, 1,
+                        "v=0\r\no=ue 1 1 IN IP4 " + ueIpStr(target) + "\r\ns=-\r\nt=0 0\r\n"
+                        "m=audio 50000 RTP/AVP 98\r\na=rtpmap:98 AMR-WB/16000\r\na=sendrecv\r\n"
+                        "m=video 0 RTP/AVP 100\r\na=rtpmap:100 H264/90000\r\n"),
+                    PcapWriter::IP_SCSCF, 5060, ueIp(callee), 5060);
+                if (!callee.empty()) sendToUe(callee, payload);
             }
         }
 
         if (!target.empty()) sendToUe(target, payload);
+        break;
+    }
+
+    case SipMsgType::SIP_ACK: {
+        // ACK travels caller → callee (the opposite direction of every other
+        // response above) — route via call_to_callee_, not call_to_caller_.
+        std::string callee;
+        { std::lock_guard<std::mutex> lk(call_mtx_);
+          auto it = call_to_callee_.find(call_id);
+          if (it != call_to_callee_.end()) callee = it->second; }
+        if (callee.empty()) callee = to;
+        Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: ACK → " + ueLabel(callee) + "  (3-way handshake complete)");
+        Logger::pcscf(Logger::Level::BEGINNER, "Call fully set up — both sides can talk now");
+        if (!callee.empty()) {
+            sendToUe(callee, payload);
+            PcapWriter::instance().writeSIP(
+                SipText::buildAck(from, callee, call_id, 1),
+                PcapWriter::IP_PCSCF, 5060, ueIp(callee), 5060);
+
+            // ── End-of-call summary — content depends on LOG_LEVEL ──────
+            if (Logger::getGlobalLevel() == Logger::Level::BEGINNER) {
+                VLog::step(1, 1, "CALL ESTABLISHED — Summary",
+                           ueLabel(from), Logger::CLR_ENB, ueLabel(callee), Logger::CLR_ENB)
+                    .ie("What happened", ueLabel(from) + " called " + ueLabel(callee) + ". " +
+                                          ueLabel(callee) + "'s phone rang, " + ueLabel(callee) + " answered.")
+                    .ie("Result",        "Both phones now show 'in call' — voice would flow over RTP.")
+                    .next("Type BYE on either terminal to end the call.")
+                    .flush();
+            } else {
+                VLog::step(1, 1, "CALL ESTABLISHED — SIP 3-way handshake complete",
+                           ueLabel(from), Logger::CLR_ENB, ueLabel(callee), Logger::CLR_ENB)
+                    .ie("INVITE",      "Call-ID=" + call_id + "  From=" + from + " To=" + callee)
+                    .ie("180 Ringing", "To-tag added — dialog established")
+                    .ie("200 OK",      "SDP answer negotiated (AMR-WB/16000)")
+                    .ie("ACK",         "3-way handshake complete — dialog confirmed")
+                    .next("QCI=1 bearer requested via Rx AAR (see P-CSCF logs above)")
+                    .flush();
+            }
+        }
         break;
     }
 

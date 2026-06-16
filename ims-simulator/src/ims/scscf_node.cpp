@@ -1,4 +1,5 @@
 #include "ims/scscf_node.h"
+#include "ims/mtas_state.h"
 #include "common/logger.h"
 #include "common/visual_logger.h"
 #include "common/exceptions.h"
@@ -187,14 +188,18 @@ void ScscfNode::handleInvite(const std::vector<uint8_t>& payload) {
     Logger::ie_field("  P-CSCF delivers to callee UE socket");
     Logger::ie_field("  UE-B terminal shows incoming call");
     sendToPcscf(payload);
+    Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: added hop headers before routing to callee →");
+    Logger::ie_field("  + Record-Route: <sip:scscf.ims...;lr>  ← stays in dialog path for BYE/re-INVITE");
+    Logger::ie_field("  + P-Asserted-Identity: " + from + "  ← MTAS OIP verified CLI");
+    Logger::ie_field("  + P-Charging-Vector: icid-value=charge-" + call_id);
+    Logger::ie_field("  + Via: SIP/2.0/TCP 10.0.0.9:5070;branch=z9hG4bK-scscf");
+    Logger::ie_field("  Why Record-Route: S-CSCF must stay in path for BYE/re-INVITE policy enforcement");
+    Logger::scscf(Logger::Level::BEGINNER, "S-CSCF verified your caller ID and added its routing tag — it watches the whole call");
 
-    // 180 Ringing with Require:100rel (reliable provisional response)
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    sendSipResponse(SipMsgType::SIP_180_RINGING, call_id, from, to, "INVITE");
-    Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → 180 Ringing  (UE-B alerting)");
-    Logger::ie_field("  RSeq: 1  (reliable sequence — RFC 3262)");
-    Logger::ie_field("  Require: 100rel  (caller MUST send PRACK)");
-    Logger::ie_field("  To-tag added — SIP dialog established here");
+    // NOTE: 180 Ringing is now sent by P-CSCF itself, the moment the INVITE
+    // is actually delivered to the callee's UE socket (see
+    // PcscfNode::handleFromScscf's SIP_INVITE case) — not on a fixed timer
+    // here. This makes "ringing" causally tied to real delivery.
 
     // ── PRACK flow (RFC 3262) ─────────────────────────────────
     // Real: UE-A sends PRACK after receiving 180 Ringing
@@ -240,6 +245,15 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
         Logger::ie_field("  REAL: a=inactive = full hold, a=sendonly = one-way hold");
         Logger::ie_field("  MTAS: notified via ISC — plays hold music toward callee");
         cs.on_hold = true;
+        Logger::scscf(Logger::Level::BEGINNER, "Call put on hold — the other side will hear hold music");
+        VLog::step(0, 0, "HOLD  (SDP mid-dialog modification)",
+                   cs.caller_impu, Logger::CLR_ENB, cs.callee_impu, Logger::CLR_ENB)
+            .ie("Before SDP", "a=sendrecv  (bidirectional)")
+            .ie("After SDP",  "a=sendonly  (caller sends only, callee cannot send)")
+            .ie("Hold music", "MTAS/MRFP plays comfort tone toward callee")
+            .ie("Bearer",     "P-CSCF: Rx AAR update → PCRF reduces QCI=1 to one-way")
+            .next("Type RESUME to restore bidirectional voice")
+            .flush();
         // Forward re-INVITE to callee so callee UE sees hold state
         sendToPcscf(payload);
         // 200 OK back to caller
@@ -254,6 +268,17 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
         Logger::ie_field("  MRFC: allocate conference bridge  conf-URI=sip:conf-N@mrfc");
         Logger::ie_field("  MRFC → MRFP: H.248/Megaco — create 3-party audio mixing endpoint");
         cs.in_conference = true;
+
+        VLog::step(0, 0, "3-PARTY CONFERENCE SETUP via MRFC",
+                   cs.caller_impu, Logger::CLR_ENB, "MRFC", Logger::CLR_MTAS)
+            .ie("Method",       "re-INVITE (SIM) — real IMS uses REFER/NOTIFY (RFC 3515)")
+            .ie("MRFC",         "conference bridge at sip:conf-N@mrfc.ims — allocates mix endpoint")
+            .ie("H.248/Megaco", "MRFC → MRFP: create 3-party audio mixing stream")
+            .ie("REFER/NOTIFY", "Real: UE-A sends REFER Refer-To:UE-C; S-CSCF sends INVITE to UE-C")
+            .ie("NOTIFY",       "S-CSCF → UE-A: subscription state (trying/early/terminated)")
+            .next("S-CSCF sending INVITE to " + to_impu + " — wait for ACCEPT")
+            .flush();
+        Logger::scscf(Logger::Level::BEGINNER, "Setting up 3-way call — inviting a third person to join");
 
         // Draw conference diagram
         Diag::ConferenceJoin(cs.caller_impu, cs.callee_impu, to_impu);
@@ -286,6 +311,23 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
         Logger::ie_field("  MTAS: codec policy check — H264 approved for VoLTE");
         Logger::ie_field("  P-CSCF: Rx AAR update — add video media component");
         Logger::ie_field("  PCRF: install QCI=2 bearer (video) alongside QCI=1 (voice)");
+        if (adding) {
+            Logger::scscf(Logger::Level::BEGINNER, "Video added to the voice call");
+            VLog::step(0, 0, "VIDEO UPGRADE  (re-INVITE)",
+                       cs.caller_impu, Logger::CLR_ENB, cs.callee_impu, Logger::CLR_ENB)
+                .ie("Before SDP", "m=audio only  (AMR-WB)")
+                .ie("After SDP",  "m=audio AMR-WB  + m=video H264/90000")
+                .ie("Bearer",     "P-CSCF: Rx AAR update → PCRF adds QCI=2 video bearer")
+                .flush();
+        } else {
+            Logger::scscf(Logger::Level::BEGINNER, "Video dropped — voice-only call");
+            VLog::step(0, 0, "VIDEO REMOVE  (re-INVITE)",
+                       cs.caller_impu, Logger::CLR_ENB, cs.callee_impu, Logger::CLR_ENB)
+                .ie("Before SDP", "m=audio + m=video H264")
+                .ie("After SDP",  "m=audio  + m=video port=0  (port=0 = remove media)")
+                .ie("Bearer",     "P-CSCF: Rx STR for video → PCRF releases QCI=2 bearer")
+                .flush();
+        }
         Diag::VideoSwitch(cs.caller_impu, cs.callee_impu, adding);
         sendToPcscf(payload);
         sendSipResponse(SipMsgType::SIP_200_OK, call_id, cs.caller_impu, cs.callee_impu,
@@ -296,6 +338,13 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
         Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: ← re-INVITE (RESUME)  Call-ID=" + call_id);
         Logger::ie_field("  SDP: a=sendrecv  (restoring bidirectional media)");
         cs.on_hold = false;
+        Logger::scscf(Logger::Level::BEGINNER, "Call resumed — voice is bidirectional again");
+        VLog::step(0, 0, "RESUME  (SDP restore)",
+                   cs.caller_impu, Logger::CLR_ENB, cs.callee_impu, Logger::CLR_ENB)
+            .ie("Before SDP", "a=sendonly  (hold)")
+            .ie("After SDP",  "a=sendrecv  (bidirectional restored)")
+            .ie("Bearer",     "P-CSCF: Rx AAR update → PCRF restores QCI=1 to bidirectional")
+            .flush();
         sendToPcscf(payload);
         sendSipResponse(SipMsgType::SIP_200_OK, call_id, cs.caller_impu, cs.callee_impu, "re-INVITE-RESUME");
         Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → 200 OK (call resumed)");
@@ -443,6 +492,16 @@ bool ScscfNode::invokeMtas(const std::string& caller, const std::string& callee,
     Logger::ie_field("  Callee: " + callee + " → domestic number → NOT barred");
     Logger::ie_field("  BAOC (Bar All Outgoing Calls): NOT active");
     Logger::ie_field("  Result: PASS — call allowed to proceed");
+
+    if (MtasState::isBarred(callee)) {
+        Logger::mtas(Logger::Level::ENGINEER,
+            "MTAS: [2b] BAOC active for " + callee + " — returning 603 Decline");
+        Logger::ie_field("  BAOC: Bar All Outgoing Calls (or BAIC on incoming side)");
+        Logger::ie_field("  Result: REJECT — S-CSCF will send 603 Decline to caller");
+        Logger::mtas(Logger::Level::BEGINNER,
+            "This number has call barring turned on — the call cannot go through");
+        return false;
+    }
 
     // ── MTAS Step 4: TIP (Terminating Identity Presentation) ──
     Logger::mtas(Logger::Level::ENGINEER, "MTAS: [3] TIP — Terminating Identity Presentation");

@@ -22,6 +22,7 @@
 #include <atomic>
 #include <mutex>
 #include <map>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -57,8 +58,9 @@ private:
 
     // Call routing — Call-ID → caller IMPU
     std::mutex                          call_mtx_;
-    std::map<std::string, std::string>  call_to_caller_;  // call_id → caller impu
-    std::map<std::string, std::string>  call_to_callee_;  // call_id → callee impu
+    std::map<std::string, std::string>  call_to_caller_;      // call_id → caller impu
+    std::map<std::string, std::string>  call_to_callee_;      // call_id → callee impu
+    std::set<std::string>               call_invite_delivered_; // call_ids whose INVITE was forwarded to callee
 
     std::atomic<uint32_t> next_seq_{1};
 

@@ -10,6 +10,8 @@
 #include "ims/scscf_node.h"
 #include "ims/ims_hss.h"
 #include "ims/ims_diagrams.h"
+#include "ims/mtas_state.h"
+#include "ims/sip_text.h"
 
 // ============================================================
 // IMS SERVER — run this FIRST in Terminal 4 (or any terminal)
@@ -80,8 +82,20 @@ int main() {
             pcscf.printStatus();
         else if (line == "QUIT" || line == "quit")
             break;
+        else if (line.rfind("BARR ", 0) == 0) {
+            std::string id = line.substr(5);
+            std::string impu = (id=="A") ? IMPU_A : (id=="B") ? IMPU_B : IMPU_C;
+            MtasState::setBarred(impu, true);
+            Logger::sys("BARR: " + id + " — calls to/from barred (UNBARR " + id + " to lift)");
+        }
+        else if (line.rfind("UNBARR ", 0) == 0) {
+            std::string id = line.substr(7);
+            std::string impu = (id=="A") ? IMPU_A : (id=="B") ? IMPU_B : IMPU_C;
+            MtasState::setBarred(impu, false);
+            Logger::sys("UNBARR: " + id + " — barring lifted");
+        }
         else if (!line.empty())
-            Logger::sys("Commands: STATUS  QUIT  (Ctrl+C to stop)");
+            Logger::sys("Commands: STATUS  BARR A|B|C  UNBARR A|B|C  QUIT");
         if (!stop.load()) std::cout << "\nims-server> " << std::flush;
     }
 
