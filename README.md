@@ -32,9 +32,8 @@ non-stock addition needed for Diameter.
 
 Known, documented simplifications: SCTP is emulated over TCP (S1AP/N2 — macOS
 doesn't support SCTP easily), the 5G N2 interface is plain TCP+JSON rather
-than NGAP, NRF keeps one instance per NF type, and a few IMS flows
-(BYE 200 OK, HOLD/RTP/video, conferencing) are still in progress. Each
-project's own README/docs spell these out.
+than NGAP, NRF keeps one instance per NF type, and 5G-AKA uses byteXor
+instead of full Milenage. Each project's own README/docs spell these out.
 
 ## Cross-cutting C++ / systems topics
 

@@ -90,8 +90,8 @@ wsl --install                   # enable WSL2
 ### Build
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/4g-simulator.git
-cd 4g-simulator
+git clone https://github.com/abhichhn93/4g-5g-ims-simulators.git
+cd 4g-5g-ims-simulators/4g-simulator
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
