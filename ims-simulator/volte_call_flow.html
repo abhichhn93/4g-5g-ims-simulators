@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoLTE 4G+IMS Call Flow Visualizer</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --surface2: #21262d;
+  --border: #30363d; --text: #e6edf3; --muted: #8b949e;
+  --s1ap: #4CAF50; --nas: #26C6DA; --gtpc: #FF9800;
+  --diameter: #AB47BC; --sip: #42A5F5; --rtp: #EF5350;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── TOP BAR ── */
+#topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+#topbar h1 { font-size: 15px; font-weight: 700; color: #58a6ff; white-space: nowrap; }
+.ctrl-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background .15s; }
+.ctrl-btn:hover { background: #2d333b; }
+.ctrl-btn.active { background: #1f6feb; border-color: #388bfd; }
+#step-counter { color: var(--muted); font-size: 12px; margin-left: auto; }
+.phase-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 20px; cursor: pointer; font-size: 11px; transition: all .15s; }
+.phase-btn:hover, .phase-btn.active { color: var(--text); background: #2d333b; }
+#speed-label { color: var(--muted); font-size: 12px; }
+#speed-select { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+
+/* ── MAIN LAYOUT ── */
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* ── DIAGRAM PANEL ── */
+#diagram-wrap { flex: 1; overflow: auto; position: relative; }
+#diagram { position: relative; min-width: max-content; }
+
+/* ── NODE HEADER ── */
+#node-header { display: flex; position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 2px solid var(--border); padding: 0; }
+.node-col { width: 90px; min-width: 90px; display: flex; flex-direction: column; align-items: center; padding: 8px 2px 10px; border-right: 1px solid var(--border); }
+.node-col:first-child { min-width: 110px; width: 110px; }
+.node-icon { font-size: 22px; margin-bottom: 2px; }
+.node-name { font-size: 11px; font-weight: 700; text-align: center; line-height: 1.2; }
+.node-sub { font-size: 9px; color: var(--muted); text-align: center; margin-top: 1px; }
+.node-ip { font-size: 9px; font-family: monospace; text-align: center; margin-top: 2px; padding: 1px 4px; background: var(--surface2); border-radius: 3px; }
+.node-port { font-size: 8px; color: var(--muted); font-family: monospace; text-align: center; }
+
+/* ── SEQUENCE BODY ── */
+#seq-body { position: relative; }
+.lifelines { display: flex; position: absolute; top: 0; bottom: 0; left: 0; pointer-events: none; }
+.lifeline { width: 90px; min-width: 90px; border-right: 1px dashed #21262d; }
+.lifeline:first-child { width: 110px; min-width: 110px; }
+
+/* ── PHASE BANNER ── */
+.phase-banner { display: flex; align-items: center; padding: 6px 10px; font-size: 11px; font-weight: 700; letter-spacing: .5px; border-top: 2px solid; position: relative; z-index: 2; }
+.phase-banner .ph-num { font-size: 9px; opacity: .7; margin-right: 6px; }
+
+/* ── MESSAGE ROW ── */
+.msg-row { display: flex; align-items: center; height: 36px; position: relative; opacity: 0; transform: translateY(4px); transition: opacity .3s ease, transform .3s ease; }
+.msg-row.visible { opacity: 1; transform: translateY(0); }
+.msg-row.dim { opacity: .35; }
+.msg-row.highlight { opacity: 1; }
+
+/* The arrow line */
+.arrow { position: absolute; height: 2px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; pointer-events: none; }
+.arrow::after { content: ''; position: absolute; right: -1px; width: 0; height: 0; }
+.arrow.right::after { border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 8px solid currentColor; right: -8px; }
+.arrow.left::after { border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-right: 8px solid currentColor; left: -8px; }
+.arrow-line { flex: 1; height: 2px; background: currentColor; position: relative;
+  animation: none; }
+
+/* Animated draw */
+.msg-row.visible .arrow-line { animation: drawLine .4s ease forwards; }
+@keyframes drawLine { from { transform: scaleX(0); transform-origin: left; } to { transform: scaleX(1); } }
+.msg-row.visible .arrow.left .arrow-line { animation: drawLineRight .4s ease forwards; }
+@keyframes drawLineRight { from { transform: scaleX(0); transform-origin: right; } to { transform: scaleX(1); } }
+
+/* Message label */
+.msg-label { position: absolute; top: 2px; font-size: 10px; font-weight: 600; white-space: nowrap; text-shadow: 0 0 6px var(--bg), 0 0 10px var(--bg); cursor: pointer; padding: 1px 4px; border-radius: 3px; z-index: 3; }
+.msg-label:hover { background: rgba(255,255,255,.1); }
+.msg-label .proto-badge { font-size: 8px; opacity: .8; margin-left: 3px; font-weight: 400; }
+
+/* Port label on arrow */
+.port-label { position: absolute; bottom: 2px; font-size: 8px; font-family: monospace; color: var(--muted); white-space: nowrap; }
+
+/* Active step indicator */
+.msg-row.active-step { background: rgba(31,111,235,.08); border-radius: 4px; }
+.msg-row.active-step .msg-label { background: rgba(31,111,235,.2); }
+
+/* ── IE PANEL ── */
+#ie-panel { width: 340px; min-width: 340px; border-left: 1px solid var(--border); overflow-y: auto; background: var(--surface); display: flex; flex-direction: column; }
+#ie-panel.collapsed { width: 0; min-width: 0; overflow: hidden; }
+#ie-header { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--surface); z-index: 5; }
+#ie-title { font-size: 13px; font-weight: 700; }
+#ie-proto-badge { font-size: 10px; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
+#ie-close { cursor: pointer; color: var(--muted); font-size: 16px; }
+#ie-close:hover { color: var(--text); }
+#ie-body { padding: 12px 14px; flex: 1; }
+#ie-desc { font-size: 12px; color: var(--muted); margin-bottom: 12px; line-height: 1.5; }
+#ie-nodes { font-size: 10px; color: var(--muted); margin-bottom: 10px; font-family: monospace; }
+.ie-section { margin-bottom: 14px; }
+.ie-section-title { font-size: 10px; font-weight: 700; letter-spacing: .5px; color: var(--muted); text-transform: uppercase; margin-bottom: 6px; }
+.ie-table { width: 100%; border-collapse: collapse; }
+.ie-table th { font-size: 9px; font-weight: 700; color: var(--muted); text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border); text-transform: uppercase; }
+.ie-table td { font-size: 11px; padding: 4px 6px; border-bottom: 1px solid #21262d; vertical-align: top; }
+.ie-table td:first-child { font-family: monospace; font-size: 10px; color: #58a6ff; font-weight: 600; width: 35%; }
+.ie-table td:nth-child(2) { font-family: monospace; font-size: 10px; color: #d2a679; width: 30%; }
+.ie-table td:last-child { font-size: 10px; color: var(--muted); line-height: 1.4; }
+.ie-ref { font-size: 10px; color: var(--muted); margin-top: 8px; font-style: italic; }
+#ie-placeholder { padding: 40px 14px; text-align: center; color: var(--muted); font-size: 12px; }
+
+/* ── LEGEND ── */
+#legend { display: flex; gap: 12px; padding: 6px 14px; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; }
+.leg-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted); }
+.leg-dot { width: 10px; height: 3px; border-radius: 2px; }
+
+/* ── TOOLTIP ── */
+#tooltip { position: fixed; background: var(--surface2); border: 1px solid var(--border); padding: 6px 10px; border-radius: 6px; font-size: 11px; pointer-events: none; display: none; z-index: 100; max-width: 260px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <h1>📡 VoLTE 4G+IMS Call Flow</h1>
+  <button class="ctrl-btn" id="btn-play" onclick="playAll()">▶ Play</button>
+  <button class="ctrl-btn" id="btn-step" onclick="stepNext()">⏭ Step</button>
+  <button class="ctrl-btn" onclick="resetAll()">⏮ Reset</button>
+  <div style="width:1px;background:var(--border);height:20px;margin:0 4px"></div>
+  <button class="phase-btn active" onclick="filterPhase('all',this)">All</button>
+  <button class="phase-btn" onclick="filterPhase('lte',this)" style="border-color:#FF9800;color:#FF9800">LTE Attach</button>
+  <button class="phase-btn" onclick="filterPhase('ims_pdn',this)" style="border-color:#26C6DA;color:#26C6DA">IMS PDN</button>
+  <button class="phase-btn" onclick="filterPhase('ims_reg',this)" style="border-color:#AB47BC;color:#AB47BC">IMS Reg</button>
+  <button class="phase-btn" onclick="filterPhase('volte',this)" style="border-color:#42A5F5;color:#42A5F5">VoLTE Call</button>
+  <button class="phase-btn" onclick="filterPhase('teardown',this)" style="border-color:#EF5350;color:#EF5350">Teardown</button>
+  <div style="width:1px;background:var(--border);height:20px;margin:0 4px"></div>
+  <span id="speed-label">Speed:</span>
+  <select id="speed-select" onchange="setSpeed(this.value)">
+    <option value="2000">Slow</option>
+    <option value="1200" selected>Normal</option>
+    <option value="600">Fast</option>
+    <option value="200">Very Fast</option>
+  </select>
+  <span id="step-counter">Step 0 / 0</span>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <div id="diagram-wrap">
+    <div id="diagram">
+      <div id="node-header"></div>
+      <div id="seq-body">
+        <div class="lifelines" id="lifelines"></div>
+        <div id="messages"></div>
+      </div>
+    </div>
+  </div>
+  <div id="ie-panel">
+    <div id="ie-header">
+      <span id="ie-title">Message Details</span>
+      <span id="ie-proto-badge"></span>
+      <span id="ie-close" onclick="closePanel()">✕</span>
+    </div>
+    <div id="ie-body">
+      <div id="ie-placeholder">Click any message arrow to see its<br>headers, IEs, and what they mean</div>
+      <div id="ie-content" style="display:none">
+        <div id="ie-desc"></div>
+        <div id="ie-nodes"></div>
+        <div class="ie-section">
+          <div class="ie-section-title">Important IEs / Headers</div>
+          <table class="ie-table">
+            <thead><tr><th>Field</th><th>Value</th><th>Why it matters</th></tr></thead>
+            <tbody id="ie-rows"></tbody>
+          </table>
+        </div>
+        <div id="ie-ref" class="ie-ref"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LEGEND -->
+<div id="legend">
+  <div class="leg-item"><div class="leg-dot" style="background:#4CAF50"></div>S1AP/NAS</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#26C6DA"></div>NAS</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#FF9800"></div>GTP-C</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#AB47BC"></div>Diameter</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#42A5F5"></div>SIP</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#EF5350"></div>RTP</div>
+  <div class="leg-item" style="margin-left:auto;font-style:italic">Click any message for IE details &nbsp;|&nbsp; Tip: Phase buttons filter the flow</div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// NODE DEFINITIONS
+// ═══════════════════════════════════════════════════════════════
+const NODES = [
+  {id:'ue_a',   label:'UE-A',     sub:'Caller Phone',       ip:'10.0.0.1',  port:'5060 / RTP:50000', color:'#4CAF50', icon:'📱'},
+  {id:'enb',    label:'eNB',      sub:'Base Station',       ip:'10.0.0.2',  port:'36412 (S1AP)',     color:'#29B6F6', icon:'📡'},
+  {id:'mme',    label:'MME',      sub:'Mobility Mgmt',      ip:'10.0.0.3',  port:'36412',            color:'#9C27B0', icon:'🔀'},
+  {id:'hss',    label:'HSS',      sub:'4G Subscriber DB',   ip:'10.0.0.4',  port:'3868 (S6a)',       color:'#FF5722', icon:'🗄️'},
+  {id:'sgw',    label:'S-GW',     sub:'Serving Gateway',    ip:'10.0.0.5',  port:'2123 (S11/S5)',    color:'#00BCD4', icon:'🔗'},
+  {id:'pgw',    label:'P-GW',     sub:'PDN Gateway',        ip:'10.0.0.6',  port:'2124',             color:'#FF9800', icon:'🌐'},
+  {id:'pcrf',   label:'PCRF',     sub:'Policy & Charging',  ip:'10.0.0.7',  port:'3869 (Gx/Rx)',     color:'#E91E63', icon:'⚖️'},
+  {id:'pcscf',  label:'P-CSCF',   sub:'SIP Proxy (IMS)',    ip:'10.0.0.8',  port:'5060 (Gm/Mw)',     color:'#3F51B5', icon:'🔀'},
+  {id:'scscf',  label:'S-CSCF',   sub:'SIP Registrar',      ip:'10.0.0.9',  port:'5070 (ISC/Mw)',    color:'#009688', icon:'📋'},
+  {id:'mtas',   label:'MTAS',     sub:'Service Logic (AS)', ip:'10.0.0.10', port:'5070 (ISC)',        color:'#795548', icon:'⚙️'},
+  {id:'imshss', label:'IMS-HSS',  sub:'IMS Subscriber DB',  ip:'—',         port:'3870 (Cx)',         color:'#607D8B', icon:'🗃️'},
+  {id:'ue_b',   label:'UE-B',     sub:'Callee Phone',       ip:'10.0.0.2*', port:'5060 / RTP:60000', color:'#66BB6A', icon:'📱'},
+];
+
+// Column width in px
+const COL_W = 90;
+const FIRST_COL_W = 110;
+const ROW_H = 36;
+const HEADER_H = 72;
+
+function nodeIndex(id) { return NODES.findIndex(n => n.id === id); }
+
+function nodeLeft(idx) {
+  if (idx === 0) return FIRST_COL_W / 2;
+  return FIRST_COL_W + (idx - 1) * COL_W + COL_W / 2;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MESSAGE DATA
+// ═══════════════════════════════════════════════════════════════
+const PHASES = {
+  lte:      {label:'Phase 1 — LTE Attach',          color:'#FF9800', desc:'UE attaches to 4G network, default bearer QCI=9 established'},
+  ims_pdn:  {label:'Phase 2 — IMS PDN Setup',        color:'#26C6DA', desc:'UE requests IMS APN, gets IMS IP + P-CSCF address (QCI=5)'},
+  ims_reg:  {label:'Phase 3 — IMS Registration',     color:'#AB47BC', desc:'SIP REGISTER flows through P-CSCF → I-CSCF → S-CSCF → HSS → MTAS'},
+  volte:    {label:'Phase 4 — VoLTE Call Setup',     color:'#42A5F5', desc:'SIP INVITE with QoS preconditions, 183→PRACK→180→200→ACK, QCI=1 bearer'},
+  teardown: {label:'Phase 5 — Call Teardown',        color:'#EF5350', desc:'SIP BYE, Rx STR, QCI=1 bearer released, CDR closed'},
+};
+
+const MSGS = [
+// ── LTE ATTACH ──────────────────────────────────────────────────────────────
+{phase:'lte', from:'ue_a', to:'mme', dir:'right',
+ label:'Attach Request', proto:'NAS/S1AP', color:'#4CAF50', port:'36412',
+ desc:'UE requests to attach to the 4G EPC. Passes through eNB which wraps NAS in S1AP.',
+ ref:'TS 36.413 §8.6 (S1AP), TS 24.301 §8.2.1 (NAS)',
+ ies:[
+  {f:'IMSI', v:'404100000000001', w:'UE\'s permanent identity — 15-digit subscriber ID'},
+  {f:'TAI (Tracking Area ID)', v:'MCC=404, MNC=010, TAC=0001', w:'Which cell the UE is in (for paging)'},
+  {f:'EPS Bearer ID', v:'5 (default)', w:'Requesting a default bearer'},
+  {f:'PDN Type', v:'IPv4', w:'What IP version the UE wants'},
+  {f:'UE Network Capability', v:'EEA0, EIA2', w:'What security algorithms UE supports'},
+ ]},
+{phase:'lte', from:'mme', to:'hss', dir:'right',
+ label:'AIR — Auth-Info-Request', proto:'Diameter S6a', color:'#AB47BC', port:'3868',
+ desc:'MME asks HSS for authentication vectors to challenge the UE (EPS-AKA).',
+ ref:'TS 29.272 §7.2.5',
+ ies:[
+  {f:'User-Name (IMSI)', v:'404100000000001', w:'Which subscriber to auth'},
+  {f:'Visited-PLMN-Id', v:'MCC=404, MNC=010', w:'Which network UE is visiting'},
+  {f:'Requested-EUTRAN-Auth-Info', v:'Number-Of-Requested-Vectors=1', w:'How many auth vectors needed'},
+ ]},
+{phase:'lte', from:'hss', to:'mme', dir:'left',
+ label:'AIA — Auth-Info-Answer', proto:'Diameter S6a', color:'#AB47BC', port:'3868',
+ desc:'HSS returns authentication vector containing challenge and expected response.',
+ ref:'TS 29.272 §7.2.6',
+ ies:[
+  {f:'RAND', v:'random 128-bit value', w:'Challenge sent to UE — UE must prove it knows the key'},
+  {f:'XRES', v:'expected response', w:'MME stores this to verify UE\'s RES later'},
+  {f:'AUTN', v:'auth token', w:'Lets UE verify the NETWORK is genuine (mutual auth)'},
+  {f:'KASME', v:'256-bit master key', w:'Root key for NAS/AS security — never leaves MME+UE'},
+ ]},
+{phase:'lte', from:'mme', to:'ue_a', dir:'left',
+ label:'Auth Request (RAND, AUTN)', proto:'NAS', color:'#26C6DA', port:'36412',
+ desc:'MME challenges UE to prove its identity using shared secret in the SIM.',
+ ref:'TS 24.301 §8.2.2',
+ ies:[
+  {f:'RAND', v:'(from AIA)', w:'Random challenge — UE feeds this into Milenage algorithm'},
+  {f:'AUTN', v:'(from AIA)', w:'UE verifies this to ensure it\'s talking to real network'},
+  {f:'KSI_ASME', v:'0', w:'Key Set Identifier — identifies which key is in use'},
+ ]},
+{phase:'lte', from:'ue_a', to:'mme', dir:'right',
+ label:'Auth Response (RES)', proto:'NAS', color:'#26C6DA', port:'36412',
+ desc:'UE computes RES from RAND using SIM. MME compares with XRES from HSS.',
+ ref:'TS 24.301 §8.2.3',
+ ies:[
+  {f:'RES', v:'computed by SIM', w:'If RES == XRES: UE is authenticated ✓'},
+ ]},
+{phase:'lte', from:'mme', to:'ue_a', dir:'left',
+ label:'Security Mode Command', proto:'NAS', color:'#26C6DA', port:'36412',
+ desc:'MME activates NAS security using KASME. All subsequent NAS messages are encrypted.',
+ ref:'TS 24.301 §8.3.1',
+ ies:[
+  {f:'NAS Security Algorithms', v:'EEA0 (encryption), EIA2 (integrity)', w:'Which algorithms to use'},
+  {f:'Key Set ID', v:'0', w:'Identifies KASME to use'},
+ ]},
+{phase:'lte', from:'mme', to:'hss', dir:'right',
+ label:'ULR — Update-Location-Request', proto:'Diameter S6a', color:'#AB47BC', port:'3868',
+ desc:'MME tells HSS it is now serving this UE, requests full subscriber profile.',
+ ref:'TS 29.272 §7.2.3',
+ ies:[
+  {f:'IMSI', v:'404100000000001', w:'Which subscriber'},
+  {f:'RAT-Type', v:'EUTRAN (1004)', w:'UE is on 4G LTE'},
+  {f:'ULR-Flags', v:'Bit2=1 (Initial-Attach)', w:'This is the first attach, give full profile'},
+ ]},
+{phase:'lte', from:'hss', to:'mme', dir:'left',
+ label:'ULA — Update-Location-Answer', proto:'Diameter S6a', color:'#AB47BC', port:'3868',
+ desc:'HSS acknowledges and delivers subscriber data: APNs, QoS profiles, max bitrates.',
+ ref:'TS 29.272 §7.2.4',
+ ies:[
+  {f:'APN', v:'internet (default APN)', w:'What data PDN the UE can use'},
+  {f:'QoS Profile', v:'QCI=9, MBR UL=50Mbps DL=100Mbps', w:'Max bitrates for default bearer'},
+  {f:'Subscribed-Periodic-RAU-TAU-Timer', v:'54 (T3412)', w:'How often UE must re-register'},
+ ]},
+{phase:'lte', from:'mme', to:'sgw', dir:'right',
+ label:'Create Session Request', proto:'GTP-C', color:'#FF9800', port:'2123',
+ desc:'MME asks S-GW to set up the data path (S1-U tunnel) for the default bearer.',
+ ref:'TS 29.274 §7.2.1',
+ ies:[
+  {f:'IMSI', v:'404100000000001', w:'Subscriber identity'},
+  {f:'MSISDN', v:'+919000000001', w:'Phone number (for billing/policy)'},
+  {f:'APN', v:'internet', w:'Which PDN to connect to'},
+  {f:'Bearer QoS → QCI', v:'9', w:'Default bearer: best-effort internet traffic'},
+  {f:'RAT Type', v:'EUTRAN', w:'4G LTE access'},
+  {f:'S-GW Control TEID', v:'0 (assigned by S-GW)', w:'S-GW will return its own TEID'},
+ ]},
+{phase:'lte', from:'sgw', to:'pgw', dir:'right',
+ label:'Create Session Request', proto:'GTP-C', color:'#FF9800', port:'2124',
+ desc:'S-GW forwards to P-GW for IP address allocation and PCRF policy.',
+ ref:'TS 29.274 §7.2.1',
+ ies:[
+  {f:'APN', v:'internet', w:'P-GW resolves this to select the right PDN'},
+  {f:'S5 S-GW TEID', v:'0xA0010001', w:'S-GW\'s tunnel endpoint for user plane traffic'},
+  {f:'PDN Type', v:'IPv4', w:'Allocate an IPv4 address for UE'},
+ ]},
+{phase:'lte', from:'pgw', to:'pcrf', dir:'right',
+ label:'CCR-I — Credit-Control-Request Initial', proto:'Diameter Gx', color:'#AB47BC', port:'3869',
+ desc:'P-GW asks PCRF for QoS policy for this subscriber+APN combination.',
+ ref:'TS 29.212 §4.5.1',
+ ies:[
+  {f:'CC-Request-Type', v:'INITIAL_REQUEST (1)', w:'First request for this bearer'},
+  {f:'Subscription-Id', v:'IMSI:404100000000001', w:'Which subscriber'},
+  {f:'Called-Station-Id', v:'internet', w:'Which APN'},
+  {f:'IP-CAN-Type', v:'3GPP-EPS', w:'4G LTE access network'},
+ ]},
+{phase:'lte', from:'pcrf', to:'pgw', dir:'left',
+ label:'CCA-I — Credit-Control-Answer', proto:'Diameter Gx', color:'#AB47BC', port:'3869',
+ desc:'PCRF returns policy rules: QCI=9 for default internet bearer.',
+ ref:'TS 29.212 §4.5.2',
+ ies:[
+  {f:'CC-Request-Type', v:'INITIAL_REQUEST', w:'Response to the initial request'},
+  {f:'QoS-Information → QCI', v:'9', w:'Best-effort bearer class (internet traffic)'},
+  {f:'Max-Requested-Bandwidth-UL', v:'50,000,000 bps', w:'Max 50 Mbps upload'},
+  {f:'Max-Requested-Bandwidth-DL', v:'100,000,000 bps', w:'Max 100 Mbps download'},
+ ]},
+{phase:'lte', from:'pgw', to:'sgw', dir:'left',
+ label:'Create Session Response', proto:'GTP-C', color:'#FF9800', port:'2124',
+ desc:'P-GW allocates UE IP address and returns tunnel endpoints.',
+ ref:'TS 29.274 §7.2.2',
+ ies:[
+  {f:'UE IP Address (PAA)', v:'10.0.0.1', w:'IP assigned to UE — used in SIP Contact later!'},
+  {f:'P-GW S5 TEID (User Plane)', v:'0xB0020001', w:'P-GW\'s GTP-U tunnel endpoint'},
+  {f:'Bearer QoS → QCI', v:'9', w:'Bearer class confirmed'},
+  {f:'Cause', v:'Request Accepted (16)', w:'Success'},
+ ]},
+{phase:'lte', from:'sgw', to:'mme', dir:'left',
+ label:'Create Session Response', proto:'GTP-C', color:'#FF9800', port:'2123',
+ desc:'S-GW returns its S1-U tunnel endpoint for the eNB to connect to.',
+ ref:'TS 29.274 §7.2.2',
+ ies:[
+  {f:'S-GW S1-U TEID (User Plane)', v:'0xC0030001', w:'eNB sends data here for UE'},
+  {f:'S-GW S1-U IP', v:'10.0.0.5', w:'eNB directs all uplink data to this IP'},
+  {f:'UE IP', v:'10.0.0.1', w:'So MME can include in Attach Accept'},
+ ]},
+{phase:'lte', from:'mme', to:'ue_a', dir:'left',
+ label:'Attach Accept (UE IP: 10.0.0.1)', proto:'NAS/S1AP', color:'#4CAF50', port:'36412',
+ desc:'MME confirms attach. UE gets its 4G IP address — used as SIP Contact in IMS registration.',
+ ref:'TS 24.301 §8.2.1.2',
+ ies:[
+  {f:'EPS Attach Result', v:'EPS-only (1)', w:'Data bearer active, voice via IMS'},
+  {f:'T3412 (TAU Timer)', v:'54 min', w:'UE must re-register before this expires'},
+  {f:'GUTI', v:'MCC=404, MNC=010, M-TMSI=0x01', w:'Temporary ID — replaces IMSI on air interface'},
+  {f:'PDN Address (UE IP)', v:'10.0.0.1', w:'★ This IP goes into SIP Contact in IMS REGISTER ★'},
+  {f:'EPS Bearer ID', v:'5', w:'Default bearer ID for internet traffic'},
+  {f:'APN', v:'internet', w:'Confirmed APN for data'},
+ ]},
+
+// ── IMS PDN SETUP ───────────────────────────────────────────────────────────
+{phase:'ims_pdn', from:'ue_a', to:'mme', dir:'right',
+ label:'PDN Connectivity Req (APN=ims)', proto:'NAS', color:'#26C6DA', port:'36412',
+ desc:'UE requests a SECOND PDN connection specifically for IMS signaling (APN=ims, QCI=5).',
+ ref:'TS 24.301 §8.3.18, TS 23.228 §5.1',
+ ies:[
+  {f:'APN', v:'ims', w:'Request IMS-specific PDN — separate from internet data'},
+  {f:'PDN Type', v:'IPv4v6', w:'IMS prefers dual-stack; will receive P-CSCF address via PCO'},
+  {f:'Request Type', v:'Initial Request (1)', w:'First time requesting this APN'},
+  {f:'PCO', v:'P-CSCF IPv4 Address Request', w:'UE asks for P-CSCF address in PCO field'},
+ ]},
+{phase:'ims_pdn', from:'pgw', to:'pcrf', dir:'right',
+ label:'CCR-I (APN=ims, QCI=5)', proto:'Diameter Gx', color:'#AB47BC', port:'3869',
+ desc:'P-GW requests policy for the IMS signaling APN. PCRF assigns QCI=5.',
+ ref:'TS 29.212 §4.5.1',
+ ies:[
+  {f:'Called-Station-Id', v:'ims', w:'IMS APN'},
+  {f:'Default-EPS-Bearer-QoS → QCI', v:'5', w:'IMS signaling bearer class: guaranteed, low latency'},
+ ]},
+{phase:'ims_pdn', from:'mme', to:'ue_a', dir:'left',
+ label:'PDN Connectivity Accept (IMS IP + P-CSCF)', proto:'NAS', color:'#26C6DA', port:'36412',
+ desc:'UE receives IMS IP address AND P-CSCF address in PCO — knows where to send first SIP message.',
+ ref:'TS 24.301 §8.3.19',
+ ies:[
+  {f:'PDN Address (IMS IP)', v:'10.0.0.1 (same IP reused)', w:'UE\'s IP for IMS registration'},
+  {f:'P-CSCF Address (via PCO)', v:'10.0.0.8:5060', w:'★ UE sends SIP REGISTER here ★'},
+  {f:'EPS Bearer ID', v:'6', w:'Separate bearer ID for IMS signaling'},
+  {f:'Bearer QoS → QCI', v:'5', w:'IMS signaling: priority over QCI=9 data'},
+ ]},
+
+// ── IMS REGISTRATION ────────────────────────────────────────────────────────
+{phase:'ims_reg', from:'ue_a', to:'pcscf', dir:'right',
+ label:'SIP REGISTER', proto:'SIP', color:'#42A5F5', port:'5060',
+ desc:'UE registers its IMS identity. Contact header contains the 4G IP from attach.',
+ ref:'RFC 3261, TS 24.229',
+ ies:[
+  {f:'From / To', v:'sip:+919000000001@ims.mnc010.mcc404.3gppnetwork.org', w:'IMPU — public IMS identity (like a SIP phone number)'},
+  {f:'Contact', v:'sip:ue@10.0.0.1:5060', w:'★ UE\'s 4G IP — network uses this to reach UE for calls ★'},
+  {f:'Expires', v:'3600', w:'Registration valid for 1 hour; UE re-registers before expiry'},
+  {f:'P-Access-Network-Info', v:'3GPP-E-UTRAN-FDD; utran-cell-id-3gpp=404010001', w:'Tells IMS the UE is on 4G LTE — used for QoS policy'},
+  {f:'Authorization', v:'Digest realm=ims.domain (empty first time)', w:'IMS-AKA auth; empty on first REGISTER, filled after challenge'},
+  {f:'Supported', v:'path, gruu, sec-agree, 100rel', w:'Capabilities UE advertises to network'},
+  {f:'Via', v:'SIP/2.0/TCP 10.0.0.1:5060;branch=z9hG4bKreg1', w:'Return address so responses come back here'},
+ ]},
+{phase:'ims_reg', from:'pcscf', to:'scscf', dir:'right',
+ label:'REGISTER + Via/P-Visited-Network-ID', proto:'SIP', color:'#42A5F5', port:'5070',
+ desc:'P-CSCF validates P-Access-Network-Info and forwards REGISTER to S-CSCF, adding its own Via and routing headers.',
+ ref:'TS 24.229 §5.2.2',
+ ies:[
+  {f:'Via (added by P-CSCF)', v:'SIP/2.0/TCP 10.0.0.8:5060;branch=z9hG4bK-pcscf', w:'P-CSCF stamps itself so responses return through it'},
+  {f:'P-Visited-Network-ID (added)', v:'mnc010.mcc404.3gppnetwork.org', w:'Which network UE is on (for roaming scenarios)'},
+  {f:'Route', v:'<sip:scscf.ims.mnc010.mcc404.3gppnetwork.org;lr>', w:'Routed to S-CSCF via service route'},
+ ]},
+{phase:'ims_reg', from:'scscf', to:'imshss', dir:'right',
+ label:'SAR — Server-Assignment-Request', proto:'Diameter Cx', color:'#AB47BC', port:'3870',
+ desc:'S-CSCF registers itself as serving this user and requests subscriber profile + iFC.',
+ ref:'TS 29.229 §6.1.4',
+ ies:[
+  {f:'Server-Assignment-Type', v:'REGISTRATION (1)', w:'S-CSCF is now the serving CSCF for this IMPU'},
+  {f:'User-Name (IMPU)', v:'sip:+919000000001@ims.mnc010.mcc404.3gppnetwork.org', w:'Which subscriber'},
+  {f:'Server-Name', v:'sip:scscf.ims.mnc010.mcc404.3gppnetwork.org', w:'S-CSCF\'s SIP URI — stored in HSS'},
+ ]},
+{phase:'ims_reg', from:'imshss', to:'scscf', dir:'left',
+ label:'SAA — Server-Assignment-Answer', proto:'Diameter Cx', color:'#AB47BC', port:'3870',
+ desc:'HSS returns subscriber profile including iFC — tells S-CSCF when to invoke MTAS.',
+ ref:'TS 29.229 §6.1.5',
+ ies:[
+  {f:'iFC (Initial Filter Criteria)', v:'Priority=1: method=REGISTER → invoke MTAS\nPriority=2: method=INVITE → invoke MTAS', w:'★ This defines when MTAS is called — key Ericsson concept ★'},
+  {f:'MSISDN', v:'+919000000001', w:'Phone number linked to this SIP identity'},
+  {f:'Barring Indication', v:'None active', w:'Call barring state'},
+  {f:'Service-Profile', v:'MMTEL-VoLTE', w:'MMTEL voice/video service enabled'},
+ ]},
+{phase:'ims_reg', from:'scscf', to:'mtas', dir:'right',
+ label:'3rd-Party REGISTER (ISC)', proto:'SIP/ISC', color:'#795548', port:'5070',
+ desc:'S-CSCF sends a copy of REGISTER to MTAS via ISC interface. MTAS now knows UE is online.',
+ ref:'TS 24.229 §5.4.1.7, TS 29.228',
+ ies:[
+  {f:'IMPU (From)', v:'sip:+919000000001@ims.mnc010.mcc404.3gppnetwork.org', w:'User being registered'},
+  {f:'Contact', v:'sip:ue@10.0.0.1:5060', w:'MTAS stores this for push notifications'},
+  {f:'P-Asserted-Identity', v:'sip:+919000000001@ims.mnc010.mcc404.3gppnetwork.org', w:'Network-verified identity'},
+ ]},
+{phase:'ims_reg', from:'pcscf', to:'ue_a', dir:'left',
+ label:'200 OK (REGISTER)', proto:'SIP', color:'#42A5F5', port:'5060',
+ desc:'Registration complete. UE receives P-CSCF contact list and Service-Route for future calls.',
+ ref:'RFC 3261 §10.3',
+ ies:[
+  {f:'P-Associated-URI', v:'tel:+919000000001', w:'All aliases for this identity (tel: URI + sip: URI)'},
+  {f:'Service-Route', v:'<sip:scscf.ims.mnc010.mcc404.3gppnetwork.org;lr>', w:'★ UE MUST route all future INVITEs through this S-CSCF ★'},
+  {f:'Contact + Expires', v:'sip:ue@10.0.0.1:5060; expires=3600', w:'Confirmed registration, valid 1 hour'},
+  {f:'P-CSCF URI', v:'<sip:pcscf.ims.mnc010.mcc404.3gppnetwork.org:5060>', w:'P-CSCF that UE is connected through'},
+ ]},
+
+// ── VOLTE CALL SETUP ────────────────────────────────────────────────────────
+{phase:'volte', from:'ue_a', to:'pcscf', dir:'right',
+ label:'SIP INVITE (with SDP offer)', proto:'SIP/SDP', color:'#42A5F5', port:'5060',
+ desc:'UE-A calls UE-B. SDP offer includes codec list and QoS precondition markers.',
+ ref:'RFC 3261, RFC 3264 (SDP O/A), RFC 3312 (Preconditions)',
+ ies:[
+  {f:'From', v:'sip:+919000000001@ims.mnc010.mcc404.3gppnetwork.org;tag=inv1', w:'Caller identity + dialog tag'},
+  {f:'To', v:'sip:+919000000002@ims.mnc010.mcc404.3gppnetwork.org', w:'Callee (no tag yet — dialog not established)'},
+  {f:'Call-ID', v:'call-AB-1@10.0.0.1', w:'★ Unique per dialog — ALL messages in this call share it ★'},
+  {f:'CSeq', v:'1 INVITE', w:'Sequence number — re-INVITE will be CSeq:2'},
+  {f:'Route', v:'sip:scscf.ims.mnc010.mcc404.3gppnetwork.org;lr', w:'From Service-Route in REGISTER 200 OK'},
+  {f:'P-Preferred-Identity', v:'sip:+919000000001@ims.mnc010.mcc404.3gppnetwork.org', w:'CLI UE wants to present — not trusted, P-CSCF verifies'},
+  {f:'Require', v:'precondition, 100rel', w:'QoS bearer MUST be ready before callee rings (VoLTE mandate)'},
+  {f:'SDP m=audio', v:'50000 RTP/AVP 98 99', w:'UE-A\'s RTP port:50000, codec offer 98=AMR-WB, 99=AMR-NB'},
+  {f:'SDP a=rtpmap:98', v:'AMR-WB/16000', w:'★ HD Voice — 16kHz sampling, sounds like in the room ★'},
+  {f:'SDP a=curr:qos', v:'local none; remote none', w:'QoS bearers not yet established on either side'},
+  {f:'SDP a=des:qos', v:'mandatory local sendrecv; mandatory remote sendrecv', w:'MUST have QoS before ringing callee'},
+ ]},
+{phase:'volte', from:'pcscf', to:'scscf', dir:'right',
+ label:'INVITE + P-Visited-Network / Via', proto:'SIP', color:'#42A5F5', port:'5070',
+ desc:'P-CSCF adds hop headers before forwarding to S-CSCF.',
+ ref:'TS 24.229 §5.2.6',
+ ies:[
+  {f:'Via (added by P-CSCF)', v:'SIP/2.0/TCP 10.0.0.8:5060;branch=z9hG4bK-pcscf', w:'P-CSCF stamps itself in the via chain'},
+  {f:'P-Visited-Network-ID (added)', v:'mnc010.mcc404.3gppnetwork.org', w:'Which network the caller is on'},
+  {f:'Route', v:'<sip:scscf.ims.mnc010.mcc404.3gppnetwork.org;lr>', w:'Service route to S-CSCF'},
+ ]},
+{phase:'volte', from:'scscf', to:'mtas', dir:'right',
+ label:'ISC INVITE → MTAS (iFC trigger)', proto:'SIP/ISC', color:'#795548', port:'5070',
+ desc:'S-CSCF sees iFC: method=INVITE → invoke MTAS. MTAS applies all supplementary services.',
+ ref:'TS 24.229 §5.4.3.2',
+ ies:[
+  {f:'iFC Match', v:'Priority=2: method=INVITE', w:'S-CSCF triggers MTAS per iFC from HSS'},
+  {f:'MTAS checks:', v:'[1] OIP: verify caller CLI', w:'Originating Identity Presentation'},
+  {f:'', v:'[2] Call Barring: BAOC/OIB?', w:'Bar All Outgoing Calls check'},
+  {f:'', v:'[3] Call Forwarding: CFU/CFNRy?', w:'Any forwarding rules active?'},
+  {f:'', v:'[4] Call Waiting: UE-B busy?', w:'Is callee already in a call?'},
+  {f:'', v:'[5] Codec Policy: AMR-WB allowed?', w:'VoLTE codec compliance check'},
+  {f:'', v:'[6] CDR: start billing record', w:'Charging Data Record opened for this call'},
+ ]},
+{phase:'volte', from:'scscf', to:'ue_a', dir:'left',
+ label:'100 Trying', proto:'SIP', color:'#42A5F5', port:'5060',
+ desc:'S-CSCF acknowledges receipt of INVITE. Not forwarded to caller (hop-by-hop).',
+ ref:'RFC 3261 §8.2.6',
+ ies:[
+  {f:'CSeq', v:'1 INVITE', w:'Matches the INVITE this is responding to'},
+  {f:'Note', v:'100 Trying is NOT reliable (no PRACK needed)', w:'Only 1xx with Require:100rel need PRACK'},
+ ]},
+{phase:'volte', from:'scscf', to:'ue_b', dir:'right',
+ label:'INVITE → UE-B (via P-CSCF)', proto:'SIP/SDP', color:'#42A5F5', port:'5060',
+ desc:'S-CSCF routes INVITE to callee\'s P-CSCF, adding Record-Route and P-Asserted-Identity.',
+ ref:'TS 24.229 §5.4.3.3',
+ ies:[
+  {f:'Record-Route (added by S-CSCF)', v:'<sip:scscf.ims.mnc010.mcc404.3gppnetwork.org;lr>', w:'★ S-CSCF stays in dialog path for BYE/re-INVITE policy enforcement ★'},
+  {f:'P-Asserted-Identity (added)', v:'sip:+919000000001@ims.mnc010.mcc404.3gppnetwork.org', w:'Network-verified CLI — replaces P-Preferred-Identity'},
+  {f:'P-Charging-Vector (added)', v:'icid-value=charge-call-AB-1', w:'Charging correlation ID'},
+  {f:'Via (added by S-CSCF)', v:'SIP/2.0/TCP 10.0.0.9:5070;branch=z9hG4bK-scscf', w:'S-CSCF stamps itself in via chain'},
+ ]},
+{phase:'volte', from:'pcscf', to:'ue_a', dir:'left',
+ label:'183 Session Progress (SDP answer)', proto:'SIP/SDP', color:'#42A5F5', port:'5060',
+ desc:'Early SDP answer with QoS precondition status. Triggers PRACK and bearer setup.',
+ ref:'RFC 3262 (100rel), RFC 3312 (Preconditions)',
+ ies:[
+  {f:'To-tag', v:';tag=early1', w:'Early dialog established (provisional)'},
+  {f:'RSeq', v:'1', w:'Reliability Sequence — caller must send PRACK for this'},
+  {f:'Require', v:'100rel', w:'VoLTE mandates reliable provisional responses'},
+  {f:'SDP m=audio', v:'60000 RTP/AVP 98', w:'UE-B\'s RTP port: 60000, accepting codec 98=AMR-WB'},
+  {f:'SDP a=rtpmap:98', v:'AMR-WB/16000', w:'HD Voice selected from offer'},
+  {f:'SDP a=curr:qos', v:'remote none; local none', w:'Bearers not ready yet on either side'},
+  {f:'SDP a=des:qos', v:'mandatory remote sendrecv', w:'Callee requires bearer before ringing'},
+ ]},
+{phase:'volte', from:'ue_a', to:'scscf', dir:'right',
+ label:'PRACK (RAck: 1 1 INVITE)', proto:'SIP', color:'#42A5F5', port:'5060',
+ desc:'Caller acknowledges 183 Session Progress reliably. Without PRACK, callee doesn\'t know caller got the 183.',
+ ref:'RFC 3262',
+ ies:[
+  {f:'RAck', v:'1 1 INVITE', w:'RSeq=1, CSeq=1, Method=INVITE — identifies the 183 being acknowledged'},
+  {f:'Why PRACK?', v:'Plain SIP 1xx are unreliable', w:'Without PRACK, caller could miss 183 and bearer wouldn\'t be set up'},
+ ]},
+{phase:'volte', from:'scscf', to:'ue_a', dir:'left',
+ label:'200 OK (PRACK)', proto:'SIP', color:'#42A5F5', port:'5060',
+ desc:'Network confirms PRACK received. Now bearer setup begins.',
+ ref:'RFC 3262 §4',
+ ies:[
+  {f:'CSeq', v:'1 PRACK', w:'Acknowledges the PRACK'},
+ ]},
+{phase:'volte', from:'pcscf', to:'pcrf', dir:'right',
+ label:'AAR — AA-Request (Rx Diameter)', proto:'Diameter Rx', color:'#E91E63', port:'3869',
+ desc:'★ KEY STEP ★ P-CSCF triggers QCI=1 dedicated voice bearer after 183 SDP negotiation.',
+ ref:'TS 29.214 §4.4.6',
+ ies:[
+  {f:'Media-Component-Number', v:'1', w:'First media stream'},
+  {f:'Media-Type', v:'AUDIO (0)', w:'Voice media'},
+  {f:'Codec-Data', v:'AMR-WB 12650bps; mode=sendrecv', w:'Codec and bandwidth from SDP'},
+  {f:'Flow-Description', v:'permit out 17 from 10.0.0.1 50000', w:'TFT filter: only voice packets on QCI=1 bearer'},
+  {f:'Max-Requested-Bandwidth-UL', v:'64000 bps', w:'64 kbps uplink reserved for voice'},
+  {f:'Max-Requested-Bandwidth-DL', v:'64000 bps', w:'64 kbps downlink reserved for voice'},
+  {f:'Subscription-Id', v:'IMPU of UE-A', w:'Links to Gx session on P-GW'},
+ ]},
+{phase:'volte', from:'pcrf', to:'pgw', dir:'left',
+ label:'RAR → Install QCI=1 Rule (Gx)', proto:'Diameter Gx', color:'#AB47BC', port:'3869',
+ desc:'PCRF instructs P-GW to create QCI=1 dedicated voice bearer.',
+ ref:'TS 29.212 §4.5.5',
+ ies:[
+  {f:'Re-Auth-Request-Type', v:'AUTHORIZE_ONLY (0)', w:'Just install the rule, no re-auth'},
+  {f:'Charging-Rule-Definition', v:'QCI=1, GBR-UL=64kbps, GBR-DL=64kbps', w:'Guaranteed Bit Rate bearer for voice'},
+  {f:'ARP (Allocation Retention Priority)', v:'Priority=2, Pre-emption=no', w:'High priority — eNB schedules this first'},
+ ]},
+{phase:'volte', from:'pgw', to:'sgw', dir:'right',
+ label:'Create Bearer Request (QCI=1)', proto:'GTP-C', color:'#FF9800', port:'2124',
+ desc:'P-GW triggers dedicated voice bearer creation towards the eNB.',
+ ref:'TS 29.274 §7.2.11',
+ ies:[
+  {f:'EPS Bearer QoS → QCI', v:'1', w:'Conversational Voice — highest priority class'},
+  {f:'GBR-UL', v:'64 kbps', w:'Guaranteed upload — voice always gets this bandwidth'},
+  {f:'GBR-DL', v:'64 kbps', w:'Guaranteed download'},
+  {f:'TFT (Traffic Flow Template)', v:'UE-IP:50000 ↔ UE-B-IP:60000, proto=UDP', w:'ONLY voice RTP packets on this bearer'},
+  {f:'ARP', v:'Level 2, No Pre-emption', w:'Higher priority than data; won\'t drop for new bearers'},
+ ]},
+{phase:'volte', from:'mme', to:'ue_a', dir:'left',
+ label:'E-RABSetupRequest (QCI=1 DRB)', proto:'S1AP', color:'#4CAF50', port:'36412',
+ desc:'MME instructs eNB to set up QCI=1 radio bearer. eNB allocates radio resources.',
+ ref:'TS 36.413 §8.2',
+ ies:[
+  {f:'E-RAB-ID', v:'6', w:'Bearer ID for this new dedicated bearer'},
+  {f:'E-RAB Level QoS → QCI', v:'1', w:'Voice bearer — eNB scheduler gives it priority'},
+  {f:'GBR-UL / GBR-DL', v:'64kbps / 64kbps', w:'Radio resources guaranteed on LTE air interface'},
+  {f:'NAS PDU (for UE)', v:'Activate Dedicated Bearer', w:'Tells UE the new bearer is available'},
+  {f:'Transport Layer Address', v:'S-GW IP:port', w:'Where eNB sends uplink voice packets'},
+  {f:'GTP-TEID', v:'0xC0030002', w:'Tunnel endpoint ID for this voice bearer'},
+ ]},
+{phase:'volte', from:'ue_a', to:'scscf', dir:'right',
+ label:'UPDATE (a=curr:qos local sendrecv)', proto:'SIP', color:'#42A5F5', port:'5060',
+ desc:'UE-A signals that its local QoS bearer is now ready. Triggers 180 Ringing when both sides are ready.',
+ ref:'RFC 3311 (UPDATE), RFC 3312 (Preconditions)',
+ ies:[
+  {f:'CSeq', v:'2 UPDATE', w:'UPDATE uses new CSeq; no ACK needed unlike re-INVITE'},
+  {f:'SDP a=curr:qos', v:'local sendrecv', w:'UE-A\'s QCI=1 bearer is UP'},
+  {f:'SDP a=des:qos', v:'mandatory remote sendrecv', w:'Still needs callee side bearer confirmation'},
+ ]},
+{phase:'volte', from:'ue_b', to:'ue_a', dir:'left',
+ label:'200 OK UPDATE (a=curr:qos remote sendrecv)', proto:'SIP', color:'#42A5F5', port:'5060',
+ desc:'UE-B confirms its QoS bearer is also ready. Preconditions met → 180 Ringing sent.',
+ ref:'RFC 3312 §5',
+ ies:[
+  {f:'SDP a=curr:qos remote', v:'sendrecv', w:'UE-B QCI=1 bearer also UP — ★ both sides ready ★'},
+  {f:'After this:', v:'Preconditions satisfied', w:'S-CSCF/MTAS now alerts callee → 180 Ringing'},
+ ]},
+{phase:'volte', from:'ue_b', to:'ue_a', dir:'left',
+ label:'180 Ringing (To-tag → dialog!)', proto:'SIP', color:'#42A5F5', port:'5060',
+ desc:'Callee\'s phone is now ringing. To-tag added — SIP dialog officially established.',
+ ref:'RFC 3261 §8.1.1.8',
+ ies:[
+  {f:'To-tag', v:';tag=callee1', w:'★ DIALOG ESTABLISHED: From-tag + To-tag + Call-ID = Dialog ID ★'},
+  {f:'Contact', v:'sip:ue-b@10.0.0.2:5060', w:'Direct address for in-dialog requests (ACK, BYE)'},
+  {f:'Caller hears:', v:'Ring-back tone', w:'Generated locally by caller\'s UE (comfort tone)'},
+ ]},
+{phase:'volte', from:'ue_b', to:'ue_a', dir:'left',
+ label:'200 OK INVITE (SDP answer)', proto:'SIP/SDP', color:'#42A5F5', port:'5060',
+ desc:'UE-B answers. Final SDP answer confirms codec and RTP ports. Call established.',
+ ref:'RFC 3261 §13.2.2',
+ ies:[
+  {f:'SDP m=audio', v:'60000 RTP/AVP 98', w:'UE-B\'s final RTP port + selected codec'},
+  {f:'SDP a=rtpmap:98', v:'AMR-WB/16000', w:'★ HD Voice confirmed — 16kHz, 12.65kbps ★'},
+  {f:'SDP a=sendrecv', v:'(both directions)', w:'Bidirectional voice — no hold'},
+  {f:'Contact', v:'sip:ue-b@10.0.0.2:5060', w:'UE-B\'s address for future in-dialog requests'},
+ ]},
+{phase:'volte', from:'ue_a', to:'ue_b', dir:'right',
+ label:'ACK — 3-way handshake complete', proto:'SIP', color:'#42A5F5', port:'5060',
+ desc:'Caller confirms 200 OK received. SIP 3-way handshake done. RTP voice now flows.',
+ ref:'RFC 3261 §13.2.2.4',
+ ies:[
+  {f:'CSeq', v:'1 ACK', w:'ACK uses CSeq 1 INVITE — acknowledges the 200 OK for INVITE'},
+  {f:'After ACK:', v:'Voice path active', w:'RTP packets flow UE-A:50000 ↔ UE-B:60000 on QCI=1 bearer'},
+ ]},
+{phase:'volte', from:'ue_a', to:'ue_b', dir:'right',
+ label:'RTP voice stream (AMR-WB, QCI=1)', proto:'RTP/UDP', color:'#EF5350', port:'50000↔60000',
+ desc:'HD Voice flowing on dedicated QCI=1 bearer. 20ms frames, AMR-WB at 12.65 kbps.',
+ ref:'RFC 3550 (RTP), TS 26.114 (VoLTE codec)',
+ ies:[
+  {f:'Codec', v:'AMR-WB (payload type 98)', w:'16kHz sampling — significantly better than 8kHz narrowband'},
+  {f:'Packet rate', v:'50 pps (20ms frames)', w:'50 packets per second per direction'},
+  {f:'Bitrate', v:'12.65 kbps per direction', w:'Efficient — full voice quality in 13 kbps'},
+  {f:'Bearer', v:'QCI=1, GBR 64kbps', w:'Guaranteed, prioritized in eNB scheduler over data'},
+  {f:'Path', v:'UE-A:50000 ↔ S-GW ↔ UE-B:60000', w:'RTP does NOT go through IMS — direct P2P after setup'},
+ ]},
+
+// ── TEARDOWN ────────────────────────────────────────────────────────────────
+{phase:'teardown', from:'ue_a', to:'pcscf', dir:'right',
+ label:'BYE', proto:'SIP', color:'#EF5350', port:'5060',
+ desc:'Caller hangs up. BYE flows through same path as INVITE (via Record-Route).',
+ ref:'RFC 3261 §15',
+ ies:[
+  {f:'Call-ID', v:'call-AB-1@10.0.0.1', w:'Same Call-ID — terminates this specific dialog'},
+  {f:'CSeq', v:'3 BYE', w:'Sequence number continues from UPDATE'},
+  {f:'Reason (optional)', v:'Q.850;cause=16', w:'Normal clearing (ITU-T Q.850 cause code)'},
+  {f:'Route', v:'Record-Route path', w:'BYE follows S-CSCF in dialog path (thanks to Record-Route)'},
+ ]},
+{phase:'teardown', from:'scscf', to:'ue_b', dir:'right',
+ label:'BYE → UE-B', proto:'SIP', color:'#EF5350', port:'5060',
+ desc:'S-CSCF closes CDR on MTAS and forwards BYE to callee. MTAS generates billing record.',
+ ref:'TS 24.229 §5.4.5',
+ ies:[
+  {f:'MTAS action', v:'Close CDR, generate billing record', w:'Call duration recorded for billing'},
+  {f:'CDR contents', v:'Start time, duration, codecs used', w:'Submitted to Online Charging System (OCS)'},
+ ]},
+{phase:'teardown', from:'ue_b', to:'ue_a', dir:'left',
+ label:'200 OK (BYE)', proto:'SIP', color:'#EF5350', port:'5060',
+ desc:'Callee confirms call ended. Dialog terminated on both sides.',
+ ref:'RFC 3261 §15.1',
+ ies:[
+  {f:'Result', v:'Call completely terminated', w:'Both UEs return to idle state'},
+ ]},
+{phase:'teardown', from:'pcscf', to:'pcrf', dir:'right',
+ label:'STR — Session-Termination-Request (Rx)', proto:'Diameter Rx', color:'#E91E63', port:'3869',
+ desc:'P-CSCF tells PCRF the media session is over. PCRF will release the QCI=1 bearer.',
+ ref:'TS 29.214 §4.4.6',
+ ies:[
+  {f:'Termination-Cause', v:'DIAMETER_LOGOUT (1)', w:'Normal session end'},
+  {f:'Abort-Cause', v:'LOSS_OF_BEARER (2)', w:'Reason bearer should be released'},
+ ]},
+{phase:'teardown', from:'pcrf', to:'pgw', dir:'left',
+ label:'RAR — Delete QCI=1 Charging Rule (Gx)', proto:'Diameter Gx', color:'#AB47BC', port:'3869',
+ desc:'PCRF removes the voice bearer policy rule from P-GW.',
+ ref:'TS 29.212 §4.5.5',
+ ies:[
+  {f:'Charging-Rule-Remove', v:'voice-QCI1-rule', w:'Remove the 64kbps guaranteed bearer'},
+  {f:'After this:', v:'P-GW triggers Delete Bearer', w:'GTP-C Delete Bearer Request to S-GW → MME → eNB → UE'},
+ ]},
+{phase:'teardown', from:'pgw', to:'ue_a', dir:'left',
+ label:'Delete Bearer (QCI=1 released)', proto:'GTP-C/S1AP', color:'#FF9800', port:'2123',
+ desc:'QCI=1 dedicated voice bearer deleted. UE falls back to QCI=9 default bearer only.',
+ ref:'TS 29.274 §7.2.14',
+ ies:[
+  {f:'EPS Bearer ID', v:'6 (the QCI=1 bearer)', w:'This specific bearer being deleted'},
+  {f:'Cause', v:'REACTIVATION_REQUESTED (39)', w:'Or ISR_DEACTIVATION'},
+  {f:'After delete:', v:'UE back to QCI=9 only', w:'No dedicated voice bearer — only internet data bearer remains'},
+ ]},
+];
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER ENGINE
+// ═══════════════════════════════════════════════════════════════
+let currentStep = 0;
+let playTimer = null;
+let stepDelay = 1200;
+let activePhase = 'all';
+let visibleMsgs = [];
+
+function init() {
+  renderHeader();
+  renderMessages();
+  updateCounter();
+}
+
+function renderHeader() {
+  const hdr = document.getElementById('node-header');
+  const ll = document.getElementById('lifelines');
+  hdr.innerHTML = '';
+  ll.innerHTML = '';
+  NODES.forEach((n, i) => {
+    const w = i === 0 ? FIRST_COL_W : COL_W;
+    const col = document.createElement('div');
+    col.className = 'node-col';
+    col.style.cssText = `width:${w}px;min-width:${w}px;border-top:3px solid ${n.color}`;
+    col.innerHTML = `<div class="node-icon">${n.icon}</div>
+      <div class="node-name" style="color:${n.color}">${n.label}</div>
+      <div class="node-sub">${n.sub}</div>
+      <div class="node-ip">${n.ip}</div>
+      <div class="node-port">${n.port}</div>`;
+    hdr.appendChild(col);
+
+    const lifeline = document.createElement('div');
+    lifeline.className = 'lifeline';
+    lifeline.style.cssText = `width:${w}px;min-width:${w}px;border-right:1px dashed ${n.color}22`;
+    ll.appendChild(lifeline);
+  });
+}
+
+function renderMessages() {
+  const container = document.getElementById('messages');
+  container.innerHTML = '';
+  visibleMsgs = [];
+
+  let currentPhaseKey = null;
+  let rowIndex = 0;
+
+  MSGS.forEach((msg, i) => {
+    if (activePhase !== 'all' && msg.phase !== activePhase) return;
+
+    // Phase banner
+    if (msg.phase !== currentPhaseKey) {
+      currentPhaseKey = msg.phase;
+      const ph = PHASES[msg.phase];
+      const banner = document.createElement('div');
+      banner.className = 'phase-banner';
+      banner.style.cssText = `color:${ph.color};border-color:${ph.color};background:${ph.color}11;margin-top:${rowIndex===0?0:8}px`;
+      banner.innerHTML = `<span class="ph-num">${Object.keys(PHASES).indexOf(msg.phase)+1}</span><span>${ph.label}</span><span style="font-weight:400;margin-left:8px;font-size:10px;opacity:.7">${ph.desc}</span>`;
+      container.appendChild(banner);
+    }
+
+    const fromIdx = nodeIndex(msg.from);
+    const toIdx   = nodeIndex(msg.to);
+    const fromX   = nodeLeft(fromIdx);
+    const toX     = nodeLeft(toIdx);
+    const goRight = toX > fromX;
+    const left    = Math.min(fromX, toX);
+    const width   = Math.abs(toX - fromX);
+    const midX    = (fromX + toX) / 2;
+    const totalW  = FIRST_COL_W + (NODES.length - 1) * COL_W;
+
+    const row = document.createElement('div');
+    row.className = 'msg-row';
+    row.dataset.msgIdx = visibleMsgs.length;
+    row.style.height = `${ROW_H}px`;
+
+    // Arrow
+    const arrow = document.createElement('div');
+    arrow.className = `arrow ${goRight ? 'right' : 'left'}`;
+    arrow.style.cssText = `left:${left}px;width:${width}px;color:${msg.color}`;
+    const line = document.createElement('div');
+    line.className = 'arrow-line';
+    line.style.background = msg.color;
+    arrow.appendChild(line);
+    row.appendChild(arrow);
+
+    // Label
+    const lbl = document.createElement('div');
+    lbl.className = 'msg-label';
+    lbl.style.cssText = `left:${midX - 80}px;color:${msg.color};width:160px;text-align:center`;
+    lbl.innerHTML = `${msg.label}<span class="proto-badge" style="color:${msg.color}99">[${msg.proto}]</span>`;
+    lbl.onclick = () => showPanel(msg);
+    row.appendChild(lbl);
+
+    // Port label
+    const port = document.createElement('div');
+    port.className = 'port-label';
+    port.style.cssText = `left:${midX - 30}px;width:60px;text-align:center`;
+    port.textContent = `:${msg.port}`;
+    row.appendChild(port);
+
+    container.appendChild(row);
+    visibleMsgs.push({row, msg});
+    rowIndex++;
+  });
+
+  // Set lifeline height
+  const totalH = container.offsetHeight || visibleMsgs.length * ROW_H + 200;
+  document.getElementById('lifelines').style.height = `${totalH}px`;
+}
+
+function showPanel(msg) {
+  document.getElementById('ie-placeholder').style.display = 'none';
+  document.getElementById('ie-content').style.display = 'block';
+  document.getElementById('ie-title').textContent = msg.label;
+  const badge = document.getElementById('ie-proto-badge');
+  badge.textContent = msg.proto;
+  badge.style.cssText = `background:${msg.color}33;color:${msg.color}`;
+  document.getElementById('ie-desc').textContent = msg.desc;
+  document.getElementById('ie-nodes').textContent =
+    `${NODES[nodeIndex(msg.from)].label} (${NODES[nodeIndex(msg.from)].ip}) → ${NODES[nodeIndex(msg.to)].label} (${NODES[nodeIndex(msg.to)].ip})   Port: ${msg.port}`;
+  document.getElementById('ie-ref').textContent = msg.ref;
+
+  const tbody = document.getElementById('ie-rows');
+  tbody.innerHTML = (msg.ies || []).map(ie =>
+    `<tr><td>${ie.f}</td><td>${ie.v}</td><td>${ie.w}</td></tr>`
+  ).join('');
+}
+
+function closePanel() {
+  document.getElementById('ie-placeholder').style.display = 'block';
+  document.getElementById('ie-content').style.display = 'none';
+}
+
+// ─── STEP CONTROLS ───────────────────────────────────────────
+function stepNext() {
+  if (currentStep >= visibleMsgs.length) return;
+  const {row, msg} = visibleMsgs[currentStep];
+  row.classList.add('visible', 'active-step');
+  // Dim previous steps
+  visibleMsgs.slice(0, currentStep).forEach(m => {
+    m.row.classList.remove('active-step');
+    m.row.classList.add('dim');
+  });
+  showPanel(msg);
+  row.scrollIntoView({behavior:'smooth', block:'nearest'});
+  currentStep++;
+  updateCounter();
+  document.getElementById('diagram-wrap').scrollTop += 0; // trigger repaint
+}
+
+function playAll() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; document.getElementById('btn-play').textContent = '▶ Play'; return; }
+  document.getElementById('btn-play').textContent = '⏸ Pause';
+  playTimer = setInterval(() => {
+    if (currentStep >= visibleMsgs.length) {
+      clearInterval(playTimer); playTimer = null;
+      document.getElementById('btn-play').textContent = '▶ Play';
+      return;
+    }
+    stepNext();
+  }, stepDelay);
+}
+
+function resetAll() {
+  clearInterval(playTimer); playTimer = null;
+  document.getElementById('btn-play').textContent = '▶ Play';
+  currentStep = 0;
+  visibleMsgs.forEach(m => m.row.classList.remove('visible','active-step','dim'));
+  updateCounter();
+  closePanel();
+  document.getElementById('diagram-wrap').scrollTop = 0;
+}
+
+function filterPhase(phase, btn) {
+  activePhase = phase;
+  document.querySelectorAll('.phase-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  resetAll();
+  renderMessages();
+  updateCounter();
+}
+
+function setSpeed(v) { stepDelay = parseInt(v); }
+
+function updateCounter() {
+  document.getElementById('step-counter').textContent =
+    `Step ${currentStep} / ${visibleMsgs.length}`;
+}
+
+// Show all on Alt+click
+document.getElementById('diagram-wrap').addEventListener('dblclick', () => {
+  resetAll();
+  visibleMsgs.forEach(m => { m.row.classList.add('visible'); m.row.classList.remove('dim'); });
+  currentStep = visibleMsgs.length;
+  updateCounter();
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.key === ' ') { e.preventDefault(); playAll(); }
+  if (e.key === 'ArrowRight' || e.key === 'n') stepNext();
+  if (e.key === 'r' || e.key === 'Escape') resetAll();
+});
+
+init();
+</script>
+</body>
+</html>
