@@ -1,0 +1,258 @@
+You have full access to the GitHub repo:
+https://github.com/abhichhn93/4g-5g-ims-simulators
+
+This is a C++17 telecom simulator with three components:
+- 4g-simulator/   — 4G EPC (eNB, MME, HSS, SGW, PGW, PCRF)
+- ims-simulator/  — IMS/VoLTE (P-CSCF, S-CSCF, MTAS, IMS-HSS)
+- 5g-simulator/   — 5G Core SBA (gNB, AMF, UDM, NRF)
+
+The repo also now contains:
+- interview_questions/   — 38 YAML files, 352 tagged interview questions
+- tag_rules.json         — 67 message-pattern-to-tag mappings
+- interview_questions.yaml — legacy monolithic file (keep for reference)
+
+The owner is a Senior C++ Telecom Engineer (ex-Samsung MME/AMF, ex-LG VoLTE).
+Goals: portfolio project, LinkedIn visibility, educational resource for engineers
+studying 4G/5G/IMS protocols, and interview preparation tool.
+
+ALL existing features must be preserved. All new features are ADDITIVE only.
+The existing 3-level logging (BEGINNER / ENGINEER / INTERVIEW) must be extended
+to all new features — never removed.
+
+==============================================================
+IMPLEMENT IN THIS EXACT ORDER — complete each before the next
+==============================================================
+
+──────────────────────────────────────────────
+PHASE 0 — REPO CLEANUP (do this first, 30 min)
+──────────────────────────────────────────────
+
+0a. Add LICENSE file (Apache-2.0) at repo root
+0b. Add CONTRIBUTING.md — clone, build, run, PR guidelines
+0c. Add .github/ISSUE_TEMPLATE/bug_report.md and feature_request.md
+0d. Add GitHub Actions CI for ims-simulator:
+    .github/workflows/ims-build.yml — cmake build + smoke test
+0e. Add cmake build job to existing 4g-simulator CI workflow
+0f. Add README badges (build status) to all three simulator READMEs
+
+──────────────────────────────────────────────
+PHASE 1 — PROTOCOL FIXES (highest interview credibility)
+──────────────────────────────────────────────
+
+1a. REAL SIP TEXT in IMS simulator
+    - Replace custom binary TLV with real RFC 3261 SIP text over TCP port 5060
+    - Messages must decode natively in Wireshark SIP dissector (no Lua needed)
+    - Keep all existing call flows: REGISTER, INVITE, 180, 200 OK, ACK, BYE
+    - Add real SDP body to INVITE and 200 OK:
+        v=0
+        o=ue1 0 0 IN IP4 127.0.0.1
+        s=VoLTE Call
+        c=IN IP4 127.0.0.1
+        t=0 0
+        m=audio 49170 RTP/AVP 116
+        a=rtpmap:116 AMR-WB/16000
+        a=fmtp:116 mode-set=0,1,2;max-red=0
+    - Update pcap_writer to write SIP frames as TCP payload on port 5060
+
+1b. TAU (Tracking Area Update) in 4G simulator
+    - Add command: TAU <ue_id>
+    - Flow: eNB sends TAU Request → MME validates TAI → MME sends TAU Accept
+    - Full BEGINNER/ENGINEER/INTERVIEW narration at each step
+    - Write to pcap
+
+1c. X2/S1 HANDOVER in 4G simulator
+    - Add command: HO <ue_id>
+    - Flow: HO Required → HO Request → HO Request Ack → HO Command →
+            Path Switch Request → Modify Bearer → UE Context Release
+    - Reference: TS 36.413 §8.4
+    - Full narration + pcap output
+
+──────────────────────────────────────────────
+PHASE 2 — VISUALIZER (biggest LinkedIn impact)
+──────────────────────────────────────────────
+
+The visualizer has 3 layers. The C++ core is NOT changed — only a JSON
+log output is added alongside existing pcap/text logs.
+
+2a. C++ JSON event log (minimal change to existing Logger):
+    Add a second output: sim_events.jsonl
+    Each line format:
+    {
+      "ts": 1234567890,
+      "from": "MME",
+      "to": "HSS",
+      "msg": "Diameter AIR",
+      "interface": "S6a",
+      "port": 3868,
+      "hex": "00010203...",
+      "sim": "4g",
+      "beginner_text": "MME is asking HSS to verify the subscriber identity",
+      "interview_q": "What does Command Code 318 mean in Diameter?",
+      "interview_a": "CC 318 is Authentication-Information per TS 29.272..."
+    }
+    The beginner_text and interview_q/a come from a lookup in tag_rules.json
+    at log time — NOT hardcoded per message. Use the tag matching system.
+
+2b. Python WebSocket bridge: tools/viz_server.py
+    - Tails sim_events.jsonl in real time using inotify / polling
+    - Loads interview_questions/ folder using glob (all *.yaml files)
+    - Loads tag_rules.json for pattern matching
+    - On each new event: extracts tags via tag_rules.json pattern match,
+      queries question bank for top 3 matching questions by tag overlap,
+      appends matched questions to the event JSON
+    - Serves WebSocket on ws://localhost:8765
+    - Serves static viz_ui.html on http://localhost:8080
+    - Requirements: only stdlib + `pip install websockets pyyaml`
+    - One command to run: python3 tools/viz_server.py
+
+2c. Browser UI: tools/viz_ui.html
+    - Single self-contained HTML file, pure vanilla JS, NO npm, NO framework
+    - Opens in any browser, connects to ws://localhost:8765 automatically
+    - Three tabs: BEGINNER | ENGINEER | INTERVIEW
+    - Center: live ladder diagram drawing itself as events arrive
+      Nodes as vertical lifelines (auto-detected from sim field in event):
+        4g:  UE — eNB — MME — HSS — SGW — PGW — PCRF
+        ims: UE — P-CSCF — S-CSCF — MTAS — IMS-HSS
+        5g:  gNB — AMF — UDM — AUSF — NRF — SMF
+      Each message = animated arrow between two lifelines (300ms delay)
+      Arrow label = message name
+    - BEGINNER tab: plain English caption below each arrow, pastel colors,
+      no hex, simple language
+    - ENGINEER tab: arrow shows msg name + interface + port,
+      click arrow = slide-in panel with hex bytes + field breakdown
+    - INTERVIEW tab: after each arrow, question card appears with:
+        - Question text
+        - Collapsible answer
+        - Category tag badge: [C++ Concurrency] [3GPP Protocol] etc
+        - Seniority level badge: [Engineer] [Senior] etc
+    - Top-right: connection status indicator (green = connected, red = disconnected)
+    - Bottom: event log showing raw JSON for debugging
+
+2d. Demo script: tools/run_demo.sh
+    #!/bin/bash
+    # Starts all nodes + visualizer, opens browser, runs preset scenario
+    Steps:
+    1. Start all simulator nodes (background)
+    2. Wait for nodes to be ready (check port)
+    3. Start viz_server.py (background)
+    4. Open browser: xdg-open http://localhost:8080 (Linux) or open (macOS)
+    5. Run preset scenario: ATTACH 1, REG 1, CALL 1 2, HO 1
+    6. Print: "Visualizer running at http://localhost:8080"
+
+──────────────────────────────────────────────
+PHASE 3 — INTERVIEW QUESTION SYSTEM
+──────────────────────────────────────────────
+
+3a. The interview_questions/ folder is already in the repo with 38 YAML files
+    and 352 questions. The viz_server.py (Phase 2b) already loads them.
+    No additional work needed unless questions need editing.
+
+3b. Add a standalone CLI tool: tools/quiz.py
+    Usage: python3 tools/quiz.py --domain cpp --level senior --count 5
+    - Loads all YAML files from interview_questions/ folder
+    - Filters by domain and level
+    - Presents questions one by one in terminal
+    - User presses Enter to reveal answer
+    - At end: shows score summary
+    This lets someone study offline without running the full simulator.
+
+──────────────────────────────────────────────
+PHASE 4 — MEDIUM PRIORITY FEATURES
+──────────────────────────────────────────────
+
+4a. CHAOS MODE in all three simulators
+    Add command: CHAOS <on|off>
+    When on: randomly (20% probability) drop or corrupt one message per flow
+    - 4G: drop Diameter AIA → MME handles auth timeout gracefully
+    - IMS: corrupt SIP 200 OK → P-CSCF retransmits per RFC 3261 §17
+    - 5G: drop NRF discovery response → AMF retries with backoff
+    Log the chaos event and recovery path at all three log levels
+    INTERVIEW narration: "This is how real networks handle node failures"
+
+4b. SMF STUB in 5G simulator
+    Add minimal SMF node (port 29502), registers with NRF
+    Responds to AMF Nsmf_PDUSession_CreateSMContext
+    Returns PDU session ID + UE IP address
+    New command: PDU <ue_id>
+    Reference: TS 29.502
+
+4c. PROMETHEUS METRICS in 4G MME
+    Add HTTP endpoint on port 9090, Prometheus text format
+    Metrics: mme_attach_total, mme_attach_active, mme_auth_failures_total,
+             mme_bearer_setup_latency_ms
+    Use only std:: and raw sockets — no external libs
+    Add prometheus + grafana to 4g-simulator/docker-compose.yml
+
+4d. NETWORK SLICING in 5G simulator
+    UE registration includes NSSAI (SST=1 eMBB or SST=2 URLLC)
+    AMF selects slice, NRF returns NFs for that slice only
+    New command: REG <ue_id> --slice embb|urllc
+    Reference: TS 23.501 §5.15
+
+──────────────────────────────────────────────
+PHASE 5 — ADVANCED (do after phases 0-4)
+──────────────────────────────────────────────
+
+5a. SUCI CONCEALMENT in 5G (TS 33.501 §6.12)
+    Use OpenSSL ECDH (P-256) to encrypt IMSI into SUCI
+    AMF receives SUCI, forwards to UDM, UDM decrypts → SUPI
+    AMF never sees raw IMSI
+
+5b. PFCP between SMF and UPF (TS 29.244)
+    Add UPF node, SMF establishes PFCP session
+    Write PFCP packets to pcap on UDP port 8805
+
+5c. O-RAN E2 INTERFACE STUB
+    Add minimal xApp that connects to eNB via E2 interface
+    xApp sends RIC Control Request (reduce MCS for UE)
+    eNB acknowledges
+    Add to INTERVIEW narration: what O-RAN RIC does
+
+5d. SCENARIO RUNNER (YAML-driven)
+    Add tools/run_scenario.py
+    Reads scenario YAML file:
+      scenario: full_e2e_volte
+      steps:
+        - action: 4g_attach
+          ue: 1
+        - action: ims_register
+          ue: 1
+        - action: volte_call
+          caller: 1
+          callee: 2
+    Sends commands to running simulators via stdin/socket
+
+5e. AI FAULT DIAGNOSIS (tools/pcap_analyzer.py)
+    Reads pcap after scenario completes using pyshark
+    Rule-based analysis (no LLM required for base version):
+    - Detects auth failure: "AUTN mismatch at step N — check Ki/OPc values"
+    - Detects timeout: "No response to Diameter AIR within 5s — HSS unreachable"
+    - Detects SIP failure: "SIP 488 Not Acceptable — codec mismatch in SDP"
+    Optional --ai flag: sends pcap summary to OpenAI/Ollama for natural language explanation
+
+==============================================================
+CODING STANDARDS — follow throughout all phases
+==============================================================
+
+1. C++17 only. No new external libraries except OpenSSL (Phase 5a only).
+2. All new nodes/features: BEGINNER / ENGINEER / INTERVIEW log levels.
+3. Every new protocol message: written to relevant pcap file.
+4. RAII for all sockets/files (follow socket_wrapper.h pattern).
+5. No raw new/delete — smart pointers throughout.
+6. Every new command documented in relevant README.md and docs/.
+7. Add INTERVIEW Q&A entry per new feature in docs/INTERVIEW_QA.md.
+8. Update STATE_OF_THE_UNION.md after each phase.
+9. No file longer than 400 lines — split if needed.
+10. Every new file: 5-line comment at top explaining what it is.
+11. viz_ui.html must work by opening directly in browser — no npm ever.
+12. viz_server.py must run with: python3 tools/viz_server.py — one command.
+13. The C++ core must always build and run WITHOUT the visualizer.
+    Visualizer is always optional/additive.
+
+==============================================================
+START HERE
+==============================================================
+
+Begin with Phase 0 (repo cleanup). After each item confirm completion,
+then move to the next. Do not skip ahead. Ask before making any
+architectural decision not covered above.

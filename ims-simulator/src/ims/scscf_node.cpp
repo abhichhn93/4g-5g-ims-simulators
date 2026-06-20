@@ -1,5 +1,6 @@
 #include "ims/scscf_node.h"
 #include "ims/mtas_state.h"
+#include "ims/sip_text.h"
 #include "common/logger.h"
 #include "common/visual_logger.h"
 #include "common/exceptions.h"
@@ -164,6 +165,9 @@ void ScscfNode::handleInvite(const std::vector<uint8_t>& payload) {
     // 100 Trying immediately
     sendSipResponse(SipMsgType::SIP_100_TRYING, call_id, from, to, "INVITE");
     Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → 100 Trying");
+    PcapWriter::instance().writeSIP(
+        SipText::build100Trying(from, to, call_id, 1),
+        PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
 
     // INTERVIEW: std::async (Non-blocking Service Trigger)
     // In high-scale nodes, we don't block the signaling thread for MTAS lookups.
@@ -201,6 +205,25 @@ void ScscfNode::handleInvite(const std::vector<uint8_t>& payload) {
     // PcscfNode::handleFromScscf's SIP_INVITE case) — not on a fixed timer
     // here. This makes "ringing" causally tied to real delivery.
 
+    // ── 183 Session Progress (RFC 3312 — QoS Preconditions) ─────
+    // Sent BEFORE 180 Ringing. Carries SDP answer with QoS attributes.
+    // Network must reserve QCI=1 bearer BEFORE alerting callee.
+    // RSeq header triggers PRACK (100rel). Real VoLTE flow:
+    //   INVITE → 100 Trying → 183 Session Progress → PRACK →
+    //   200 OK PRACK → (bearer created) → 180 Ringing → 200 OK → ACK
+    sendSipResponse(SipMsgType::SIP_183_PROGRESS, call_id, from, to, "INVITE");
+    Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → 183 Session Progress  [RFC 3312 QoS preconditions]");
+    Logger::ie_field("  RSeq: 1  (Reliability Sequence — triggers PRACK from caller)");
+    Logger::ie_field("  Require: 100rel  (3GPP mandatory for VoLTE, TS 24.229)");
+    Logger::ie_field("  SDP: early media answer + a=curr:qos (not yet reserved)");
+    Logger::ie_field("  a=des:qos mandatory — bearer MUST be created before 180 Ringing");
+    Logger::ie_field("  P-CSCF reads this SDP → sends Rx AAR to PCRF → QCI=1 bearer");
+    Logger::scscf(Logger::Level::BEGINNER,
+        "Network reserving voice-quality channel (QCI=1) before ringing callee");
+    PcapWriter::instance().writeSIP(
+        SipText::build183SessionProgress(from, to, call_id, 1),
+        PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
+
     // ── PRACK flow (RFC 3262) ─────────────────────────────────
     // Real: UE-A sends PRACK after receiving 180 Ringing
     // PRACK = Provisional Response ACKnowledgement
@@ -217,6 +240,12 @@ void ScscfNode::handleInvite(const std::vector<uint8_t>& payload) {
         .flush();
     Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: ← PRACK from caller (SIM: auto-generated)");
     Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → 200 OK (PRACK) to caller — provisional delivery confirmed");
+    PcapWriter::instance().writeSIP(
+        SipText::buildPrack(from, to, call_id, 1),
+        PcapWriter::IP_PCSCF, 5060, PcapWriter::IP_SCSCF, 5060);
+    PcapWriter::instance().writeSIP(
+        SipText::build200Prack(to, from, call_id, 1),
+        PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
 }
 
 // ── re-INVITE (hold / conference / resume) ────────────────────
@@ -415,7 +444,13 @@ void ScscfNode::handleBye(const std::vector<uint8_t>& payload) {
 
     calls_.erase(call_id);
     sendSipResponse(SipMsgType::SIP_200_OK, call_id, from, "", "BYE");
+    PcapWriter::instance().writeSIP(
+        SipText::build200Bye(from, "", call_id, 1),
+        PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
     sendToPcscf(payload); // forward BYE to peer
+    PcapWriter::instance().writeSIP(
+        SipText::buildBye(from, "", call_id, 1),
+        PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
 }
 
 // ── UPDATE (RFC 3311) ─────────────────────────────────────────

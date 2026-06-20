@@ -46,12 +46,19 @@ case "$MODE" in
   4g)
     SIMDIR="$REPO/4g-simulator"
     [[ ! -f "$SIMDIR/build/mme_sim" ]] && { step "Building 4G…"; (cd "$SIMDIR" && cmake -B build -DCMAKE_BUILD_TYPE=Release -q && cmake --build build -q); }
+    # Use a named pipe so scenario commands feed the one running instance
+    FIFO="$(mktemp /tmp/mme_ctl.XXXXXX)"; rm "$FIFO"; mkfifo "$FIFO"
     step "Starting 4G EPC (MME+HSS+SGW+PGW+PCRF+eNB)…"
-    (cd "$SIMDIR" && ./build/mme_sim) &
-    sleep 2
-    info "Running preset scenario: ATTACH 1  TAU 1  HO 1  BULK 3  QUIT"
-    sleep 1
-    (cd "$SIMDIR" && printf 'CR 1\nTAU 1\nHO 1\nBULK 3\nQUIT\n' | ./build/mme_sim > /dev/null 2>&1 &)
+    (cd "$SIMDIR" && ./build/mme_sim < "$FIFO") &
+    info "Running preset scenario: CR 1, CR 2, TAU 1, QUIT"
+    # Delays let each operation complete before the next — the MME uses synchronous
+    # blocking reads inside the attach handler, so concurrent commands cause races.
+    { sleep 2
+      printf 'CR 1\n'; sleep 2
+      printf 'CR 2\n'; sleep 2
+      printf 'TAU 1\n'; sleep 1
+      printf 'QUIT\n'
+    } > "$FIFO" &
     ;;
 
   5g)

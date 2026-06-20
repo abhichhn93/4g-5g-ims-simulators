@@ -395,6 +395,9 @@ private:
                 print("  Service-Route: sip:scscf." + IMS_DOMAIN);
                 print("  Expires: 3600s  (re-REGISTER before expiry)");
                 print("  MTAS enabled: OIP/OIR, call waiting, forwarding");
+                PcapWriter::instance().writeSIP(
+                    SipText::build200Register(cfg_.impu, cfg_.ip, 1),
+                    PcapWriter::IP_PCSCF, 5060, ue_ip_num(), 5060);
             } else if (reason == "INVITE" || reason.empty()) {
                 state_ = UeState::IN_CALL;
                 printBanner("✓ CALL CONNECTED  — RTP flowing", Logger::CLR_ENB);
@@ -402,6 +405,10 @@ private:
                 print("  Codec: AMR-WB 12.65kbps — voice sounds like in the room");
                 print("  QCI=1 dedicated bearer active (via P-CSCF → Rx AAR → PCRF)");
                 print("  Type HOLD / BYE / CONF C");
+                PcapWriter::instance().writeSIP(
+                    SipText::build200Invite(callee_impu_, cfg_.impu, "10.0.0.x",
+                                            current_call_id_, 1),
+                    PcapWriter::IP_PCSCF, 5060, ue_ip_num(), 5060);
 
                 print("→ SIP ACK  (completing 3-way handshake)");
                 MessageWriter ackw(static_cast<MessageType>(uint16_t(SipMsgType::SIP_ACK)), next_seq_++);
@@ -435,6 +442,9 @@ private:
                 state_ = UeState::REGISTERED;
                 printBanner("✓ CALL ENDED", Logger::CLR_SYS);
                 print("  QCI=1 bearer released via Rx STR → PCRF");
+                PcapWriter::instance().writeSIP(
+                    SipText::build200Bye(callee_impu_, cfg_.impu, current_call_id_, 1),
+                    PcapWriter::IP_PCSCF, 5060, ue_ip_num(), 5060);
             }
             break;
 
@@ -486,6 +496,20 @@ private:
         case SipMsgType::SIP_100_TRYING:
             print("← 100 Trying  (IMS received INVITE, processing...)");
             print("  MTAS invoked via ISC — checking OIP, barring, forwarding");
+            PcapWriter::instance().writeSIP(
+                SipText::build100Trying(cfg_.impu, callee_impu_, current_call_id_, 1),
+                PcapWriter::IP_PCSCF, 5060, ue_ip_num(), 5060);
+            break;
+
+        case SipMsgType::SIP_183_PROGRESS:
+            print("← 183 Session Progress  (early media / QoS preconditions)");
+            print("  SDP: early answer with a=curr:qos none / a=des:qos mandatory");
+            print("  Network is reserving QCI=1 bearer BEFORE callee rings");
+            print("  RSeq: 1 — sending PRACK to confirm this provisional response");
+            print("  INTERVIEW: 183 ≠ 180. 183 = QoS negotiation. 180 = callee ringing.");
+            PcapWriter::instance().writeSIP(
+                SipText::build183SessionProgress(cfg_.impu, callee_impu_, current_call_id_, 1),
+                PcapWriter::IP_PCSCF, 5060, ue_ip_num(), 5060);
             break;
 
         case SipMsgType::SIP_180_RINGING:

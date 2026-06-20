@@ -119,6 +119,7 @@ class JsonlTailer:
 
 # ── Global state ───────────────────────────────────────────────────────────────
 connected_clients: set = set()
+event_history:     list = []   # all broadcast events, replayed to new clients
 tag_rules   = load_tag_rules()
 questions   = load_questions()
 print(f"[viz_server] Loaded {len(tag_rules)} tag rules, {len(questions)} interview questions")
@@ -150,6 +151,12 @@ async def ws_handler(websocket):
         await websocket.send(json.dumps({"type": "connected",
                                           "questions_loaded": len(questions),
                                           "tag_rules": len(tag_rules)}))
+        # Replay all past events so late-connecting browsers see the full ladder
+        for old_msg in list(event_history):
+            try:
+                await websocket.send(old_msg)
+            except Exception:
+                break
         await websocket.wait_closed()
     finally:
         connected_clients.discard(websocket)
@@ -176,6 +183,7 @@ async def poll_loop():
         for ev in events:
             ev = enrich(ev)
             msg = json.dumps({"type": "event", "data": ev})
+            event_history.append(msg)   # buffer for late-connecting clients
             await broadcast(msg)
         await asyncio.sleep(0.25)   # 250ms polling — fast enough for demo
 
@@ -193,7 +201,7 @@ class VizHandler(SimpleHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
-                self.wfile.write(b"viz_ui.html not found — check tools/viz_ui.html")
+                self.wfile.write(b"viz_ui.html not found -- check tools/viz_ui.html")
         else:
             super().do_GET()
 

@@ -1,0 +1,400 @@
+chatgpt :As an interviewer, I would start with one assumption:
+Almost every candidate will use AI.
+The objective is not to detect AI usage. The objective is to determine whether the candidate understands, owns, and can defend the solution.
+For a 5–7 year C++ engineer, this assignment is not primarily about date calculations. It’s about engineering judgment. The PDF explicitly says that understanding implicit requirements, clean code, thread safety, CMake, and ease of use are part of the evaluation.  
+The strongest signal is not the code itself—it’s whether the candidate can explain the decisions behind the code.
+
+⸻
+
+What this assignment is actually testing
+The explicit requirement is:
+* Calculate workday increments.
+* Support holidays and recurring holidays.
+* Handle fractional days.
+* Support negative increments.
+* Ensure thread safety.
+* Use only standard C++ libraries.
+* Use CMake.  
+The implicit requirements are:
+* Domain modeling
+* API design
+* Edge-case analysis
+* Test strategy
+* Code organization
+* Concurrency awareness
+* Maintainability
+A candidate who simply pasted AI-generated code usually focuses only on the algorithm.
+An experienced engineer focuses on the entire system.
+
+⸻
+
+What I look for in the repository before opening the code
+Repository structure
+A strong submission might look like:
+workday-calendar/
+├── CMakeLists.txt
+├── README.md
+├── include/
+│   ├── workday_calendar.hpp
+│   ├── date_types.hpp
+│   └── holiday_store.hpp
+├── src/
+├── tests/
+├── docs/
+└── .github/workflows/
+Red flags:
+* Single 800-line source file
+* No tests
+* Missing README
+* No build instructions
+* No CMake
+* Random file names
+
+⸻
+
+README quality
+A senior engineer explains:
+* Design decisions
+* Assumptions
+* Limitations
+* Time complexity
+* Thread-safety approach
+* How to build and run tests
+AI-generated projects often skip these details or include generic paragraphs.
+
+⸻
+
+Commit history
+This is one of the strongest signals.
+Good commit history:
+Initialize project structure
+Implement date abstractions
+Add holiday repository
+Handle recurring holidays
+Support negative increments
+Add edge case tests
+Refactor time normalization logic
+Suspicious commit history:
+Initial commit
+Final solution
+Or:
+Add AI generated solution
+A real engineer iterates.
+
+⸻
+
+What I look for in the code
+1. Domain modeling
+The assignment explicitly encourages replacing Java types with custom types.  
+Strong candidates create abstractions:
+class WorkdayCalendar;
+struct WorkdayHours;
+class HolidayCalendar;
+Weak candidates expose:
+std::tm
+std::chrono::system_clock::time_point
+everywhere.
+The question I ask:
+Why did you choose these abstractions?
+
+⸻
+
+2. Separation of concerns
+I expect logic to be split.
+Example:
+WorkdayCalendar
+    ├── date normalization
+    ├── holiday lookup
+    ├── business day calculation
+    └── work-hour calculations
+Red flag:
+Date getWorkdayIncrement(...)
+{
+    // 300 lines
+}
+
+⸻
+
+3. Standard library usage
+For modern C++:
+* std::chrono
+* std::chrono::year_month_day
+* std::chrono::weekday
+* std::chrono::minutes
+* std::optional
+* std::unordered_set
+* std::shared_mutex
+I ask:
+Why did you choose this data structure?
+For example:
+std::unordered_set<DateKey>
+Expected answer:
+O(1) holiday lookup.
+Not:
+ChatGPT suggested it.
+
+⸻
+
+4. Thread safety
+The assignment explicitly requires thread safety.  
+Most candidates miss this.
+I expect discussion around:
+mutable std::shared_mutex mutex_;
+Questions:
+* Which methods require locking?
+* Why shared vs exclusive locks?
+* Is the class immutable after configuration?
+* Can multiple threads call getWorkdayIncrement() concurrently?
+Candidates who copied code often cannot answer these.
+
+⸻
+
+5. Edge-case thinking
+This assignment is full of hidden traps.
+I expect tests for:
+* Start time before workday start
+* Start time after workday end
+* Exact boundary times
+* Negative increments
+* Zero increment
+* Weekend start date
+* Holiday start date
+* Consecutive holidays
+* Leap years
+* Recurring holiday on Feb 29
+* Fractional increments
+* Large increments
+* Crossing year boundaries
+Questions:
+What was the hardest edge case?
+A genuine engineer answers immediately.
+An AI user says:
+I think everything should work.
+
+⸻
+
+6. Floating-point decisions
+The assignment uses:
+float incrementInWorkdays
+Experienced engineers question this choice.
+They might discuss:
+* Precision loss
+* Rounding strategy
+* Converting to minutes
+* Using std::chrono::duration
+Questions:
+Why didn’t you keep calculations in floating point?
+Good answer:
+I converted workdays to integer minutes to avoid cumulative rounding errors.
+
+⸻
+
+7. Complexity awareness
+I ask:
+What is the time complexity for adding 10,000 workdays?
+Weak answer:
+I don’t know.
+Strong answer:
+Current implementation is O(number of traversed days). We could optimize further using week-skipping techniques.
+
+⸻
+
+8. Testing strategy
+This is often the clearest indicator.
+I expect:
+* Unit tests
+* Parameterized tests
+* Boundary tests
+* Example cases from the PDF
+* Property-based thinking
+Example question:
+How did you verify correctness?
+Weak answer:
+I manually checked some dates.
+Strong answer:
+I created reference scenarios and validated all examples from the assignment. I also tested symmetry:
+date + x - x == original date
+
+⸻
+
+Signs of heavy AI dependence
+Not proof individually, but suspicious when combined.
+Overengineered solution
+Assignment needs:
+5 classes
+Submission has:
+18 classes
+Factory
+Builder
+Strategy
+Visitor
+Dependency injection container
+
+⸻
+
+Inconsistent coding style
+Example:
+calculate_workdays()
+mixed with:
+WorkdayCalculatorService
+mixed with:
+m_HolidayMap
+AI often changes style across files.
+
+⸻
+
+Unnecessary complexity
+Example:
+* Template metaprogramming
+* CRTP
+* Concepts everywhere
+* Custom allocators
+Senior engineers simplify.
+AI often complicates.
+
+⸻
+
+Comments that explain obvious code
+Example:
+// increment i by 1
+++i;
+
+⸻
+
+Generic README language
+Example:
+This solution leverages SOLID principles and modern software engineering paradigms.
+No specifics.
+
+⸻
+
+Perfect code with weak explanation
+The strongest indicator.
+Candidate submits:
+* Excellent architecture
+* Great tests
+* Clean code
+But cannot explain:
+* Why shared_mutex
+* Why chrono
+* Why normalization occurs before calculation
+* Why holidays use hashing
+
+⸻
+
+My follow-up interview process
+Never judge from code alone.
+I schedule a 30-minute walkthrough.
+Questions:
+1. Draw your architecture.
+2. Show me the hardest bug you encountered.
+3. Which requirement was ambiguous?
+4. What assumptions did you make?
+5. What would you improve with another day?
+6. Why is your implementation thread-safe?
+7. How do you handle leap years?
+8. Explain your test strategy.
+9. If performance becomes a problem, where would you optimize?
+10. Write one additional test live.
+People who understand their solution can answer immediately.
+People who copied heavily struggle within five minutes.
+
+⸻
+
+One powerful anti-cheating technique
+Ask candidates to make a small change live.
+Examples:
+Support half-day holidays.
+or
+Make weekends configurable.
+or
+Add timezone support.
+or
+Workdays can vary by weekday.
+Watch how quickly they adapt.
+Someone who owns the design can extend it.
+Someone who pasted code starts searching through files.
+
+⸻
+
+Final evaluation criteria
+I would score candidates like this:
+Area	Weight
+Correctness	25%
+Design decisions	20%
+Test quality	20%
+Code readability	15%
+Thread safety	10%
+Build and usability	5%
+Live explanation	5%
+The code submission gets the candidate to the interview.
+
+The discussion proves authorship.
+Gemini :As an interviewer looking at a solution submitted by an engineer with 5 to 7 years of experience, I would approach the review with a specific mindset: At this seniority level, the assignment isn't just about getting the right output; it's about engineering a robust, maintainable system while handling edge cases that AI frequently gets wrong.
+Because LLMs are trained on massive datasets, they excel at generating boilerplate, standard algorithms, and passing common test cases. However, they struggle with precise date-time math combinations, floating-point subtleties, and true idiomatic modern C++ design constraints.
+If I am reviewing their GitHub repositories for this exact problem, here are the core engineering decisions, subtle traps, and architectural tells I would scrutinize to separate genuine problem solvers from "copy-paste" developers.
+1. The Real "Gotchas" of the Problem (What AI Frequently Messes Up)
+To detect if a candidate actually thought through the problem, look closely at how they handled the edge cases of the core algorithm: getWorkdayIncrement(startDate, incrementInWorkdays).
+A. Non-Standard Start Times & Out-of-Bounds Normalization
+The prompt explicitly states: "The method must always return a time which is between the two times defined... even though the startDate need not follow this rule."
+* The Scenario: What if the work day is defined as 08:00 to 16:00, but the startDate is Monday at 18:05, and the increment is negative (e.g., -5.5 days)? 
+* The AI Trap: A naive AI solution often normalizes a late-night timestamp by just rolling it forward to the next morning. However, if the increment is negative, rolling forward is mathematically incorrect; it eats into the previous days incorrectly.
+* The Real Solution: A seasoned C++ engineer will write a distinct "normalization" or "clamping" function that shifts an out-of-bounds startDate to the nearest appropriate working boundary relative to the direction of the increment before starting the day-by-day or fractional-day stepping loop.
+B. Floating-Point Precision and Representation Issues
+The increment is passed as a float (e.g., 44.723656 or -6.7470217).
+* The AI Trap: Standard AI code often converts the float directly into a std::chrono::duration casting to seconds or milliseconds without managing floating-point drift. Over a 44-day increment, small precision losses compound, causing the final time to be off by a few seconds or a minute, failing the exact test cases. 
+* The Real Solution: I will look for explicit handling of epsilon/rounding or conversion of the float into a highly precise discrete unit (like converting the fractional day into total minutes or microseconds upfront) to avoid cumulative binary floating-point errors during multi-day iterations.
+2. Structural & Architectural Tells (Spotting AI Patterns)
+A. Monolithic vs. Domain-Driven Architecture
+* The AI Pattern: AI tends to dump almost all the logic inside a single, massive getWorkdayIncrement function filled with complex, nested if-else blocks or a single giant while loop handling years, days, hours, and minutes all at once.
+* The Senior Engineer Pattern: A mid-to-senior engineer will separate the domains into clean, cohesive units. Look for: 
+    * A TimeOfDay abstraction to cleanly manage start/stop limits independently of calendar dates.
+    * A HolidayRegistry containing lookup tables for discrete holidays and a custom predicate mechanism for recurring holidays (ignoring the year component). 
+    * A clean division between "whole day shifting" and "fractional intra-day shifting".
+B. Thread-Safety Implementation
+The assignment explicitly states: "The code must be thread-safe."
+* The AI Pattern: When asked for thread safety, an AI will almost universally slap a std::mutex across every single method (setHoliday, getWorkdayIncrement). This is an amateur approach that introduces severe performance bottlenecks. 
+* The Senior Engineer Pattern: A real engineer knows that getWorkdayIncrement is a read-only query operation. If the holiday calendar is initialized once at startup and read concurrently, no mutex is needed at all inside the calculation function. If dynamic updates are expected, they will utilize a std::shared_mutex (C++14/17) allowing std::shared_lock (multiple concurrent readers) for getWorkdayIncrement and a std::unique_lock (exclusive writer) for configuring holidays. Seeing a std::shared_mutex tells you they understand real-world systems performance. 
+3. Idiomatic Modern C++ Use (C++20/23 Check)
+An AI prompt asking for "Modern C++" will often just throw in auto and std::vector but still write code that looks like C with classes. Look for these specific features to see if they genuinely know the language:
+A. Utilization of <chrono> and <gtest>
+* The Check: Look at how they replaced Java’s GregorianCalendar. 
+* The Tell: If they are using old C-style time_t, tm structs, or building their own custom date-parsing strings from scratch, they either don't know modern C++ or copied old code. A 2026-era C++ senior engineer should leverage C++20 <chrono>, using std::chrono::year_month_day, std::chrono::hh_mm_ss, and custom duration types.
+B. const and constexpr Correctness
+* The Tell: AI frequently forgets to make read-only methods const. A real developer will ensure that helper calculation methods, getters, and holiday checkers are strictly marked const. Furthermore, compile-time configurations or static holiday calculations should ideally utilize constexpr.
+C. Smart Pointers and Memory Management
+* The Tell: There should be absolutely no raw new or delete operators in this assignment. If they are dynamically allocating objects, they must use std::unique_ptr or std::shared_ptr. If you see explicit pointer deletions, it's a massive red flag.
+4. The "Decision Matrix" and Documentation Test
+The evaluation criteria explicitly hints at a Decision Matrix.
+* How to catch them: An LLM rarely includes a rigorous, handwritten decision matrix in the README explaining why they chose an iterative day-by-day algorithm over a mathematical closed-form formula (O(1) calendar calculation). 
+* What to look for: A candidate who wrote their own code will explain their architectural trade-offs in the documentation. For example: "I chose an iterative O(N) day-stepping algorithm because while an O(1) mathematical calculation handles weekend spans beautifully, accounting for arbitrary, sparse holiday configurations distributed across multiple years makes a closed-form formula brittle and error-prone." 
+5. The Interview "Vibe Check" Questions
+If their code looks clean, but you still suspect they let an AI do the heavy lifting, the ultimate verification happens during the live technical discussion. Ask them these three highly targeted questions about their implementation:
+1. > "In your getWorkdayIncrement loop, how did you handle floating-point precision loss when decrementing or incrementing a fractional day like 0.723656 over a wide date range? Walk me through how you prevented compounding errors." 
+    * An AI-copier will stumble or give generalized answers because they didn't actively design the microsecond/nanosecond conversion logic.
+2. > "If this calendar needed to support millions of queries per second across a distributed architecture, why did you choose your specific thread-safety mechanism (e.g., Mutex vs. Shared Mutex vs. Immutable State Architecture)?" 
+    * A senior dev will immediately geek out over lock contention and read-heavy optimization; a plagiarist will struggle to explain why they chose a standard mutex.
+3. > "If the startDate lands exactly on a holiday at 14:00 and the increment is positive, what is the precise logical sequence your code takes to normalize that time before applying the daily shift?" 
+    * This requires them to map out their edge-case state machine from memory. If they wrote it, they'll visualize it instantly.
+claud:Good framing, and let me push back on the premise a little before answering, because it changes the whole strategy.
+In 2026 you basically cannot prove AI authorship from the submitted artifact alone. A competent cheater pastes the PDF into a model, gets clean, compiling, modern C++, and hands it in. If your detection plan is "spot the AI smell in the code," you'll lose that arms race against the better cheaters and only catch the lazy ones. So the real answer is in two layers: weak signals in the artifact (useful as flags, not verdicts), and the strong signal, which is a follow-up conversation where the take-home becomes the topic, not the test. For 5–7 year candidates this is the only thing that holds up.
+Here's how I'd actually run it.
+The artifact is a conversation starter, not a gate
+Stop treating the submission as pass/fail. Treat it as "they cleared the bar of producing something that works — now let's find out if it's theirs." That reframes everything below: every code smell becomes a question you ask them live, and the cheater's inability to defend their own choices is what exposes them, not the smell itself.
+This problem has specific honeypots — use them
+This particular kata is unusually good for catching fakers because it has a few spots where the understanding lives, and AI output tends to be correct-but-unexamined there. The PDF's "decision matrix" hint is pointing right at the biggest one.
+The heart of the problem is how you clamp the start time into the working window before you start adding, and that logic is asymmetric depending on the sign of the increment. That asymmetry is the whole game:Each cell here is a decision the candidate had to make. The two columns are not mirror images — and that asymmetry is exactly what a copy-paste job tends to flatten or get subtly wrong:This matrix is your single best probe. The PDF's own examples force it: 4:00 + 0.5 days = 12:00 only works if you clamp up to start before adding (positive case, before-window), while 18:05 + (−5.5) days = 14-05 12:00 only works if you clamp down to stop first (negative case, after-window). A candidate who truly understood will have this asymmetry encoded cleanly. The classic AI/copy-paste failure is to treat clamping as one symmetric "snap into the window" operation, which silently passes the two PDF examples but breaks the moment you flip the sign on an out-of-window start. So when you talk to them, hand them this exact matrix blank and ask them to fill it. If they wrote it themselves, it's reflexive. If they pasted it, they'll fumble the diagonal.
+Here are the other honeypots specific to this problem, roughly in order of signal strength.
+The rounding fingerprint. The example fractions are oddly precise on purpose: 44.723656 working days must land on 13:47, not 13:46 or 13:48. That only happens with one specific rounding convention when you convert a fraction of an 8-hour day into whole minutes. If their output hits every example to the exact minute, they reverse-engineered that convention — which is real, hands-on work. Then ask: "Why round and not truncate? What does your code do at exactly half a minute?" Someone who tuned it themselves can answer instantly; someone who pasted a solution that happens to pass will hand-wave. Bonus trap: the spec uses float. A sharp candidate may have switched to double or integer-minute arithmetic to kill accumulation error — ask why. AI often blindly keeps float because the PDF said float.
+Thread-safety reasoning. The C++ spec explicitly requires thread-safety, and this is a beautiful filter because the naive answer is wrong-ish. getWorkdayIncrement is a pure read — it doesn't mutate state. So a thoughtful engineer either (a) makes the holiday set and start/stop config immutable after setup so the hot path needs no locking at all, or (b) locks only the mutators and the reads, ideally with a shared_mutex. The lazy AI tell is a single std::mutex slapped on every method including the const calculation, or — worse — no synchronization at all with a comment saying "thread-safe" anyway. Ask: "Walk me through your locking. Is the increment calculation const? Why is the lock where it is?" This one separates people fast.
+Edge cases the PDF never shows. A pattern-matched solution nails the given examples and dies just outside them. Throw these at the code (and at the candidate verbally):
+* A recurring holiday on Feb 29 — does setRecurringHoliday even survive a non-leap year?
+* An increment of exactly 0.0 — does it return the start, or clamp it?
+* A holiday that already falls on a weekend (double-counting risk).
+* A very large increment like 100000.0 — does it loop day-by-day forever, and did they notice/care about that? Day-by-day is acceptable here, but a senior should at least acknowledge the complexity tradeoff.
+* Start time landing exactly on 16:00 or 08:00 — boundary inclusivity. This is where off-by-one-minute bugs hide.
+Git history. Since the spec asks for a cloned private repo, look at the commit log before you even read the code. One monolithic "initial commit" dumping the whole solution is the loudest single signal. Genuine work shows a trail: a failing test, then the fix, "handle negative increment," "refactor holiday lookup," a typo fix at 11pm. You can't fake the texture of real development easily, and most cheaters don't bother trying.
+Test design. TDD is in the evaluation criteria, so the tests tell you as much as the code. Do their tests cover the decision matrix, or just re-run the four PDF examples? Self-written tests have a personality — they probe the author's own worry spots ("what if start == stop?", "negative across a holiday"). AI-generated tests tend to be generic happy-path coverage that mirrors the examples. Ask: "Which test did you write first, and why?"
+A few softer code smells worth noting but never treating as proof on their own: tutorial-voice comments explaining the obvious (// loop through the days) while the genuinely tricky clamping logic sits uncommented; an abstraction level that doesn't match a 250-line problem (three design patterns and a factory for a date calculator); inconsistent style suggesting stitched-together snippets; and "modern C++" that's superficial — auto and std::chrono sprinkled around but with clumsy manual date math underneath, which means they pasted modern idioms without internalizing them.
+One reframing to close on, since you asked this as the interviewer: don't try to prove cheating from the artifact — you mostly can't, and you'll generate false positives on good honest engineers who happen to write clean code. Instead, make the take-home a ticket to a 30-minute conversation, and run the conversation as: "change your own code, live." Ask them to add half-day holidays, or switch to a four-day work week, or explain why the mutex sits where it does. Authorship reveals itself instantly when someone has to navigate and modify code they claim to have written. The person who wrote it moves around it like their own kitchen. The person who pasted it gets lost looking for the silverware.
+Want me to draft the actual list of live follow-up questions (with the "good answer / red-flag answer" for each), so you can run a consistent 30-minute screen across all the candidates?

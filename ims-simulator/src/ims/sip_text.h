@@ -143,6 +143,49 @@ inline std::string build100Trying(const std::string& from_impu,
     return ss.str();
 }
 
+// ── SIP 183 Session Progress ──────────────────────────────────
+// KEY for VoLTE interviews:
+//   Sent BEFORE 180 Ringing — carries SDP answer for early media
+//   QoS preconditions (RFC 3312): network must reserve QCI=1 bearer
+//   BEFORE alerting the callee. Shows a=curr/a=des lines.
+//   RSeq header: reliability sequence (requires PRACK to confirm)
+//   Require: 100rel — makes this provisional reliable (VoLTE mandatory)
+//   Flow: INVITE → 100 Trying → 183 Session Progress → PRACK
+//         → 200 OK PRACK → 180 Ringing → 200 OK → ACK
+inline std::string build183SessionProgress(const std::string& from_impu,
+                                            const std::string& to_impu,
+                                            const std::string& call_id,
+                                            int cseq,
+                                            int callee_rtp_port = 60000) {
+    std::string sdp =
+        "v=0\r\n"
+        "o=ue-b 11111 22222 IN IP4 10.0.0.2\r\n"
+        "s=VoLTE Call\r\n"
+        "c=IN IP4 10.0.0.2\r\n"
+        "t=0 0\r\n"
+        "m=audio " + std::to_string(callee_rtp_port) + " RTP/AVP 98\r\n"
+        "a=rtpmap:98 AMR-WB/16000\r\n"
+        "a=curr:qos local none\r\n"        // QoS not yet reserved locally
+        "a=curr:qos remote none\r\n"       // QoS not yet reserved remotely
+        "a=des:qos mandatory local sendrecv\r\n"  // MUST reserve before alerting
+        "a=des:qos mandatory remote sendrecv\r\n"
+        "a=sendrecv\r\n";
+
+    std::ostringstream ss;
+    ss << "SIP/2.0 183 Session Progress\r\n"
+       << "From: " << from_impu << "\r\n"
+       << "To: " << to_impu << ";tag=early" << cseq << "\r\n"
+       << "Call-ID: " << call_id << "\r\n"
+       << "CSeq: " << cseq << " INVITE\r\n"
+       << "RSeq: 1\r\n"
+       << "Require: 100rel\r\n"
+       << "Contact: <sip:ue-b@10.0.0.2:5060>\r\n"
+       << "Content-Type: application/sdp\r\n"
+       << "Content-Length: " << sdp.size() << "\r\n\r\n"
+       << sdp;
+    return ss.str();
+}
+
 // ── SIP 180 Ringing ───────────────────────────────────────────
 // KEY IE: To-tag — this is when the SIP dialog is established!
 inline std::string build180Ringing(const std::string& from_impu,
@@ -217,6 +260,54 @@ inline std::string buildBye(const std::string& from_impu,
        << "To: " << to_impu << "\r\n"
        << "Call-ID: " << call_id << "\r\n"
        << "CSeq: " << cseq << " BYE\r\n"
+       << "Content-Length: 0\r\n\r\n";
+    return ss.str();
+}
+
+// ── SIP 200 OK (BYE) ──────────────────────────────────────────
+inline std::string build200Bye(const std::string& from_impu,
+                                 const std::string& to_impu,
+                                 const std::string& call_id, int cseq) {
+    std::ostringstream ss;
+    ss << "SIP/2.0 200 OK\r\n"
+       << "From: " << from_impu << "\r\n"
+       << "To: " << to_impu << "\r\n"
+       << "Call-ID: " << call_id << "\r\n"
+       << "CSeq: " << cseq << " BYE\r\n"
+       << "Content-Length: 0\r\n\r\n";
+    return ss.str();
+}
+
+// ── SIP PRACK (RFC 3262) ───────────────────────────────────────
+// Acknowledges reliable provisional response (180 Ringing with 100rel)
+// RAck header: RSeq from 180 + CSeq from INVITE + method
+// VoLTE mandates Require:100rel (TS 24.229 §5.1.1.1)
+inline std::string buildPrack(const std::string& from_impu,
+                                const std::string& to_impu,
+                                const std::string& call_id, int cseq) {
+    std::ostringstream ss;
+    ss << "PRACK " << to_impu << " SIP/2.0\r\n"
+       << "Via: SIP/2.0/TCP 10.0.0.8:5060;branch=z9hG4bKpr" << cseq << "\r\n"
+       << "Max-Forwards: 70\r\n"
+       << "From: " << from_impu << ";tag=inv" << cseq << "\r\n"
+       << "To: " << to_impu << ";tag=callee" << cseq << "\r\n"
+       << "Call-ID: " << call_id << "\r\n"
+       << "CSeq: " << cseq << " PRACK\r\n"
+       << "RAck: 1 1 INVITE\r\n"
+       << "Content-Length: 0\r\n\r\n";
+    return ss.str();
+}
+
+// ── SIP 200 OK (PRACK) ────────────────────────────────────────
+inline std::string build200Prack(const std::string& from_impu,
+                                   const std::string& to_impu,
+                                   const std::string& call_id, int cseq) {
+    std::ostringstream ss;
+    ss << "SIP/2.0 200 OK\r\n"
+       << "From: " << from_impu << "\r\n"
+       << "To: " << to_impu << "\r\n"
+       << "Call-ID: " << call_id << "\r\n"
+       << "CSeq: " << cseq << " PRACK\r\n"
        << "Content-Length: 0\r\n\r\n";
     return ss.str();
 }

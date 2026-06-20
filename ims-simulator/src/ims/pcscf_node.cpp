@@ -233,6 +233,9 @@ void PcscfNode::handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload
           else { auto it2 = call_to_caller_.find(call_id);
                  if (it2 != call_to_caller_.end()) peer = it2->second; } }
         Diag::CallEnd(ses->impu, peer);
+        PcapWriter::instance().writeSIP(
+            SipText::buildBye(ses->impu, peer, call_id, 1),
+            ueIp(ses->impu), 5060, PcapWriter::IP_PCSCF, 5060);
         sendToScscf(payload);
         // Clean up routing
         { std::lock_guard<std::mutex> lk2(call_mtx_);
@@ -342,14 +345,40 @@ void PcscfNode::handleFromScscf(const std::vector<uint8_t>& payload) {
     }
 
     case SipMsgType::SIP_100_TRYING: {
-        // Route to caller
         std::string caller;
         { std::lock_guard<std::mutex> lk(call_mtx_);
           auto it = call_to_caller_.find(call_id);
           if (it != call_to_caller_.end()) caller = it->second; }
         if (caller.empty()) caller = from;
         Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: 100 Trying → " + ueLabel(caller));
-        if (!caller.empty()) sendToUe(caller, payload);
+        if (!caller.empty()) {
+            sendToUe(caller, payload);
+            PcapWriter::instance().writeSIP(
+                SipText::build100Trying(caller, to, call_id, 1),
+                PcapWriter::IP_SCSCF, 5060, ueIp(caller), 5060);
+        }
+        break;
+    }
+
+    case SipMsgType::SIP_183_PROGRESS: {
+        std::string caller;
+        { std::lock_guard<std::mutex> lk(call_mtx_);
+          auto it = call_to_caller_.find(call_id);
+          if (it != call_to_caller_.end()) caller = it->second; }
+        if (caller.empty()) caller = from;
+        Logger::pcscf(Logger::Level::ENGINEER,
+            "P-CSCF: 183 Session Progress → " + ueLabel(caller) + "  (QoS preconditions)");
+        Logger::ie_field("  RSeq: 1  (caller must send PRACK for this)");
+        Logger::ie_field("  SDP: early media + a=curr:qos none + a=des:qos mandatory");
+        Logger::ie_field("  P-CSCF reads SDP → Rx AAR to PCRF → QCI=1 bearer reservation");
+        Logger::pcscf(Logger::Level::BEGINNER,
+            "Network is reserving the voice quality channel — callee not yet ringing");
+        if (!caller.empty()) {
+            sendToUe(caller, payload);
+            PcapWriter::instance().writeSIP(
+                SipText::build183SessionProgress(caller, to, call_id, 1),
+                PcapWriter::IP_SCSCF, 5060, ueIp(caller), 5060);
+        }
         break;
     }
 
@@ -459,6 +488,13 @@ void PcscfNode::handleFromScscf(const std::vector<uint8_t>& payload) {
                         "m=video 50002 RTP/AVP 100\r\na=rtpmap:100 H264/90000\r\na=sendrecv\r\n"),
                     PcapWriter::IP_SCSCF, 5060, ueIp(callee), 5060);
                 if (!callee.empty()) sendToUe(callee, payload);
+            } else if (reason == "BYE") {
+                Logger::pcscf(Logger::Level::BEGINNER, "Call fully ended — QCI=1 bearer released");
+                Logger::pcscf(Logger::Level::ENGINEER, "P-CSCF: → Rx STR to PCRF — releasing QCI=1 bearer");
+                PcapWriter::instance().writeSIP(
+                    SipText::build200Bye(from.empty() ? to : from, target, call_id, 1),
+                    PcapWriter::IP_SCSCF, 5060,
+                    target.empty() ? PcapWriter::IP_PCSCF : ueIp(target), 5060);
             } else if (reason == "VIDEO-REMOVE") {
                 std::string callee;
                 { std::lock_guard<std::mutex> lk2(call_mtx_);
