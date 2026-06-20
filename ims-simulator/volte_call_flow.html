@@ -104,6 +104,10 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .ie-table td:first-child { font-family: monospace; font-size: 10px; color: #58a6ff; font-weight: 600; width: 35%; }
 .ie-table td:nth-child(2) { font-family: monospace; font-size: 10px; color: #d2a679; width: 30%; }
 .ie-table td:last-child { font-size: 10px; color: var(--muted); line-height: 1.4; }
+.ie-table tr.ie-key { background: #1a2030; }
+.ie-table tr.ie-key td:first-child { color: #ffa726; }
+.ie-table tr.ie-key td:last-child { color: #e6edf3; }
+.ie-star { color: #ffa726; font-size: 11px; margin-right: 3px; }
 .ie-ref { font-size: 10px; color: var(--muted); margin-top: 8px; font-style: italic; }
 #ie-placeholder { padding: 40px 14px; text-align: center; color: var(--muted); font-size: 12px; }
 
@@ -131,6 +135,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
   <button class="phase-btn" onclick="filterPhase('ims_reg',this)" style="border-color:#AB47BC;color:#AB47BC">IMS Reg</button>
   <button class="phase-btn" onclick="filterPhase('volte',this)" style="border-color:#42A5F5;color:#42A5F5">VoLTE Call</button>
   <button class="phase-btn" onclick="filterPhase('teardown',this)" style="border-color:#EF5350;color:#EF5350">Teardown</button>
+  <button class="phase-btn" onclick="filterPhase('conf',this)" style="border-color:#FF6F00;color:#FF6F00">🎛️ Conference</button>
   <div style="width:1px;background:var(--border);height:20px;margin:0 4px"></div>
   <span id="speed-label">Speed:</span>
   <select id="speed-select" onchange="setSpeed(this.value)">
@@ -185,7 +190,9 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
   <div class="leg-item"><div class="leg-dot" style="background:#AB47BC"></div>Diameter</div>
   <div class="leg-item"><div class="leg-dot" style="background:#42A5F5"></div>SIP</div>
   <div class="leg-item"><div class="leg-dot" style="background:#EF5350"></div>RTP</div>
-  <div class="leg-item" style="margin-left:auto;font-style:italic">Click any message for IE details &nbsp;|&nbsp; Tip: Phase buttons filter the flow</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#FF6F00"></div>H.248/Conference</div>
+  <div class="leg-item" style="color:#ffa726">★ = key IE (highlighted in panel)</div>
+  <div class="leg-item" style="margin-left:auto;font-style:italic">Click message → IE details &nbsp;|&nbsp; Phase tabs filter &nbsp;|&nbsp; Space=play, →=step, R=reset</div>
 </div>
 
 <div id="tooltip"></div>
@@ -195,18 +202,22 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 // NODE DEFINITIONS
 // ═══════════════════════════════════════════════════════════════
 const NODES = [
-  {id:'ue_a',   label:'UE-A',     sub:'Caller Phone',       ip:'10.0.0.1',  port:'5060 / RTP:50000', color:'#4CAF50', icon:'📱'},
-  {id:'enb',    label:'eNB',      sub:'Base Station',       ip:'10.0.0.2',  port:'36412 (S1AP)',     color:'#29B6F6', icon:'📡'},
-  {id:'mme',    label:'MME',      sub:'Mobility Mgmt',      ip:'10.0.0.3',  port:'36412',            color:'#9C27B0', icon:'🔀'},
-  {id:'hss',    label:'HSS',      sub:'4G Subscriber DB',   ip:'10.0.0.4',  port:'3868 (S6a)',       color:'#FF5722', icon:'🗄️'},
-  {id:'sgw',    label:'S-GW',     sub:'Serving Gateway',    ip:'10.0.0.5',  port:'2123 (S11/S5)',    color:'#00BCD4', icon:'🔗'},
-  {id:'pgw',    label:'P-GW',     sub:'PDN Gateway',        ip:'10.0.0.6',  port:'2124',             color:'#FF9800', icon:'🌐'},
-  {id:'pcrf',   label:'PCRF',     sub:'Policy & Charging',  ip:'10.0.0.7',  port:'3869 (Gx/Rx)',     color:'#E91E63', icon:'⚖️'},
-  {id:'pcscf',  label:'P-CSCF',   sub:'SIP Proxy (IMS)',    ip:'10.0.0.8',  port:'5060 (Gm/Mw)',     color:'#3F51B5', icon:'🔀'},
-  {id:'scscf',  label:'S-CSCF',   sub:'SIP Registrar',      ip:'10.0.0.9',  port:'5070 (ISC/Mw)',    color:'#009688', icon:'📋'},
-  {id:'mtas',   label:'MTAS',     sub:'Service Logic (AS)', ip:'10.0.0.10', port:'5070 (ISC)',        color:'#795548', icon:'⚙️'},
+  {id:'ue_a',   label:'UE-A',     sub:'Caller Phone',        ip:'10.0.0.1',  port:'5060/RTP:50000',  color:'#4CAF50', icon:'📱'},
+  {id:'enb',    label:'eNB',      sub:'Base Station',        ip:'10.0.0.2',  port:'36412 (S1AP)',     color:'#29B6F6', icon:'📡'},
+  {id:'mme',    label:'MME',      sub:'Mobility Mgmt Entity',ip:'10.0.0.3',  port:'36412',            color:'#9C27B0', icon:'🔀'},
+  {id:'hss',    label:'HSS',      sub:'4G Subscriber DB',    ip:'10.0.0.4',  port:'3868 (S6a)',       color:'#FF5722', icon:'🗄️'},
+  {id:'sgw',    label:'S-GW',     sub:'Serving Gateway',     ip:'10.0.0.5',  port:'2123 (S11/S5)',    color:'#00BCD4', icon:'🔗'},
+  {id:'pgw',    label:'P-GW',     sub:'PDN Gateway',         ip:'10.0.0.6',  port:'2124',             color:'#FF9800', icon:'🌐'},
+  {id:'pcrf',   label:'PCRF',     sub:'Policy & Charging',   ip:'10.0.0.7',  port:'3869 (Gx/Rx)',     color:'#E91E63', icon:'⚖️'},
+  {id:'pcscf',  label:'P-CSCF',   sub:'SIP Proxy (Gm/Mw)',  ip:'10.0.0.8',  port:'5060 (Gm/Mw)',     color:'#3F51B5', icon:'🔀'},
+  {id:'icscf',  label:'I-CSCF',   sub:'Interrogating CSCF', ip:'10.0.0.8',  port:'5060 (Cx/UAR)',    color:'#5C6BC0', icon:'🔍'},
+  {id:'scscf',  label:'S-CSCF',   sub:'Serving CSCF/Reg.',  ip:'10.0.0.9',  port:'5070 (ISC/Mw)',    color:'#009688', icon:'📋'},
+  {id:'mtas',   label:'MTAS',     sub:'Ericsson Service AS', ip:'10.0.0.10', port:'5070 (ISC)',        color:'#795548', icon:'⚙️'},
   {id:'imshss', label:'IMS-HSS',  sub:'IMS Subscriber DB',  ip:'—',         port:'3870 (Cx)',         color:'#607D8B', icon:'🗃️'},
-  {id:'ue_b',   label:'UE-B',     sub:'Callee Phone',       ip:'10.0.0.2*', port:'5060 / RTP:60000', color:'#66BB6A', icon:'📱'},
+  {id:'mrfc',   label:'MRFC',     sub:'Media Resource Ctrl', ip:'10.0.0.11', port:'5060/H.248:2944',  color:'#FF6F00', icon:'🎛️'},
+  {id:'mrfp',   label:'MRFP',     sub:'Media Resource Proc', ip:'10.0.0.12', port:'2944 (H.248/Cr)',  color:'#BF360C', icon:'🎵'},
+  {id:'ue_b',   label:'UE-B',     sub:'Callee Phone',        ip:'10.0.0.2*', port:'5060/RTP:60000',   color:'#66BB6A', icon:'📱'},
+  {id:'ue_c',   label:'UE-C',     sub:'Conference Invitee',  ip:'10.0.0.3*', port:'5060/RTP:70000',   color:'#81C784', icon:'📱'},
 ];
 
 // Column width in px
@@ -230,7 +241,8 @@ const PHASES = {
   ims_pdn:  {label:'Phase 2 — IMS PDN Setup',        color:'#26C6DA', desc:'UE requests IMS APN, gets IMS IP + P-CSCF address (QCI=5)'},
   ims_reg:  {label:'Phase 3 — IMS Registration',     color:'#AB47BC', desc:'SIP REGISTER flows through P-CSCF → I-CSCF → S-CSCF → HSS → MTAS'},
   volte:    {label:'Phase 4 — VoLTE Call Setup',     color:'#42A5F5', desc:'SIP INVITE with QoS preconditions, 183→PRACK→180→200→ACK, QCI=1 bearer'},
-  teardown: {label:'Phase 5 — Call Teardown',        color:'#EF5350', desc:'SIP BYE, Rx STR, QCI=1 bearer released, CDR closed'},
+  teardown:  {label:'Phase 5 — Call Teardown',          color:'#EF5350', desc:'SIP BYE, Rx STR, QCI=1 bearer released, CDR closed'},
+  conf:      {label:'Phase 6 — Conference (MRFC/MRFP)', color:'#FF6F00', desc:'REFER→202→NOTIFY, MRFC H.248 bridge, UE-C INVITE, conference-state NOTIFY+XML'},
 };
 
 const MSGS = [
@@ -424,14 +436,39 @@ const MSGS = [
   {f:'Supported', v:'path, gruu, sec-agree, 100rel', w:'Capabilities UE advertises to network'},
   {f:'Via', v:'SIP/2.0/TCP 10.0.0.1:5060;branch=z9hG4bKreg1', w:'Return address so responses come back here'},
  ]},
-{phase:'ims_reg', from:'pcscf', to:'scscf', dir:'right',
- label:'REGISTER + Via/P-Visited-Network-ID', proto:'SIP', color:'#42A5F5', port:'5070',
- desc:'P-CSCF validates P-Access-Network-Info and forwards REGISTER to S-CSCF, adding its own Via and routing headers.',
+{phase:'ims_reg', from:'pcscf', to:'icscf', dir:'right',
+ label:'REGISTER → I-CSCF (Via + P-Visited)', proto:'SIP', color:'#42A5F5', port:'5060',
+ desc:'P-CSCF forwards REGISTER to I-CSCF. P-CSCF adds its Via header and P-Visited-Network-ID.',
  ref:'TS 24.229 §5.2.2',
  ies:[
-  {f:'Via (added by P-CSCF)', v:'SIP/2.0/TCP 10.0.0.8:5060;branch=z9hG4bK-pcscf', w:'P-CSCF stamps itself so responses return through it'},
-  {f:'P-Visited-Network-ID (added)', v:'mnc010.mcc404.3gppnetwork.org', w:'Which network UE is on (for roaming scenarios)'},
-  {f:'Route', v:'<sip:scscf.ims.mnc010.mcc404.3gppnetwork.org;lr>', w:'Routed to S-CSCF via service route'},
+  {f:'Via (added by P-CSCF)', v:'SIP/2.0/TCP 10.0.0.8:5060;branch=z9hG4bK-pcscf', w:'★ P-CSCF stamps itself — responses MUST return via P-CSCF ★'},
+  {f:'P-Visited-Network-ID (added)', v:'mnc010.mcc404.3gppnetwork.org', w:'Which network UE is currently attached to (roaming awareness)'},
+  {f:'Route', v:'<sip:icscf.ims.mnc010.mcc404.3gppnetwork.org;lr>', w:'P-CSCF routes to I-CSCF (entry point for registrations)'},
+ ]},
+{phase:'ims_reg', from:'icscf', to:'imshss', dir:'right',
+ label:'UAR — User-Authorization-Request', proto:'Diameter Cx', color:'#AB47BC', port:'3870',
+ desc:'I-CSCF asks HSS which S-CSCF should serve this subscriber. I-CSCF does NOT know the subscriber itself.',
+ ref:'TS 29.229 §6.1.1',
+ ies:[
+  {f:'Public-Identity (IMPU)', v:'sip:+919000000001@ims.mnc010.mcc404.3gppnetwork.org', w:'Which user is registering'},
+  {f:'Visited-Network-Id', v:'mnc010.mcc404.3gppnetwork.org', w:'Which network is the registering entity'},
+  {f:'User-Authorization-Type', v:'REGISTRATION (0)', w:'★ First registration — HSS assigns S-CSCF ★'},
+ ]},
+{phase:'ims_reg', from:'imshss', to:'icscf', dir:'left',
+ label:'UAA — User-Authorization-Answer', proto:'Diameter Cx', color:'#AB47BC', port:'3870',
+ desc:'HSS tells I-CSCF which S-CSCF to use for this subscriber. I-CSCF then forwards REGISTER there.',
+ ref:'TS 29.229 §6.1.2',
+ ies:[
+  {f:'Server-Name (S-CSCF URI)', v:'sip:scscf.ims.mnc010.mcc404.3gppnetwork.org', w:'★ I-CSCF now knows where to send REGISTER ★'},
+  {f:'Server-Capabilities', v:'Mandatory=[] Optional=[MMTEL]', w:'Capabilities S-CSCF must/can have'},
+ ]},
+{phase:'ims_reg', from:'icscf', to:'scscf', dir:'right',
+ label:'REGISTER → S-CSCF', proto:'SIP', color:'#42A5F5', port:'5070',
+ desc:'I-CSCF forwards REGISTER to the S-CSCF named by HSS. I-CSCF is transparent after this.',
+ ref:'TS 24.229 §5.3.1.3',
+ ies:[
+  {f:'Route (added)', v:'<sip:scscf.ims.mnc010.mcc404.3gppnetwork.org;lr>', w:'I-CSCF directs REGISTER to specific S-CSCF'},
+  {f:'I-CSCF role after this:', v:'Transparent — drops out of dialog', w:'I-CSCF is NOT in the Record-Route (stateless query role)'},
  ]},
 {phase:'ims_reg', from:'scscf', to:'imshss', dir:'right',
  label:'SAR — Server-Assignment-Request', proto:'Diameter Cx', color:'#AB47BC', port:'3870',
@@ -710,6 +747,185 @@ const MSGS = [
   {f:'Cause', v:'REACTIVATION_REQUESTED (39)', w:'Or ISR_DEACTIVATION'},
   {f:'After delete:', v:'UE back to QCI=9 only', w:'No dedicated voice bearer — only internet data bearer remains'},
  ]},
+
+// ── CONFERENCE CALL (Phase 6) ─────────────────────────────────────────────
+// Scenario: UE-A and UE-B are in a call. UE-A wants to add UE-C.
+// Real IMS uses REFER (RFC 3515) + NOTIFY + MRFC (H.248 to MRFP).
+{phase:'conf', from:'ue_a', to:'pcscf', dir:'right',
+ label:'REFER (Refer-To: UE-C)', proto:'SIP', color:'#FF6F00', port:'5060',
+ desc:'UE-A asks S-CSCF to add UE-C to the call. REFER is asynchronous — response is 202 Accepted, not 200 OK.',
+ ref:'RFC 3515 (REFER), TS 24.147 (Conference)',
+ ies:[
+  {f:'Refer-To', v:'sip:+919000000003@ims.mnc010.mcc404.3gppnetwork.org', w:'★ Who to invite to the conference (UE-C) ★'},
+  {f:'Referred-By', v:'sip:+919000000001@ims.mnc010.mcc404.3gppnetwork.org', w:'Who initiated the conference add'},
+  {f:'Call-ID', v:'call-AB-1@10.0.0.1 (existing dialog)', w:'REFER is in-dialog: same Call-ID as the A-B call'},
+  {f:'CSeq', v:'4 REFER', w:'Next sequence after BYE/UPDATE in same dialog'},
+  {f:'Refer-Sub', v:'false (optional)', w:'If present: no implicit NOTIFY subscription (reduces traffic)'},
+ ]},
+{phase:'conf', from:'scscf', to:'ue_a', dir:'left',
+ label:'202 Accepted (REFER is async)', proto:'SIP', color:'#FF6F00', port:'5060',
+ desc:'★ 202 not 200 ★ — REFER is accepted but result will come via NOTIFY. Network is now processing.',
+ ref:'RFC 3515 §2.4.2',
+ ies:[
+  {f:'Response Code', v:'202 Accepted (not 200 OK)', w:'★ KEY: REFER always gets 202, never 200 OK ★'},
+  {f:'Why 202?', v:'REFER is a request that creates a new transaction', w:'The outcome (did UE-C join?) comes later via NOTIFY messages'},
+ ]},
+{phase:'conf', from:'scscf', to:'mtas', dir:'right',
+ label:'ISC REFER → MTAS (iFC trigger)', proto:'SIP/ISC', color:'#795548', port:'5070',
+ desc:'S-CSCF triggers MTAS via ISC for conference service. MTAS orchestrates the MRFC and invites UE-C.',
+ ref:'TS 24.147 §5.3.1.4',
+ ies:[
+  {f:'iFC Match', v:'method=REFER → invoke MTAS', w:'S-CSCF triggers MTAS per iFC stored in HSS'},
+  {f:'MTAS role', v:'Conf. controller (MTAS→MRFC→MRFP)', w:'★ MTAS is the brain; MRFC is the SIP controller; MRFP is the audio mixer ★'},
+ ]},
+{phase:'conf', from:'mtas', to:'mrfc', dir:'right',
+ label:'SIP INVITE → MRFC (create conf bridge)', proto:'SIP/Mr', color:'#FF6F00', port:'5060',
+ desc:'MTAS instructs MRFC to allocate a conference bridge. Mr interface = standard SIP between MTAS and MRFC.',
+ ref:'TS 23.333 (MRFC), RFC 3261',
+ ies:[
+  {f:'Request-URI', v:'sip:conf-factory@mrfc.ims.mnc010.mcc404.3gppnetwork.org', w:'★ Conference factory URI — MRFC creates a new mixing endpoint ★'},
+  {f:'Content-Type', v:'application/sdp', w:'SDP describes what streams MRFC should mix'},
+  {f:'SDP m=audio', v:'mixing port, AMR-WB', w:'MRFC creates audio mixing endpoint on this port'},
+  {f:'Conference-ID (in SDP)', v:'conf-1 (to be created)', w:'MRFC will assign a conference URI'},
+ ]},
+{phase:'conf', from:'mrfc', to:'mrfp', dir:'right',
+ label:'H.248 CreateContext (allocate mixer)', proto:'H.248/Megaco', color:'#BF360C', port:'2944',
+ desc:'MRFC instructs MRFP (the actual DSP/audio processor) to create a 3-party audio mixing context.',
+ ref:'RFC 3525 (H.248/Megaco), TS 29.333 (Cr interface)',
+ ies:[
+  {f:'Transaction-ID', v:'1', w:'H.248 transaction identifier'},
+  {f:'Context-ID', v:'$ (choose any)', w:'★ MRFP allocates a new conference context (audio mixing engine) ★'},
+  {f:'Add termination', v:'RTP/1 (UE-A stream)', w:'Add UE-A\'s RTP stream to the mix'},
+  {f:'Add termination', v:'RTP/2 (UE-B stream)', w:'Add UE-B\'s RTP stream to the mix'},
+  {f:'Mix Descriptor', v:'AMR-WB 12.65kbps', w:'Codec for the mixed output streams'},
+  {f:'Cr interface', v:'MRFC(ctrl)→MRFP(bearer)', w:'★ MRFC = controller, MRFP = DSP processor doing actual mixing ★'},
+ ]},
+{phase:'conf', from:'mrfp', to:'mrfc', dir:'left',
+ label:'H.248 Reply (ContextID + RTP terms)', proto:'H.248/Megaco', color:'#BF360C', port:'2944',
+ desc:'MRFP confirms conference context created, returns RTP termination IDs for the streams.',
+ ref:'RFC 3525 §7.1',
+ ies:[
+  {f:'Context-ID', v:'0xC0001 (assigned)', w:'Conference context handle — used for all future H.248 ops'},
+  {f:'Termination-ID RTP/1', v:'RTP port 30001 (UE-A → MRFP)', w:'UE-A\'s audio goes to this port on MRFP'},
+  {f:'Termination-ID RTP/2', v:'RTP port 30002 (UE-B → MRFP)', w:'UE-B\'s audio goes to this port on MRFP'},
+ ]},
+{phase:'conf', from:'mrfc', to:'ue_a', dir:'left',
+ label:'200 OK (INVITE to MRFC) + conf URI', proto:'SIP', color:'#FF6F00', port:'5060',
+ desc:'MRFC confirms the conference bridge is ready and provides the conference URI.',
+ ref:'TS 23.333 §5.3',
+ ies:[
+  {f:'Contact (conf URI)', v:'sip:conf-1@mrfc.ims.mnc010.mcc404.3gppnetwork.org', w:'★ Conference bridge URI — all participants join via this ★'},
+  {f:'SDP m=audio', v:'30001 RTP/AVP 98 (MRFP port)', w:'MRFP\'s mixing port for UE-A\'s stream'},
+ ]},
+{phase:'conf', from:'ue_a', to:'scscf', dir:'right',
+ label:'NOTIFY (REFER state: trying)', proto:'SIP', color:'#FF6F00', port:'5060',
+ desc:'★ KEY ★ NOTIFY tells UE-A the current status of the REFER. Body carries SIP response as sipfrag.',
+ ref:'RFC 3515 §2.4.4',
+ ies:[
+  {f:'Event', v:'refer', w:'This NOTIFY belongs to the REFER subscription'},
+  {f:'Subscription-State', v:'active;expires=60', w:'Subscription is live, more NOTIFYs will come'},
+  {f:'Content-Type', v:'message/sipfrag;version=2.0', w:'Body carries SIP status of the REFER progress'},
+  {f:'Body (sipfrag)', v:'SIP/2.0 100 Trying', w:'Network is sending INVITE to UE-C — not done yet'},
+ ]},
+{phase:'conf', from:'scscf', to:'ue_c', dir:'right',
+ label:'SIP INVITE → UE-C (conf leg)', proto:'SIP/SDP', color:'#FF6F00', port:'5060',
+ desc:'S-CSCF/MTAS sends a fresh INVITE to UE-C with a new Call-ID for the conference leg.',
+ ref:'TS 24.147 §5.3.1.6',
+ ies:[
+  {f:'Call-ID', v:'call-AB-1-conf@10.0.0.9', w:'★ NEW Call-ID for conference leg — separate from A-B call ★'},
+  {f:'From', v:'sip:conf-1@mrfc.ims.mnc010.mcc404.3gppnetwork.org', w:'Conference URI is the "caller" for this leg'},
+  {f:'To', v:'sip:+919000000003@ims.mnc010.mcc404.3gppnetwork.org', w:'UE-C being invited to conference'},
+  {f:'Refer-By', v:'sip:+919000000001@ims.mnc010.mcc404.3gppnetwork.org', w:'Identifies who triggered this conference add'},
+  {f:'SDP m=audio', v:'30003 RTP/AVP 98 (MRFP port for UE-C)', w:'MRFP\'s mixing port for UE-C\'s stream'},
+ ]},
+{phase:'conf', from:'ue_c', to:'scscf', dir:'left',
+ label:'183 Session Progress (UE-C conf leg)', proto:'SIP/SDP', color:'#FF6F00', port:'5060',
+ desc:'UE-C sends early media response for the conference INVITE. Same QoS precondition flow as normal call.',
+ ref:'RFC 3312, TS 24.147',
+ ies:[
+  {f:'RSeq', v:'1', w:'Reliable provisional — PRACK required'},
+  {f:'Require', v:'100rel', w:'VoLTE preconditions apply to conference leg too'},
+  {f:'SDP m=audio', v:'70000 RTP/AVP 98', w:'UE-C\'s RTP port for the conference stream'},
+  {f:'a=curr:qos', v:'local none; remote none', w:'Bearer not yet set up for UE-C'},
+ ]},
+{phase:'conf', from:'scscf', to:'ue_a', dir:'left',
+ label:'NOTIFY (REFER state: early/ringing)', proto:'SIP', color:'#FF6F00', port:'5060',
+ desc:'S-CSCF notifies UE-A that UE-C is now ringing (phone alerting). Progress update.',
+ ref:'RFC 3515 §2.4.4',
+ ies:[
+  {f:'Subscription-State', v:'active', w:'Still waiting for UE-C to answer'},
+  {f:'Body (sipfrag)', v:'SIP/2.0 180 Ringing', w:'★ UE-C\'s phone is now ringing ★'},
+ ]},
+{phase:'conf', from:'ue_c', to:'scscf', dir:'left',
+ label:'200 OK (UE-C answers conference)', proto:'SIP/SDP', color:'#FF6F00', port:'5060',
+ desc:'UE-C accepts the conference invitation. SDP answer given.',
+ ref:'RFC 3261 §13.2.2',
+ ies:[
+  {f:'SDP m=audio', v:'70000 RTP/AVP 98', w:'UE-C confirmed RTP port 70000 for AMR-WB'},
+  {f:'SDP a=sendrecv', v:'(bidirectional)', w:'UE-C will both send and receive audio'},
+  {f:'Contact', v:'sip:ue-c@10.0.0.3:5060', w:'UE-C\'s direct address for future in-dialog'},
+ ]},
+{phase:'conf', from:'scscf', to:'ue_c', dir:'right',
+ label:'ACK (conference leg established)', proto:'SIP', color:'#FF6F00', port:'5060',
+ desc:'Conference leg with UE-C fully established. MRFP now has 3 RTP streams to mix.',
+ ref:'RFC 3261 §13.2.2.4',
+ ies:[
+  {f:'After ACK:', v:'3-party conference active', w:'★ MRFP mixes: UE-A(port 50000) + UE-B(port 60000) + UE-C(port 70000) ★'},
+ ]},
+{phase:'conf', from:'mrfc', to:'mrfp', dir:'right',
+ label:'H.248 Add UE-C to context', proto:'H.248/Megaco', color:'#BF360C', port:'2944',
+ desc:'MRFC tells MRFP to add UE-C\'s stream to the existing conference context.',
+ ref:'RFC 3525 §7.1.4',
+ ies:[
+  {f:'Context-ID', v:'0xC0001 (existing conf context)', w:'Same context as before — adding 3rd participant'},
+  {f:'Add Termination RTP/3', v:'RTP port 30003 (UE-C → MRFP)', w:'UE-C\'s audio going into MRFP mixer'},
+  {f:'Mix action', v:'3-way full mesh mix', w:'★ Each UE hears the OTHER two mixed together, not their own echo ★'},
+  {f:'Output streams:', v:'Mix(B+C)→A, Mix(A+C)→B, Mix(A+B)→C', w:'Each participant gets different mix to avoid echo'},
+ ]},
+{phase:'conf', from:'scscf', to:'ue_a', dir:'left',
+ label:'NOTIFY (REFER: terminated, 200 OK)', proto:'SIP', color:'#FF6F00', port:'5060',
+ desc:'Final NOTIFY: REFER is complete, UE-C has joined. Subscription ends.',
+ ref:'RFC 3515 §2.4.5',
+ ies:[
+  {f:'Subscription-State', v:'terminated;reason=noresource', w:'★ REFER is done — no more NOTIFYs ★'},
+  {f:'Body (sipfrag)', v:'SIP/2.0 200 OK', w:'UE-C answered the INVITE — conference is live'},
+ ]},
+{phase:'conf', from:'ue_a', to:'mrfc', dir:'right',
+ label:'SUBSCRIBE (conference-state)', proto:'SIP', color:'#FF6F00', port:'5060',
+ desc:'UE-A subscribes to conference-state package to receive participant list updates (RFC 4575).',
+ ref:'RFC 4575 (Conference Event Package), TS 24.147',
+ ies:[
+  {f:'Event', v:'conference', w:'★ Conference event package — gets XML updates on who\'s in the call ★'},
+  {f:'Accept', v:'application/conference-info+xml', w:'UE wants XML participant list'},
+  {f:'Call-ID', v:'sub-conf-1@10.0.0.1', w:'New Call-ID for subscription (separate from call legs)'},
+  {f:'Expires', v:'3600', w:'Subscribe for 1 hour; re-subscribe before expiry'},
+ ]},
+{phase:'conf', from:'mrfc', to:'ue_a', dir:'left',
+ label:'NOTIFY (conference-info+xml)', proto:'SIP', color:'#FF6F00', port:'5060',
+ desc:'MRFC sends XML body listing all 3 conference participants with their status and media state.',
+ ref:'RFC 4575 §4',
+ ies:[
+  {f:'Content-Type', v:'application/conference-info+xml', w:'★ XML body lists all participants with their state ★'},
+  {f:'entity', v:'sip:conf-1@mrfc.ims.mnc010.mcc404.3gppnetwork.org', w:'Conference URI (stable — can be shared)'},
+  {f:'state', v:'full', w:'First NOTIFY is full state; delta NOTIFYs sent on changes'},
+  {f:'user UE-A', v:'status=connected, media=sendrecv', w:'UE-A is active and sending/receiving audio'},
+  {f:'user UE-B', v:'status=connected, media=sendrecv', w:'UE-B is in conference'},
+  {f:'user UE-C', v:'status=connected, media=sendrecv', w:'UE-C just joined'},
+  {f:'On participant change:', v:'New NOTIFY with delta state', w:'If someone leaves/mutes, MRFC pushes updated XML automatically'},
+ ]},
+{phase:'conf', from:'ue_a', to:'mrfc', dir:'right',
+ label:'RTP × 3 streams (MRFP mixing)', proto:'RTP/UDP', color:'#EF5350', port:'50000/60000/70000',
+ desc:'Three RTP streams flow to MRFP. MRFP creates 3 separate mixed outputs (each hears the other two).',
+ ref:'RFC 3550, TS 26.114',
+ ies:[
+  {f:'UE-A → MRFP', v:'10.0.0.1:50000 → MRFP:30001 (AMR-WB)', w:'UE-A voice into the conference mixer'},
+  {f:'UE-B → MRFP', v:'10.0.0.2:60000 → MRFP:30002 (AMR-WB)', w:'UE-B voice into the conference mixer'},
+  {f:'UE-C → MRFP', v:'10.0.0.3:70000 → MRFP:30003 (AMR-WB)', w:'UE-C voice into the conference mixer'},
+  {f:'MRFP → UE-A', v:'Mix(B+C) → 10.0.0.1:50000', w:'★ UE-A hears B+C mixed; NOT its own voice (echo prevention) ★'},
+  {f:'MRFP → UE-B', v:'Mix(A+C) → 10.0.0.2:60000', w:'UE-B hears A+C mixed'},
+  {f:'MRFP → UE-C', v:'Mix(A+B) → 10.0.0.3:70000', w:'UE-C hears A+B mixed'},
+  {f:'H.248 Cr interface', v:'MRFC controls MRFP DSP', w:'MRFC tells MRFP mixing topology; MRFP does the actual DSP work'},
+ ]},
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -836,9 +1052,16 @@ function showPanel(msg) {
   document.getElementById('ie-ref').textContent = msg.ref;
 
   const tbody = document.getElementById('ie-rows');
-  tbody.innerHTML = (msg.ies || []).map(ie =>
-    `<tr><td>${ie.f}</td><td>${ie.v}</td><td>${ie.w}</td></tr>`
-  ).join('');
+  tbody.innerHTML = (msg.ies || []).map(ie => {
+    const isKey = ie.w.includes('★');
+    const starHtml = isKey ? '<span class="ie-star">★</span>' : '';
+    const why = ie.w.replace(/★/g, '').trim();
+    return `<tr class="${isKey ? 'ie-key' : ''}">
+      <td>${starHtml}${ie.f}</td>
+      <td>${ie.v}</td>
+      <td>${why}</td>
+    </tr>`;
+  }).join('');
 }
 
 function closePanel() {
