@@ -61,7 +61,7 @@ trap cleanup EXIT
 banner "Step 1 — Starting IMS server (P-CSCF + S-CSCF + IMS-HSS)"
 LOG_LEVEL="$LOG_LEVEL" ./ims_server < "$SERVER_PIPE" > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
-exec 3>"$SERVER_PIPE"   # keep pipe open so server doesn't see EOF
+exec 3>"$SERVER_PIPE"
 wait_s 2
 
 # ── Start UE-A ────────────────────────────────────────────────
@@ -151,17 +151,14 @@ echo "QUIT" >&6
 wait_s 2
 echo "QUIT" >&3
 
-# Close our write ends of pipes so processes see EOF and can exit cleanly
+# Close write ends of FIFOs so processes see EOF and exit cleanly.
+# With tee in the pipeline, PIDs are tee's PIDs — just wait for drain.
 exec 3>&- 4>&- 5>&- 6>&-
-
-# Wait for each process to exit on its own — this ensures stdout is fully
-# flushed to the log files before we read them. SIGTERM from pkill would
-# kill without flushing, so we wait here instead.
-wait "$UE_A_PID"  2>/dev/null || true
-wait "$UE_B_PID"  2>/dev/null || true
-wait "$UE_C_PID"  2>/dev/null || true
+wait "$UE_A_PID"   2>/dev/null || true
+wait "$UE_B_PID"   2>/dev/null || true
+wait "$UE_C_PID"   2>/dev/null || true
 wait "$SERVER_PID" 2>/dev/null || true
-echo -e "${GREEN}  All processes exited cleanly — logs flushed.${RESET}"
+echo -e "${GREEN}  All processes exited — logs flushed.${RESET}"
 
 # ── Merge pcaps ──────────────────────────────────────────────
 banner "Step 13 — Merging all 4 pcap files"

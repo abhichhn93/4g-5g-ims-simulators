@@ -540,7 +540,7 @@ private:
     void print(const std::string& msg) {
         std::lock_guard<std::mutex> lk(print_mtx_);
         std::cout << Logger::CLR_ENB << "  [" << cfg_.label << "] " << msg
-                  << Logger::CLR_RESET << "\n";
+                  << Logger::CLR_RESET << "\n" << std::flush;
     }
 
     void printBanner(const std::string& msg, const char* color) {
@@ -549,7 +549,7 @@ private:
                   << "\n  ╔══════════════════════════════════════════╗\n"
                   << "  ║  " << cfg_.label << "  " << msg << "\n"
                   << "  ╚══════════════════════════════════════════╝\n"
-                  << Logger::CLR_RESET;
+                  << Logger::CLR_RESET << std::flush;
     }
 
     uint32_t ue_ip_num() const {
@@ -581,6 +581,9 @@ int main(int argc, char* argv[]) {
     std::string id(1, char(std::toupper(unsigned(argv[1][0]))));
     const UeConfig& cfg = UE_CONFIGS.at(id);
 
+    // Force line-buffered stdout so log files work when redirected to file
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+
     std::cout << "\n"
               << "  +==========================================+\n"
               << "  |  " << cfg.label << " — " << cfg.impu << "\n"
@@ -589,7 +592,7 @@ int main(int argc, char* argv[]) {
               << "  +==========================================+\n"
               << "  Commands: REG  CALL A|B|C  ACCEPT  REJECT\n"
               << "            HOLD  RESUME  UPDATE  VIDEO  VOICE  CONF C  BYE  STATUS  QUIT\n"
-              << "  ----------------------------------------\n\n";
+              << "  ----------------------------------------\n" << std::flush;
 
     std::signal(SIGINT, sig_handler);
 
@@ -598,11 +601,10 @@ int main(int argc, char* argv[]) {
 
     UeSimulator ue(cfg);
     if (!ue.connect()) {
-        std::cerr << "Cannot connect to IMS server on port 5060.\n"
-                  << "Start ./ims_server first!\n";
+        std::cerr << "Cannot connect to IMS server on port 5060. Start ./ims_server first!\n" << std::flush;
         return 1;
     }
-    std::cout << "  Connected to IMS server ✓\n\n";
+    std::cout << "  Connected to IMS server ✓\n" << std::flush;
 
     ue.startReceiveThread();
 

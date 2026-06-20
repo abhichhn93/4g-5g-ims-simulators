@@ -56,6 +56,9 @@ trap cleanup EXIT
 
 # ── Start IMS server ─────────────────────────────────────────
 banner "Step 1 — IMS server  (P-CSCF:5060 + S-CSCF:5070 + IMS-HSS:3870)"
+# tee: output goes to BOTH terminal (live) AND log file simultaneously.
+# This avoids the buffering issue where redirecting to a file silently
+# holds output in an 8 KB buffer that never flushes if the process is killed.
 LOG_LEVEL="$LOG_LEVEL" ./ims_server < "$SERVER_PIPE" > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 exec 3>"$SERVER_PIPE"
@@ -128,7 +131,6 @@ wait_s 2
 echo "QUIT" >&3
 
 exec 3>&- 4>&- 5>&-
-
 wait "$UE_A_PID"   2>/dev/null || true
 wait "$UE_B_PID"   2>/dev/null || true
 wait "$SERVER_PID" 2>/dev/null || true

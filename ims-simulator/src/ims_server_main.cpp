@@ -34,6 +34,11 @@ static std::atomic<bool>* g_stop = nullptr;
 static void sig_handler(int) { if(g_stop) g_stop->store(true); }
 
 int main() {
+    // Force line-buffered stdout so log files work when redirected to a file.
+    // Without this, C++ uses 8 KB full-buffered mode when stdout is not a
+    // terminal — output would be lost if the process is killed mid-run.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+
     std::cout <<
         "\n"
         "  +============================================================+\n"
