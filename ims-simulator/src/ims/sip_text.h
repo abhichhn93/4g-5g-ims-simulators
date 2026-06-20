@@ -336,6 +336,155 @@ inline std::string buildReInvite(const std::string& from_impu,
     return ss.str();
 }
 
+// ── SIP REFER (RFC 3515) ──────────────────────────────────────
+// UE-A asks S-CSCF to add UE-C to the call.
+// KEY IEs:
+//   Refer-To: sip:UE-C — who to invite to the conference
+//   Referred-By: UE-A — who is initiating the transfer
+//   Refer-Sub: false — don't create implicit subscription (if present)
+// S-CSCF responds 202 Accepted (NOT 200 OK — REFER is async)
+// S-CSCF then sends INVITE to UE-C on UE-A's behalf
+// S-CSCF sends NOTIFY to UE-A tracking progress of the REFER
+inline std::string buildRefer(const std::string& from_impu,
+                                const std::string& to_impu,
+                                const std::string& refer_to_impu,
+                                const std::string& call_id, int cseq) {
+    std::ostringstream ss;
+    ss << "REFER " << to_impu << " SIP/2.0\r\n"
+       << "Via: SIP/2.0/TCP 10.0.0.8:5060;branch=z9hG4bKref" << cseq << "\r\n"
+       << "Max-Forwards: 70\r\n"
+       << "From: " << from_impu << ";tag=inv" << cseq << "\r\n"
+       << "To: " << to_impu << ";tag=callee" << cseq << "\r\n"
+       << "Call-ID: " << call_id << "\r\n"
+       << "CSeq: " << cseq << " REFER\r\n"
+       << "Refer-To: <" << refer_to_impu << ">\r\n"
+       << "Referred-By: <" << from_impu << ">\r\n"
+       << "Content-Length: 0\r\n\r\n";
+    return ss.str();
+}
+
+// ── SIP 202 Accepted (response to REFER) ──────────────────────
+// NOT 200 OK — REFER response is 202 because REFER is async.
+// Means: "I received your REFER request, processing it."
+// NOTIFY messages will follow to report progress.
+inline std::string build202Accepted(const std::string& from_impu,
+                                     const std::string& to_impu,
+                                     const std::string& call_id, int cseq) {
+    std::ostringstream ss;
+    ss << "SIP/2.0 202 Accepted\r\n"
+       << "From: " << from_impu << "\r\n"
+       << "To: " << to_impu << "\r\n"
+       << "Call-ID: " << call_id << "\r\n"
+       << "CSeq: " << cseq << " REFER\r\n"
+       << "Content-Length: 0\r\n\r\n";
+    return ss.str();
+}
+
+// ── SIP NOTIFY (REFER status — RFC 3515) ──────────────────────
+// S-CSCF → UE-A: progress updates on the REFER
+// Body: message/sipfrag carrying the SIP response code
+// States: "trying" → "early" (UE-C ringing) → "terminated" (done)
+inline std::string buildNotifyRefer(const std::string& from_impu,
+                                     const std::string& to_impu,
+                                     const std::string& call_id, int cseq,
+                                     const std::string& sub_state,   // active, terminated
+                                     const std::string& sip_frag) {  // "SIP/2.0 100 Trying"
+    std::string body = sip_frag + "\r\n";
+    std::ostringstream ss;
+    ss << "NOTIFY " << from_impu << " SIP/2.0\r\n"
+       << "Via: SIP/2.0/TCP 10.0.0.9:5070;branch=z9hG4bKnot" << cseq << "\r\n"
+       << "From: " << to_impu << ";tag=scscf\r\n"
+       << "To: " << from_impu << "\r\n"
+       << "Call-ID: " << call_id << "\r\n"
+       << "CSeq: " << cseq << " NOTIFY\r\n"
+       << "Event: refer\r\n"
+       << "Subscription-State: " << sub_state << "\r\n"
+       << "Content-Type: message/sipfrag;version=2.0\r\n"
+       << "Content-Length: " << body.size() << "\r\n\r\n"
+       << body;
+    return ss.str();
+}
+
+// ── SIP SUBSCRIBE (RFC 4575 — Conference State) ───────────────
+// UE-A subscribes to conference-state package at the MRFC.
+// MRFC sends NOTIFY with XML body listing all participants.
+// Event: conference — triggers conference-info XML NOTIFYs
+// When participant joins/leaves: new NOTIFY is pushed automatically
+inline std::string buildSubscribe(const std::string& from_impu,
+                                    const std::string& conf_uri,
+                                    const std::string& call_id, int cseq,
+                                    int expires = 3600) {
+    std::ostringstream ss;
+    ss << "SUBSCRIBE " << conf_uri << " SIP/2.0\r\n"
+       << "Via: SIP/2.0/TCP 10.0.0.1:5060;branch=z9hG4bKsub" << cseq << "\r\n"
+       << "From: " << from_impu << ";tag=sub" << cseq << "\r\n"
+       << "To: " << conf_uri << "\r\n"
+       << "Call-ID: " << call_id << "-sub\r\n"
+       << "CSeq: " << cseq << " SUBSCRIBE\r\n"
+       << "Event: conference\r\n"
+       << "Accept: application/conference-info+xml\r\n"
+       << "Expires: " << expires << "\r\n"
+       << "Content-Length: 0\r\n\r\n";
+    return ss.str();
+}
+
+// ── SIP NOTIFY (Conference State — RFC 4575) ──────────────────
+// MRFC → UE-A: XML listing all conference participants.
+// Body: conference-info+xml (who is connected, their status, media)
+// KEY for interview: this is how the "conference widget" on your phone
+// knows how many people are in the call and who they are.
+inline std::string buildNotifyConf(const std::string& conf_uri,
+                                     const std::string& to_impu,
+                                     const std::string& call_id,
+                                     int cseq,
+                                     const std::string& p_a,
+                                     const std::string& p_b,
+                                     const std::string& p_c) {
+    std::string xml =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
+        "<conference-info xmlns=\"urn:ietf:params:xml:ns:conference-info\"\r\n"
+        "  entity=\"" + conf_uri + "\" state=\"full\" version=\"1\">\r\n"
+        "  <conference-description><display-text>3-Party Conference</display-text></conference-description>\r\n"
+        "  <users>\r\n"
+        "    <user entity=\"" + p_a + "\" state=\"full\">\r\n"
+        "      <display-text>UE-A</display-text>\r\n"
+        "      <endpoint entity=\"sip:ue@10.0.0.1:5060\">\r\n"
+        "        <status>connected</status>\r\n"
+        "        <media id=\"1\"><type>audio</type><status>recvonly</status></media>\r\n"
+        "      </endpoint>\r\n"
+        "    </user>\r\n"
+        "    <user entity=\"" + p_b + "\" state=\"full\">\r\n"
+        "      <display-text>UE-B</display-text>\r\n"
+        "      <endpoint entity=\"sip:ue@10.0.0.2:5060\">\r\n"
+        "        <status>connected</status>\r\n"
+        "        <media id=\"1\"><type>audio</type><status>recvonly</status></media>\r\n"
+        "      </endpoint>\r\n"
+        "    </user>\r\n"
+        "    <user entity=\"" + p_c + "\" state=\"full\">\r\n"
+        "      <display-text>UE-C</display-text>\r\n"
+        "      <endpoint entity=\"sip:ue@10.0.0.3:5060\">\r\n"
+        "        <status>connected</status>\r\n"
+        "        <media id=\"1\"><type>audio</type><status>recvonly</status></media>\r\n"
+        "      </endpoint>\r\n"
+        "    </user>\r\n"
+        "  </users>\r\n"
+        "</conference-info>\r\n";
+
+    std::ostringstream ss;
+    ss << "NOTIFY " << to_impu << " SIP/2.0\r\n"
+       << "Via: SIP/2.0/TCP 10.0.0.11:5060;branch=z9hG4bKncf" << cseq << "\r\n"
+       << "From: " << conf_uri << ";tag=mrfc\r\n"
+       << "To: " << to_impu << "\r\n"
+       << "Call-ID: " << call_id << "-sub\r\n"
+       << "CSeq: " << cseq << " NOTIFY\r\n"
+       << "Event: conference\r\n"
+       << "Subscription-State: active;expires=3600\r\n"
+       << "Content-Type: application/conference-info+xml\r\n"
+       << "Content-Length: " << xml.size() << "\r\n\r\n"
+       << xml;
+    return ss.str();
+}
+
 // ── SIP 603 Decline (call barring) ────────────────────────────
 inline std::string build603(const std::string& from_impu,
                               const std::string& to_impu,

@@ -305,6 +305,8 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
             .ie("H.248/Megaco", "MRFC → MRFP: create 3-party audio mixing stream")
             .ie("REFER/NOTIFY", "Real: UE-A sends REFER Refer-To:UE-C; S-CSCF sends INVITE to UE-C")
             .ie("NOTIFY",       "S-CSCF → UE-A: subscription state (trying/early/terminated)")
+            .ie("SUBSCRIBE",    "UE-A subscribes to conference-state (RFC 4575) at MRFC URI")
+            .ie("NOTIFY+XML",   "MRFC → UE-A: conference-info+xml listing all participants")
             .next("S-CSCF sending INVITE to " + to_impu + " — wait for ACCEPT")
             .flush();
         Logger::scscf(Logger::Level::BEGINNER, "Setting up 3-way call — inviting a third person to join");
@@ -312,7 +314,79 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
         // Draw conference diagram
         Diag::ConferenceJoin(cs.caller_impu, cs.callee_impu, to_impu);
 
-        // Send INVITE to third party (UE-C) via P-CSCF
+        // ── PCAP: REFER → 202 Accepted → NOTIFY chain ───────────
+        // Real IMS: UE-A sends REFER to S-CSCF with Refer-To: UE-C
+        static const std::string CONF_URI = "sip:conf-1@mrfc.ims.mnc010.mcc404.3gppnetwork.org";
+        PcapWriter::instance().writeSIP(
+            SipText::buildRefer(cs.caller_impu, cs.callee_impu, to_impu, call_id, 2),
+            PcapWriter::IP_PCSCF, 5060, PcapWriter::IP_SCSCF, 5060);
+        Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: ← REFER (add " + to_impu + " to call)");
+        Logger::ie_field("  Refer-To: " + to_impu + "  ← who to add");
+        Logger::ie_field("  Referred-By: " + cs.caller_impu);
+
+        // 202 Accepted (async — NOTIFY will follow)
+        PcapWriter::instance().writeSIP(
+            SipText::build202Accepted(cs.callee_impu, cs.caller_impu, call_id, 2),
+            PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
+        Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → 202 Accepted (REFER accepted, sending INVITE to UE-C)");
+        Logger::ie_field("  202 not 200 — REFER is async, NOTIFY will report result");
+
+        // NOTIFY: trying (S-CSCF → UE-A — INVITE sent to UE-C)
+        PcapWriter::instance().writeSIP(
+            SipText::buildNotifyRefer(cs.caller_impu, cs.callee_impu, call_id, 1,
+                "active", "SIP/2.0 100 Trying"),
+            PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
+        Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → NOTIFY (REFER state: trying — INVITE sent to UE-C)");
+
+        // ── PCAP: SUBSCRIBE → 200 OK → NOTIFY (conference-state) ─
+        PcapWriter::instance().writeSIP(
+            SipText::buildSubscribe(cs.caller_impu, CONF_URI, call_id, 3),
+            PcapWriter::IP_UE, 5060, PcapWriter::IP_MRFC, 5060);
+        Logger::scscf(Logger::Level::ENGINEER, "MRFC: ← SUBSCRIBE (conference-state)  Event: conference");
+        Logger::ie_field("  UE-A subscribes to get participant list updates");
+        Logger::ie_field("  Accept: application/conference-info+xml");
+
+        PcapWriter::instance().writeSIP(
+            SipText::build200Register(cs.caller_impu, "10.0.0.11", 3),
+            PcapWriter::IP_MRFC, 5060, PcapWriter::IP_UE, 5060);
+
+        // ── PCAP: INVITE to UE-C (conference leg) ────────────────
+        PcapWriter::instance().writeSIP(
+            SipText::buildInvite(cs.caller_impu, to_impu, "10.0.0.11", call_id + "-conf", 1),
+            PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
+        Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → INVITE to UE-C  Call-ID=" + call_id + "-conf");
+
+        // 100 Trying for conference INVITE
+        PcapWriter::instance().writeSIP(
+            SipText::build100Trying(cs.caller_impu, to_impu, call_id + "-conf", 1),
+            PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
+
+        // 183 Session Progress for conference leg
+        PcapWriter::instance().writeSIP(
+            SipText::build183SessionProgress(cs.caller_impu, to_impu, call_id + "-conf", 1, 70000),
+            PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
+
+        // PRACK for conference
+        PcapWriter::instance().writeSIP(
+            SipText::buildPrack(cs.caller_impu, to_impu, call_id + "-conf", 1),
+            PcapWriter::IP_PCSCF, 5060, PcapWriter::IP_SCSCF, 5060);
+        PcapWriter::instance().writeSIP(
+            SipText::build200Prack(to_impu, cs.caller_impu, call_id + "-conf", 1),
+            PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
+
+        // NOTIFY: early (UE-C is ringing)
+        PcapWriter::instance().writeSIP(
+            SipText::buildNotifyRefer(cs.caller_impu, cs.callee_impu, call_id, 2,
+                "active", "SIP/2.0 180 Ringing"),
+            PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
+        Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → NOTIFY (REFER state: early — UE-C ringing)");
+
+        // 180 Ringing for UE-C
+        PcapWriter::instance().writeSIP(
+            SipText::build180Ringing(cs.caller_impu, to_impu, call_id + "-conf", 1),
+            PcapWriter::IP_PCSCF, 5060, PcapWriter::IP_UE_C, 5060);
+
+        // Send INVITE to third party (UE-C) via P-CSCF (actual binary message)
         if (!to_impu.empty()) {
             Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → INVITE to " + to_impu + " (conference participant)");
             Logger::ie_field("  P-CSCF will deliver to UE-C terminal");
@@ -324,12 +398,39 @@ void ScscfNode::handleReInvite(const std::vector<uint8_t>& payload,
             inv.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_CALL_ID)), call_id + "-conf");
             inv.writeStr(static_cast<Tag>(uint16_t(SipTag::SIP_SDP)),
                 "audio:50000/AMR-WB/16000;conf;a=sendrecv");
-            pcscf_conn_.sendFrame(inv.frame());  // inv.frame() already has length prefix
+            pcscf_conn_.sendFrame(inv.frame());
         }
 
         // 200 OK to caller (UE-A) — conference initiated
         sendSipResponse(SipMsgType::SIP_200_OK, call_id, cs.caller_impu, cs.callee_impu, "CONFERENCE");
         Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → 200 OK (conference bridge active) to caller");
+
+        // ── PCAP: 200 OK + ACK for conference leg ────────────────
+        PcapWriter::instance().writeSIP(
+            SipText::build200Invite(cs.caller_impu, to_impu, "10.0.0.3", call_id + "-conf", 1, 70000),
+            PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
+        PcapWriter::instance().writeSIP(
+            SipText::buildAck(cs.caller_impu, to_impu, call_id + "-conf", 1),
+            PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_UE_C, 5060);
+
+        // NOTIFY: terminated (REFER fully completed, UE-C joined)
+        PcapWriter::instance().writeSIP(
+            SipText::buildNotifyRefer(cs.caller_impu, cs.callee_impu, call_id, 3,
+                "terminated;reason=noresource", "SIP/2.0 200 OK"),
+            PcapWriter::IP_SCSCF, 5060, PcapWriter::IP_PCSCF, 5060);
+        Logger::scscf(Logger::Level::ENGINEER, "S-CSCF: → NOTIFY (REFER terminated — UE-C joined, conference active)");
+        Logger::ie_field("  Body: SIP/2.0 200 OK (UE-C answered INVITE)");
+        Logger::ie_field("  Subscription-State: terminated;reason=noresource");
+
+        // NOTIFY: conference-state XML (all 3 participants listed)
+        PcapWriter::instance().writeSIP(
+            SipText::buildNotifyConf(CONF_URI, cs.caller_impu, call_id, 2,
+                cs.caller_impu, cs.callee_impu, to_impu),
+            PcapWriter::IP_MRFC, 5060, PcapWriter::IP_PCSCF, 5060);
+        Logger::scscf(Logger::Level::ENGINEER, "MRFC: → NOTIFY (conference-state XML — 3 participants)");
+        Logger::ie_field("  Content-Type: application/conference-info+xml");
+        Logger::ie_field("  Body: lists UE-A, UE-B, UE-C as 'connected'");
+        Logger::scscf(Logger::Level::BEGINNER, "3-way conference active — all 3 can hear each other via MRFP");
 
     } else if (sdp.find("video") != std::string::npos &&
                sdp.find("H264") != std::string::npos) {

@@ -47,12 +47,13 @@ rm -f ims_server_capture.pcap ims_A_capture.pcap ims_B_capture.pcap ims_combined
 SERVER_PIPE=$(mktemp -u /tmp/ims_server_XXXX)
 UE_A_PIPE=$(mktemp -u /tmp/ims_ue_a_XXXX)
 UE_B_PIPE=$(mktemp -u /tmp/ims_ue_b_XXXX)
-mkfifo "$SERVER_PIPE" "$UE_A_PIPE" "$UE_B_PIPE"
+UE_C_PIPE=$(mktemp -u /tmp/ims_ue_c_XXXX)
+mkfifo "$SERVER_PIPE" "$UE_A_PIPE" "$UE_B_PIPE" "$UE_C_PIPE"
 
 cleanup() {
     pkill -f ims_server 2>/dev/null || true
     pkill -f ue_sim     2>/dev/null || true
-    rm -f "$SERVER_PIPE" "$UE_A_PIPE" "$UE_B_PIPE"
+    rm -f "$SERVER_PIPE" "$UE_A_PIPE" "$UE_B_PIPE" "$UE_C_PIPE"
 }
 trap cleanup EXIT
 
@@ -77,15 +78,25 @@ UE_B_PID=$!
 exec 5>"$UE_B_PIPE"
 wait_s 1
 
+# ── Start UE-C ────────────────────────────────────────────────
+banner "Step 3b — Starting UE-C (conference participant)"
+./ue_sim C < "$UE_C_PIPE" > ims_C_demo.log 2>&1 &
+UE_C_PID=$!
+exec 6>"$UE_C_PIPE"
+wait_s 1
+
 # ── IMS Registration ─────────────────────────────────────────
-banner "Step 4 — SIP REGISTER (UE-A)"
+banner "Step 4 — SIP REGISTER (all 3 UEs)"
 step "UE-A: REG"
 echo "REG" >&4
 wait_s $DELAY
 
-banner "Step 5 — SIP REGISTER (UE-B)"
 step "UE-B: REG"
 echo "REG" >&5
+wait_s $DELAY
+
+step "UE-C: REG"
+echo "REG" >&6
 wait_s $DELAY
 
 # Check STATUS
@@ -104,34 +115,45 @@ step "UE-B: ACCEPT  →  200 OK with SDP answer (AMR-WB/16000)"
 echo "ACCEPT" >&5
 wait_s $DELAY
 
+# ── CONFERENCE ───────────────────────────────────────────────
+banner "Step 8 — CONFERENCE (REFER → INVITE UE-C → 3-way call)"
+step "UE-A: CONF C  →  REFER → 202 Accepted → NOTIFY (trying)"
+echo "CONF C" >&4
+wait_s $DELAY
+
+step "UE-C: ACCEPT  →  180 Ringing → 200 OK → ACK → NOTIFY (terminated)"
+echo "ACCEPT" >&6
+wait_s $DELAY
+
 # ── HOLD ─────────────────────────────────────────────────────
-banner "Step 8 — HOLD  (re-INVITE a=sendonly)"
+banner "Step 9 — HOLD  (re-INVITE a=sendonly)"
 step "UE-A: HOLD"
 echo "HOLD" >&4
 wait_s $DELAY
 
 # ── RESUME ───────────────────────────────────────────────────
-banner "Step 9 — RESUME  (re-INVITE a=sendrecv)"
+banner "Step 10 — RESUME  (re-INVITE a=sendrecv)"
 step "UE-A: RESUME"
 echo "RESUME" >&4
 wait_s $DELAY
 
 # ── BYE ──────────────────────────────────────────────────────
-banner "Step 10 — BYE  (call teardown)"
+banner "Step 11 — BYE  (call teardown)"
 step "UE-A: BYE  →  200 OK BYE  →  Rx STR → PCRF → QCI=1 released"
 echo "BYE" >&4
 wait_s $DELAY
 
 # ── Shutdown ─────────────────────────────────────────────────
-banner "Step 11 — Shutdown"
+banner "Step 12 — Shutdown"
 echo "QUIT" >&4
 echo "QUIT" >&5
+echo "QUIT" >&6
 wait_s 1
 echo "QUIT" >&3
 wait_s 2
 
 # ── Merge pcaps ──────────────────────────────────────────────
-banner "Step 12 — Merging all 3 pcap files"
+banner "Step 13 — Merging all 4 pcap files"
 if [ -f ./merge_pcap.sh ]; then
     bash ./merge_pcap.sh
 else
@@ -148,30 +170,72 @@ fi
 banner "DONE — Files generated"
 echo ""
 echo -e "${GREEN}  PCAP files (open in Wireshark):${RESET}"
-ls -lh ims_server_capture.pcap ims_A_capture.pcap ims_B_capture.pcap ims_combined.pcap 2>/dev/null || true
+ls -lh ims_server_capture.pcap ims_A_capture.pcap ims_B_capture.pcap ims_C_capture.pcap ims_combined.pcap 2>/dev/null || true
 echo ""
-echo -e "${GREEN}  Terminal logs (cat to read):${RESET}"
-ls -lh "$SERVER_LOG" "$UE_A_LOG" "$UE_B_LOG"
+echo -e "${GREEN}  Terminal logs:${RESET}"
+ls -lh "$SERVER_LOG" "$UE_A_LOG" "$UE_B_LOG" ims_C_demo.log 2>/dev/null || true
 echo ""
-echo -e "${YELLOW}  Wireshark filters to use:${RESET}"
-echo "    sip                        → all SIP messages"
-echo "    sip.Method == \"REGISTER\"   → registration only"
-echo "    sip.Method == \"INVITE\"     → INVITE + re-INVITE"
-echo "    sip.Method == \"PRACK\"      → reliable provisional ACK"
-echo "    sip.Status-Code == 100     → 100 Trying"
-echo "    sip.Status-Code == 180     → 180 Ringing"
-echo "    sip.Status-Code == 200     → 200 OK (all methods)"
-echo "    sip.Method == \"BYE\"        → call teardown"
-echo "    diameter                   → Cx SAR/SAA + Rx AAR"
+echo -e "${YELLOW}══════════════ WIRESHARK FILTERS ════════════════${RESET}"
 echo ""
-echo -e "${GREEN}  Expected packet sequence in ims_combined.pcap:${RESET}"
-echo "    REGISTER → 200 OK (REG)"
-echo "    INVITE → 100 Trying → 180 Ringing → PRACK → 200 OK (PRACK)"
-echo "    → 200 OK (INVITE) → ACK"
-echo "    re-INVITE (HOLD a=sendonly) → 200 OK"
-echo "    re-INVITE (RESUME a=sendrecv) → 200 OK"
-echo "    BYE → 200 OK (BYE)"
-echo "    Diameter: SAR/SAA + Rx AAR"
+echo -e "${CYAN}  By message type:${RESET}"
+echo "    sip                                  → all SIP"
+echo "    sip.Method == \"REGISTER\"             → registration"
+echo "    sip.Method == \"INVITE\"               → calls + conference leg"
+echo "    sip.Method == \"PRACK\"                → reliable provisional ACK"
+echo "    sip.Method == \"REFER\"                → conference trigger"
+echo "    sip.Method == \"NOTIFY\"               → REFER status + conf-state XML"
+echo "    sip.Method == \"SUBSCRIBE\"            → conference-state subscription"
+echo "    sip.Method == \"BYE\"                  → teardown"
+echo "    sip.Status-Code == 100               → 100 Trying"
+echo "    sip.Status-Code == 180               → 180 Ringing"
+echo "    sip.Status-Code == 183               → 183 Session Progress (QoS)"
+echo "    sip.Status-Code == 200               → all 200 OK"
+echo "    sip.Status-Code == 202               → 202 Accepted (REFER response)"
+echo "    diameter                             → Cx SAR/SAA + Rx AAR"
+echo ""
+echo -e "${CYAN}  By call leg (Call-ID):${RESET}"
+echo "    sip.Call-ID contains \":B-2\"          → A↔B main call leg"
+echo "    sip.Call-ID contains \"-conf\"         → conference INVITE to UE-C"
+echo "    sip.Call-ID contains \"-sub\"          → SUBSCRIBE/NOTIFY conference-state"
+echo ""
+echo -e "${CYAN}  By participant (IP address):${RESET}"
+echo "    ip.addr == 10.0.0.1                  → UE-A"
+echo "    ip.addr == 10.0.0.2                  → UE-B"
+echo "    ip.addr == 10.0.0.3                  → UE-C"
+echo "    ip.addr == 10.0.0.8                  → P-CSCF"
+echo "    ip.addr == 10.0.0.9                  → S-CSCF"
+echo "    ip.addr == 10.0.0.11                 → MRFC (conference bridge)"
+echo ""
+echo -e "${CYAN}  Conference only:${RESET}"
+echo "    sip.Method == \"REFER\" or sip.Method == \"NOTIFY\""
+echo "    or sip.Status-Code == 202"
+echo ""
+echo -e "${GREEN}  Full packet sequence:${RESET}"
+echo ""
+echo "  REGISTRATION"
+echo "    REGISTER (A/B/C) → 200 OK REGISTER"
+echo ""
+echo "  CALL SETUP (A→B)"
+echo "    INVITE → 100 Trying → 183 Session Progress+SDP"
+echo "    → PRACK → 200 OK PRACK"
+echo "    → 180 Ringing → 200 OK INVITE+SDP → ACK"
+echo ""
+echo "  CONFERENCE (A adds C)"
+echo "    REFER (Refer-To:UE-C) → 202 Accepted"
+echo "    NOTIFY trying  (body: SIP/2.0 100 Trying)"
+echo "    SUBSCRIBE (conf-state) → 200 OK"
+echo "    INVITE (Call-ID=-conf) → 100 Trying → 183 → PRACK → 200 OK PRACK"
+echo "    → NOTIFY early (body: SIP/2.0 180 Ringing)"
+echo "    → 180 Ringing → 200 OK INVITE → ACK"
+echo "    NOTIFY terminated (body: SIP/2.0 200 OK)"
+echo "    NOTIFY (conference-info+xml: UE-A, UE-B, UE-C all connected)"
+echo ""
+echo "  MID-CALL"
+echo "    re-INVITE (a=sendonly HOLD) → 200 OK"
+echo "    re-INVITE (a=sendrecv RESUME) → 200 OK"
+echo ""
+echo "  TEARDOWN"
+echo "    BYE → 200 OK BYE"
 echo ""
 
 # ── Show server log summary (last 60 lines) ───────────────────
