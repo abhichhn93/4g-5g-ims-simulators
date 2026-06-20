@@ -51,8 +51,8 @@ UE_C_PIPE=$(mktemp -u /tmp/ims_ue_c_XXXX)
 mkfifo "$SERVER_PIPE" "$UE_A_PIPE" "$UE_B_PIPE" "$UE_C_PIPE"
 
 cleanup() {
-    pkill -f ims_server 2>/dev/null || true
-    pkill -f ue_sim     2>/dev/null || true
+    # Only force-kill if processes are still running after clean QUIT
+    kill "$SERVER_PID" "$UE_A_PID" "$UE_B_PID" "$UE_C_PID" 2>/dev/null || true
     rm -f "$SERVER_PIPE" "$UE_A_PIPE" "$UE_B_PIPE" "$UE_C_PIPE"
 }
 trap cleanup EXIT
@@ -148,9 +148,20 @@ banner "Step 12 — Shutdown"
 echo "QUIT" >&4
 echo "QUIT" >&5
 echo "QUIT" >&6
-wait_s 1
-echo "QUIT" >&3
 wait_s 2
+echo "QUIT" >&3
+
+# Close our write ends of pipes so processes see EOF and can exit cleanly
+exec 3>&- 4>&- 5>&- 6>&-
+
+# Wait for each process to exit on its own — this ensures stdout is fully
+# flushed to the log files before we read them. SIGTERM from pkill would
+# kill without flushing, so we wait here instead.
+wait "$UE_A_PID"  2>/dev/null || true
+wait "$UE_B_PID"  2>/dev/null || true
+wait "$UE_C_PID"  2>/dev/null || true
+wait "$SERVER_PID" 2>/dev/null || true
+echo -e "${GREEN}  All processes exited cleanly — logs flushed.${RESET}"
 
 # ── Merge pcaps ──────────────────────────────────────────────
 banner "Step 13 — Merging all 4 pcap files"

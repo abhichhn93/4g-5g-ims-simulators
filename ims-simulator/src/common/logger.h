@@ -104,12 +104,13 @@ inline void print(Level level, const char* color, const char* tag, const std::st
     if (level == Level::ENGINEER) prefix = "[3GPP] ";
 
     std::cout << color << "[" << now() << "][" << tag << "] "
-              << prefix << msg << CLR_RESET << "\n";
+              << prefix << msg << CLR_RESET << "\n" << std::flush;
 
     // Persist to file (without ANSI colors for readability)
     auto& f = getLogFile();
     if (f.is_open()) {
         f << "[" << now() << "][" << tag << "] " << prefix << msg << "\n";
+        f.flush();
     }
 }
 
@@ -119,10 +120,11 @@ inline void print(Level level, const char* color, const char* tag, const std::st
 inline void ie_field(const std::string& msg) {
     if (getGlobalLevel() == Level::BEGINNER) return;
     std::lock_guard<std::mutex> lk(getMutex());
-    std::cout << CLR_IE << "         │  " << msg << CLR_RESET << "\n";
+    std::cout << CLR_IE << "         │  " << msg << CLR_RESET << "\n" << std::flush;
     auto& f = getLogFile();
     if (f.is_open()) {
         f << "         │  " << msg << "\n";
+        f.flush();
     }
 }
 
