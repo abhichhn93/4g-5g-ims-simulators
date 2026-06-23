@@ -255,7 +255,7 @@ self-healing — works identically on a real multi-node cloud cluster."
 ## 5. GitHub + CI
 
 This repo is pushed to a public GitHub repo:
-https://github.com/abhichhn93/4g-simulator
+https://github.com/abhichhn93/4g-5g-ims-simulators
 
 A GitHub Actions workflow (`.github/workflows/docker-build.yml`) runs on every
 push to `main`: it builds the Docker image and smoke-tests it by running one

@@ -2,9 +2,10 @@
 
 Three from-scratch simulations of mobile core networks — **4G EPC**, **IMS/VoLTE**,
 and **5G Core (Service-Based Architecture)** — written in C++17 using raw
-sockets, multithreading, and real protocol encoding. Built by an ex-Samsung
-4G/5G core network engineer (8 years C++) as a hands-on refresher and as a
-learning resource for engineers/students studying telecom protocols.
+sockets, multithreading, and real protocol encoding.
+
+A hands-on reference implementation for engineers studying 3GPP protocols,
+C++ systems programming, and cloud-native telecom infrastructure.
 
 Each project is independent (own CMake build, own Docker/K8s setup, own
 docs) but they share subscriber numbering and design patterns, so together

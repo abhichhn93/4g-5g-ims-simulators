@@ -1,0 +1,11 @@
+build/
+*.o
+*.a
+*.pcap
+*.log
+*.jsonl
+.DS_Store
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
