@@ -334,7 +334,7 @@ sudo tcpdump -i lo0 \
   -w ~/Desktop/ims_capture.pcap
 
 # Terminal 2 — run IMS simulator
-cd /Users/abhichauhan/Desktop/cpp-interview-prep/simulators/4g-simulator/build
+cd ims-simulator/build
 ./mme_ims
 
 # Type: REGISTER → CALL → BYE → QUIT

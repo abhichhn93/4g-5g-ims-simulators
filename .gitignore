@@ -9,3 +9,8 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
+# Scratch/personal files
+test_AI_answers
+Perplexity*
+sim_events.jsonl
+mme_sim_session.log

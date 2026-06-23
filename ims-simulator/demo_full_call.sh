@@ -249,3 +249,12 @@ echo ""
 # ── Show server log summary (last 60 lines) ───────────────────
 banner "Server log tail (last 60 lines)"
 tail -60 "$SERVER_LOG"
+
+# ── Auto-open web visualizer ──────────────────────────────────
+VIZPATH="$(dirname "$0")/volte_call_flow.html"
+if [ -f "$VIZPATH" ]; then
+  echo ""
+  echo -e "${CYAN}  Opening call flow visualizer in browser...${RESET}"
+  echo -e "${YELLOW}  Tip: click the 🎛️ Conference tab to see the REFER/MRFC/H.248 flow.${RESET}"
+  open "$VIZPATH" 2>/dev/null || xdg-open "$VIZPATH" 2>/dev/null || echo "  → Open manually: $VIZPATH"
+fi

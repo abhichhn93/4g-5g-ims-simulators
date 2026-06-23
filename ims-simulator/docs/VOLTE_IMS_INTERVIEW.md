@@ -315,4 +315,4 @@ in Wireshark."
 
 ---
 
-*Good luck tomorrow, Abhi. Samsung background + this simulator = strong candidate.*
+*Telecom core network experience + a working simulator you built from scratch = a strong candidate.*

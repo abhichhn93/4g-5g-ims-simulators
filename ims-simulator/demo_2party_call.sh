@@ -180,3 +180,13 @@ echo ""
 # ── Server log tail ───────────────────────────────────────────
 banner "Server log (last 50 lines)"
 tail -50 "$SERVER_LOG"
+
+# ── Auto-open web visualizer ──────────────────────────────────
+VIZPATH="$(dirname "$0")/volte_call_flow.html"
+if [ -f "$VIZPATH" ]; then
+  echo ""
+  echo -e "${CYAN}  Opening call flow visualizer in browser...${RESET}"
+  echo -e "${YELLOW}  File: $VIZPATH${RESET}"
+  echo -e "  Press ▶ Play (or Space) to animate the full VoLTE flow."
+  open "$VIZPATH" 2>/dev/null || xdg-open "$VIZPATH" 2>/dev/null || echo "  → Open manually: $VIZPATH"
+fi

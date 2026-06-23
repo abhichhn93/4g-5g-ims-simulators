@@ -13,9 +13,10 @@ protocol message encoding.
 > separate so someone studying IMS isn't wading through 4G EPC code, and vice versa.
 > A 5G core (gNB/AMF/UDM) lives in [`../5g-simulator/`](../5g-simulator/).
 
-> **Why this exists:** The team of 10 engineers I worked with at Samsung R&D built similar
-> systems. This simulator proves the same architecture can be understood, designed, and
-> implemented solo — and serves as a hands-on learning platform for telecom + systems engineers.
+> **Why this exists:** Built by a telecom engineer with 8 years of 4G/5G core network
+> experience. This simulator proves the same architecture can be understood, designed, and
+> implemented from scratch — and serves as a hands-on learning platform for telecom and
+> systems engineers.
 
 ---
 
@@ -228,4 +229,4 @@ Built as a deep-dive into telecom systems engineering — combining 8 years of p
 experience in 4G/5G core networks with modern C++17 to create a fully educational,
 open-source simulator.
 
-Connect on [LinkedIn](https://www.linkedin.com/in/YOUR_PROFILE)
+GitHub: [abhichhn93/4g-5g-ims-simulators](https://github.com/abhichhn93/4g-5g-ims-simulators)
