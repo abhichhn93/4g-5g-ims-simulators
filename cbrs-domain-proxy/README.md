@@ -25,14 +25,42 @@ The key actors:
 
 ## Architecture
 
+### System Architecture — Three Processes
+
 ```
                  WinnForum CBRS Protocol (WINNF-TS-0016)
                  JSON over TCP (real: HTTPS + mutual TLS)
 
-  CBSD-1 ──TCP:8700──►                    ──TCP:8800──► SAS
-  CBSD-2 ──TCP:8700──► Domain Proxy                     (Spectrum Access
-  CBSD-3 ──TCP:8700──►    :8700                          System)
-                        (this simulator)
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                  CBSD TIER (radio devices)                      │
+  │  cbsd_agent 1    cbsd_agent 2    cbsd_agent 3  ...             │
+  │  Cat-A 3555MHz   Cat-A 3565MHz   Cat-B 3580MHz                 │
+  │  FCC-DEVICE-001  FCC-DEVICE-002  FCC-DEVICE-003                │
+  └──────────┬───────────────┬───────────────┬────────────────────┘
+             │               │               │  TCP :8700
+             ▼               ▼               ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │              DOMAIN PROXY  (this simulator)                     │
+  │                                                                 │
+  │  Accept thread ──► Thread-1 (CBSD-1 handler)                   │
+  │       :8700     ──► Thread-2 (CBSD-2 handler)  ─── g_sas_mtx ─►│
+  │                  ──► Thread-3 (CBSD-3 handler)                  │
+  │                                                                 │
+  │  CbsdRegistry (mutex-protected):                                │
+  │    cbsdId → {state, grantId, freq, bw, category}               │
+  └──────────────────────────────────────┬──────────────────────────┘
+                                         │ TCP :8800 (one connection)
+                                         ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    SAS STUB  (sas_stub)                         │
+  │                                                                 │
+  │  handleDpConnection() — one thread per DP connection            │
+  │  Registration → assigns cbsdId                                  │
+  │  Grant        → assigns grantId, freq, maxEirp                  │
+  │  Heartbeat    → refreshes transmit window                       │
+  │  Relinquish   → frees spectrum                                  │
+  │  Deregister   → removes CBSD record                             │
+  └─────────────────────────────────────────────────────────────────┘
 ```
 
 **What each binary does:**
@@ -42,6 +70,173 @@ The key actors:
 | `sas_stub` | 8800 | Simulated SAS — grants spectrum, tracks CBSDs |
 | `domain_proxy` | 8700 (←CBSDs) / 8800 (→SAS) | Aggregates CBSDs, enforces state machine |
 | `cbsd_agent` | (connects to 8700) | Simulated CBSD with interactive CLI |
+
+---
+
+## Multithreading Design
+
+### How the Domain Proxy handles concurrent CBSDs
+
+The Domain Proxy uses a **one-thread-per-CBSD** model:
+
+```cpp
+// Accept loop runs in a background thread
+std::thread acceptThread([&]() {
+    while (!stop.load()) {
+        auto client = server.accept();           // blocks waiting for CBSD
+        std::thread(handleCbsd,                 // spawn handler thread
+                    std::move(client)).detach(); // detach = fire and forget
+    }
+});
+```
+
+Each CBSD connection runs in its own thread (`handleCbsd`). This means:
+- **3 CBSDs connected** → 3 handler threads + 1 accept thread + 1 CLI thread = 5 threads total
+- Each CBSD thread manages that CBSD's state machine independently
+- No CBSD blocks any other CBSD
+
+### Thread-safe shared state
+
+Two shared resources accessed by multiple threads:
+
+**1. CbsdRegistry** — which CBSDs are registered and their grant state:
+```cpp
+// cbsd_registry.h — guarded by std::mutex
+class CbsdRegistry {
+    mutable std::mutex mu_;
+    std::unordered_map<std::string, CbsdInfo> store_;  // O(1) lookup by cbsdId
+
+    void upsert(const CbsdInfo& info) {
+        std::lock_guard<std::mutex> lk(mu_);  // exclusive write
+        store_[info.cbsdId] = info;
+    }
+    bool get(const std::string& cbsdId, CbsdInfo& out) const {
+        std::lock_guard<std::mutex> lk(mu_);  // shared read (still exclusive here)
+        auto it = store_.find(cbsdId);
+        ...
+    }
+};
+```
+> **Why `unordered_map`?** O(1) average lookup by cbsdId. A real DP may manage 100+ CBSDs — `map` would give O(log N) per lookup. For a STATUS query scanning all CBSDs, `forEach()` takes a snapshot inside the lock then iterates outside it to minimize lock hold time.
+
+**2. SAS connection** — one TCP socket, serialised with a mutex:
+```cpp
+static Socket       g_sas_sock;   // shared SAS connection
+static std::mutex   g_sas_mtx;    // one CBSD at a time talks to SAS
+
+static std::string forwardToSas(const std::string& req) {
+    std::lock_guard<std::mutex> lk(g_sas_mtx);  // serialize SAS access
+    sendMsg(g_sas_sock, req);
+    std::string resp;
+    recvMsg(g_sas_sock, resp);
+    return resp;
+}
+```
+> **Why one mutex?** The SAS connection is a single TCP stream — interleaving messages from two CBSD threads would corrupt the protocol. The mutex ensures request+response is atomic per CBSD.
+
+### Thread safety summary
+
+| Resource | Type | Protection | Why |
+|----------|------|-----------|-----|
+| `CbsdRegistry` | `std::unordered_map` | `std::mutex` | Multiple CBSD threads read/write simultaneously |
+| `g_sas_sock` | TCP socket | `std::mutex g_sas_mtx` | One stream — interleaving would corrupt protocol |
+| `g_stop` | Stop flag | `std::atomic<bool>` | Written by CLI thread, read by accept thread |
+| Logger output | `std::cout` | `std::mutex` inside Logger | Prevents interleaved colored output |
+
+---
+
+## Performance — Current Design and How to Scale
+
+### Current design (good for 1–10 CBSDs)
+
+```
+Thread-per-CBSD model:
+
+  CBSD-1 ─► Thread-1 ─► [mutex lock] ─► SAS
+  CBSD-2 ─► Thread-2 ─► [wait]         (serialized)
+  CBSD-3 ─► Thread-3 ─► [wait]
+```
+
+**Bottleneck:** The `g_sas_mtx` serializes all SAS communication. If 50 CBSDs heartbeat simultaneously, they queue up one by one. Heartbeat handling takes ~1ms on localhost — that's 50ms total for 50 CBSDs. Acceptable for a lab simulator.
+
+### How to improve for production scale (interview talking points)
+
+**1. Request batching (WinnForum design intent)**
+
+The real Domain Proxy batches multiple CBSDs' requests into one SAS HTTP call:
+```json
+// Real WinnForum format — array of requests in one HTTP POST:
+{ "registrationRequest": [
+    {"fccId": "FCC-001", ...},
+    {"fccId": "FCC-002", ...},
+    {"fccId": "FCC-003", ...}
+  ]
+}
+// SAS responds with matching array of responses in one HTTP reply
+```
+
+Improvement: collect pending requests from all CBSD threads into a queue, flush every 100ms as one batched SAS call. Reduces SAS round-trips from N to 1 for heartbeat storms.
+
+**2. Thread pool instead of thread-per-CBSD**
+
+```cpp
+// Current: one OS thread per CBSD (wasteful at 500+ CBSDs)
+std::thread(handleCbsd, std::move(client)).detach();
+
+// Better: fixed-size thread pool (e.g. N=16 workers for 500 CBSDs)
+ThreadPool pool(16);
+pool.enqueue([client = std::move(client)]() { handleCbsd(client); });
+```
+Each worker picks up the next CBSD connection from the queue. Eliminates context-switch overhead of 500+ threads. The 4G simulator in this repo already implements this pattern (`src/common/thread_pool.h`).
+
+**3. `shared_mutex` for read-heavy registry**
+
+```cpp
+// Current: std::mutex (exclusive for both reads and writes)
+std::lock_guard<std::mutex> lk(mu_);
+
+// Better: std::shared_mutex (multiple readers concurrently)
+mutable std::shared_mutex mu_;
+
+// Read path (STATUS, state check):
+std::shared_lock<std::shared_mutex> lk(mu_);  // multiple threads read simultaneously
+
+// Write path (upsert, setState):
+std::unique_lock<std::shared_mutex> lk(mu_);  // one writer, all readers blocked
+```
+When 90% of operations are reads (STATUS queries, state checks before forwarding), `shared_mutex` lets multiple CBSD threads read the registry simultaneously.
+
+**4. Async I/O with `epoll` / `io_uring` (Linux)**
+
+```
+Current:  1 thread blocked per CBSD (mostly waiting for SAS response)
+Better:   1 event loop handles N CBSDs via non-blocking I/O
+```
+With `epoll`, a single thread monitors all CBSD sockets. When data arrives on any socket, the thread handles it. Eliminates per-CBSD thread overhead entirely. Used by high-performance DP implementations (nginx-style event loop).
+
+**5. Connection pool to SAS**
+
+```
+Current:  1 SAS connection, serialised (bottleneck)
+Better:   pool of K SAS connections, round-robin assignment
+```
+```cpp
+// With a pool of 4 SAS connections:
+auto& conn = sas_pool[hash(cbsd_id) % 4];  // CBSD always uses same connection
+// Eliminates the g_sas_mtx serialization bottleneck
+// 4 CBSDs can talk to SAS simultaneously
+```
+
+### Performance comparison
+
+| Approach | CBSDs supported | Threads | SAS calls/sec |
+|----------|----------------|---------|--------------|
+| **Current** (thread-per-CBSD, one SAS conn) | ~50 | N+2 | ~1000 |
+| + Thread pool (N=16 workers) | ~500 | 18 | ~1000 |
+| + Request batching | ~500 | 18 | ~100 (batched) |
+| + `shared_mutex` registry | ~500 | 18 | ~5000 (reads) |
+| + Connection pool (K=4) | ~2000 | 18 | ~4000 |
+| + `epoll` async I/O | ~10000 | 4–8 | ~10000 |
 
 ---
 
