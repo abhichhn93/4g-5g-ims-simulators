@@ -12,11 +12,12 @@ docs) but they share subscriber numbering and design patterns, so together
 they cover one continuous "UE attaches to 4G -> registers for VoLTE -> 5G
 core equivalent" story across three generations of mobile core architecture.
 
-| Project | What it is | 3GPP protocols |
+| Project | What it is | Protocols |
 |---|---|---|
-| [`4g-simulator/`](4g-simulator/) | 4G EPC: eNB, MME, HSS, S-GW, P-GW, PCRF | S1AP + NAS-EPS (hand-written ASN.1 PER), GTPv2-C, Diameter S6a/Gx |
-| [`ims-simulator/`](ims-simulator/) | IMS/VoLTE: P-CSCF, S-CSCF, MTAS, IMS-HSS, PCRF | SIP + SDP, Diameter Cx/Gx |
+| [`4g-simulator/`](4g-simulator/) | 4G EPC: eNB, MME, HSS, S-GW, P-GW, PCRF | S1AP + NAS-EPS (real ASN.1 PER), GTPv2-C, Diameter S6a/Gx |
+| [`ims-simulator/`](ims-simulator/) | IMS/VoLTE: P-CSCF, I-CSCF, S-CSCF, MTAS, MRFC/MRFP, IMS-HSS | SIP + SDP, Diameter Cx/Rx, H.248 |
 | [`5g-simulator/`](5g-simulator/) | 5G Core SBA: gNB, AMF, UDM, NRF | SBI/HTTP+JSON (Nudm/Nnrf per TS 29.5xx) |
+| [`cbrs-domain-proxy/`](cbrs-domain-proxy/) | CBRS: Domain Proxy + SAS stub + CBSD agent | WinnForum WINNF-TS-0016, JSON/TCP |
 
 Each subfolder has its own `README.md` with build/run instructions, an
 architecture diagram, and a `docs/INTERVIEW_QA.md` with a word-for-word
