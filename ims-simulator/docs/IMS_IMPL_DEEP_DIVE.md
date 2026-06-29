@@ -1,6 +1,7 @@
 # IMS Simulator — Implementation Deep Dive
 > Interview reference: threads, state machines, synchronization, encoder/decoder,
 > subscriber database, sockets, memory, scaling, failure modes.
+> Senior system design Q&A: HA, scaling, throttling, stateful vs stateless.
 
 ---
 
@@ -817,3 +818,700 @@ Prod:  SIP text over UDP/TCP/TLS (port 5060/5061)
 > create a dedicated QCI=1 bearer for that voice session. Voice RTP flows
 > on QCI=1 — priority guaranteed by the network — while background data
 > stays on QCI=9."
+
+---
+
+# Senior System Design Q&A — IMS / MTAS / SIP
+
+---
+
+## Q1. How would you design a high-availability SIP Application Server for 1 million VoLTE subscribers?
+
+### What our simulator does (baseline)
+
+```
+One process, one machine, 3 UEs, in-memory subscriber map.
+  std::map<string, ImsSubscriber> registry_;   // S-CSCF
+  std::map<string, CallState>     calls_;      // active calls
+Lost on restart. No redundancy. Fine for a demo.
+```
+
+### What production needs — layer by layer
+
+```
+Layer 1: SIP load balancer (Session Border Controller)
+  Receives all SIP from P-CSCF
+  Distributes to MTAS cluster using Call-ID hash
+  Ensures same dialog always hits same MTAS node
+  Example: Oracle SBC, Ribbon SBC, Cisco CUBE
+
+Layer 2: MTAS cluster (N active nodes)
+  Each node handles a slice of subscribers (hash by IMPU)
+  Each node is stateful — owns the dialog state for its slice
+  Node failure → SBC reroutes to a standby node that replays state
+
+Layer 3: Session state store (shared)
+  Redis cluster: stores CallState per Call-ID
+  On every state change (INVITE→GRANTED→ACTIVE→BYE):
+    MTAS writes to Redis atomically
+  If MTAS node dies: new node reads from Redis and continues
+  Redis replication: 3-node cluster, 1 primary 2 replicas
+
+Layer 4: Subscriber database (HSS)
+  Cassandra cluster: IMPU → subscriber profile, iFC, MSISDN
+  Replication factor 3 across data centres
+  Cache warm: each MTAS node caches subscriber profiles in local Redis
+  Cache miss: query Cassandra (50-100ms), cache for 1 hour
+
+Layer 5: Monitoring
+  Prometheus metrics per MTAS node: call rate, error rate, P99 latency
+  Alert if P99 > 500ms (SLA breach)
+  Auto-scale: Kubernetes HPA adds MTAS pods when CPU > 70%
+```
+
+### 1 million subscribers — rough sizing
+
+```
+1M subscribers, 5% busy hour = 50,000 concurrent calls
+Each call: ~6 SIP messages over 5 min = 0.02 msg/sec/call
+50,000 × 0.02 = 1,000 SIP messages/sec total
+
+One MTAS node (8-core, epoll+pool): ~50,000 msg/sec capacity
+→ 1,000 / 50,000 = 0.02 = 2% CPU on one node!
+→ Run 3 nodes for redundancy (any one can absorb the full load alone)
+
+HSS queries (registration, call setup):
+  50,000 call setups/hour = 14 queries/sec
+  Cassandra with Redis cache: trivial
+```
+
+### What to change in our code
+
+```cpp
+// Current: in-memory map, lost on restart
+std::map<std::string, CallState> calls_;
+
+// Production Step 1: Redis client for session state
+#include <hiredis/hiredis.h>
+void saveCallState(const CallState& cs) {
+    std::string key = "call:" + cs.call_id;
+    std::string val = serialize(cs);           // JSON or protobuf
+    redisCommand(redis_, "SET %s %s EX 3600",  // expire after 1 hour
+                 key.c_str(), val.c_str());
+}
+CallState loadCallState(const std::string& call_id) {
+    auto* r = (redisReply*)redisCommand(redis_,
+                                        "GET call:%s", call_id.c_str());
+    return deserialize(r->str);
+}
+```
+
+### SAY THIS
+
+> "For 1M VoLTE subscribers I would run a clustered MTAS behind a Session
+> Border Controller that does Call-ID-based hashing to ensure dialog affinity.
+> Each MTAS node owns a slice of subscribers and writes every state transition
+> to a Redis cluster so any node can take over on failure. Subscriber profiles
+> live in Cassandra with a local Redis cache to avoid a DB hit on every INVITE.
+> Three MTAS nodes each sized for the full 1M load gives N+2 redundancy —
+> any single node loss is transparent to users."
+
+---
+
+## Q2. Horizontal vs vertical scaling — how does MTAS scale?
+
+### Vertical scaling
+
+```
+Add more RAM and CPU to the existing machine.
+  Current: 4-core, 8 GB RAM
+  Upgraded: 32-core, 128 GB RAM
+
+Pros:  no code change needed, simple
+Cons:  hardware limit (you can't buy a machine with 10,000 cores)
+       single point of failure remains
+       expensive beyond a point
+
+When it helps our sim:
+  Right now S-CSCF is single-threaded (one receive loop)
+  Vertical scaling gives nothing — the bottleneck is the single thread
+  You would need to make S-CSCF multi-threaded first
+```
+
+### Horizontal scaling
+
+```
+Add more machines (or pods) running the same software.
+  Current: 1 MTAS process
+  Scaled:  10 MTAS processes on 10 machines
+
+Pros:  linear capacity increase
+       no single point of failure
+       can scale to any size
+Cons:  shared state problem — call state must be externalized (Redis)
+       load balancer needed
+       more complex operations
+```
+
+### How MTAS specifically scales
+
+```
+MTAS is STATEFUL → horizontal scaling needs session replication.
+
+Two approaches used in production:
+
+Approach A: Sticky routing (our sim's approach, extended)
+  SBC always routes call-id X to MTAS node Y (Call-ID hash)
+  Each MTAS node owns its slice exclusively
+  No shared state between nodes
+  Failure: SBC detects node Y down → reroutes to standby Y'
+           standby Y' replays state from Redis
+
+Approach B: Active-active with shared Redis
+  Any MTAS node can handle any call
+  Every state change written to Redis immediately
+  SBC distributes round-robin
+  More complex but better load distribution
+
+Ericsson MTAS in production:
+  Runs on Blade servers in pairs (active-standby per blade pair)
+  Blades share storage (HSS data, session state)
+  GeoRed: two sites, active-active across data centres
+  Site failure: all traffic routes to surviving site automatically
+```
+
+### What to change in our code
+
+```cpp
+// Current: S-CSCF is single-threaded, one receive loop
+void ScscfNode::receiveLoop() {
+    while (!stop_) {
+        recvFrame(pcscf_conn_, payload);
+        dispatch(payload);   // single thread handles everything
+    }
+}
+
+// Horizontal-ready: epoll + thread pool + sharded state
+// (same design as the 10,000 call architecture)
+// Each worker owns calls_[worker_id] — no shared mutex on hot path
+// Call-ID hash determines which worker and which Redis key prefix
+```
+
+### SAY THIS
+
+> "MTAS is a stateful component — it holds dialog state for every active call.
+> Vertical scaling hits a wall quickly and doesn't remove the single point of
+> failure. Horizontal scaling is the right answer but requires externalising
+> session state to Redis so any node can take over. In practice MTAS scales
+> horizontally behind a SBC that does Call-ID hashing for dialog affinity.
+> We add nodes as call volume grows — each new node handles a new slice of
+> subscribers and writes its state to the shared Redis cluster."
+
+---
+
+## Q3. SIP message throttling and overload control
+
+### Why it matters
+
+```
+Without throttling:
+  Burst of 100,000 SIP INVITEs arrives (flash crowd, DoS attempt)
+  MTAS queue fills up
+  Memory exhausted
+  Process crashes or all calls fail
+  Network outage for all 1M subscribers
+
+With throttling:
+  MTAS accepts what it can process
+  Rejects the rest cleanly with SIP 503
+  Caller retries after Retry-After header tells them when
+  System stays stable under overload
+```
+
+### Our simulator — no throttling (the gap)
+
+```cpp
+// Current acceptLoop — accepts every connection unconditionally
+void PcscfNode::acceptLoop() {
+    while (!stop_) {
+        Socket ue_sock = server_socket_.accept();
+        auto ses = std::make_shared<UeSession>();
+        ue_threads_.emplace_back([this, ses]{ ueReceiveLoop(ses.get()); });
+        // ↑ No limit. 10,000 connections → 10,000 threads → OOM
+    }
+}
+
+// Current work queue — unbounded
+std::queue<Task> queue_;   // grows forever under burst
+```
+
+### Token bucket — the standard algorithm
+
+```
+Token bucket:
+  Bucket holds max N tokens
+  Tokens refill at rate R tokens/second
+  Each incoming SIP message consumes 1 token
+  If bucket empty → reject with 503
+
+Example: N=1000, R=500/sec
+  Steady state: 500 INVITEs/sec → all accepted
+  Burst: 2000 INVITEs arrive in 1 second
+    First 1000: tokens available → accepted
+    Next 1000: bucket empty → 503 Retry-After: 2
+  After 2 seconds: bucket refilled → accepts again
+```
+
+```cpp
+// Add to PcscfNode or ScscfNode
+class TokenBucket {
+    std::atomic<int>  tokens_;
+    int               max_tokens_;
+    int               refill_rate_;   // per second
+    std::thread       refill_thread_;
+
+public:
+    TokenBucket(int max, int rate)
+        : tokens_(max), max_tokens_(max), refill_rate_(rate) {
+        refill_thread_ = std::thread([this]{
+            while (running_) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                int add = refill_rate_ / 10;
+                int cur = tokens_.load();
+                tokens_.store(std::min(cur + add, max_tokens_));
+            }
+        });
+    }
+
+    bool consume() {
+        int cur = tokens_.load();
+        while (cur > 0) {
+            if (tokens_.compare_exchange_weak(cur, cur - 1))
+                return true;  // token consumed
+        }
+        return false;  // bucket empty → reject
+    }
+};
+
+// In P-CSCF, before forwarding to S-CSCF:
+void handleFromUe(UeSession* ses, const std::vector<uint8_t>& payload) {
+    if (!throttle_.consume()) {
+        // send SIP 503 Service Unavailable back to UE
+        sendSip503(ses, "Retry-After: 2");
+        Logger::warn("PCSCF", "Throttled INVITE — bucket empty");
+        return;
+    }
+    sendToScscf(payload);
+}
+```
+
+### Overload levels — graduated response
+
+```
+Normal (< 70% CPU):     accept all
+Yellow (70-85% CPU):    reject new call setups (INVITE), accept in-call (BYE, ACK)
+Red    (85-95% CPU):    reject all new SIP requests
+Critical (> 95% CPU):  accept only BYE (let active calls finish, no new ones)
+
+SIP response codes:
+  503 Service Unavailable + Retry-After: N seconds  (try again in N sec)
+  480 Temporarily Unavailable                        (subscriber busy)
+  486 Busy Here                                      (callee busy)
+```
+
+### SAY THIS
+
+> "I would use a token bucket per MTAS node — tokens refill at the node's
+> sustainable processing rate, each incoming INVITE consumes one token, and
+> when the bucket is empty we return 503 with a Retry-After header. SIP
+> clients are required by RFC 3261 to honour Retry-After, so they back off
+> and retry — the system stays stable. I would also add graduated overload
+> levels: at yellow CPU we reject new call setups but still process BYE and
+> ACK for active calls, so existing subscribers are not affected. At red we
+> stop all new calls. Only at critical do we start dropping in-call traffic,
+> and that is the last resort."
+
+---
+
+## Q4. Stateless vs stateful SIP processing — which is MTAS?
+
+### Stateless SIP proxy
+
+```
+Does not remember anything between messages.
+Each message is processed independently.
+
+Example: a simple SIP proxy / I-CSCF
+  Receives INVITE
+  Looks up DNS NAPTR to find S-CSCF
+  Forwards INVITE
+  Forgets it ever saw the INVITE
+
+Pros: can scale infinitely (any instance handles any message)
+      no state to replicate or lose
+Cons: cannot do anything that requires context across messages
+      cannot implement call waiting (needs to know caller is in a call)
+      cannot do conference (needs to track all participants)
+```
+
+### Stateful SIP — dialog state
+
+```
+Remembers the entire dialog: from INVITE until BYE.
+
+Minimum state per dialog:
+  Call-ID        "call-AB-001"
+  From-tag       "tag-caller"
+  To-tag         "tag-callee"    ← set in 200 OK, identifies dialog
+  CSeq           current sequence number
+  Route set       list of proxies for in-dialog requests
+  Dialog state   EARLY / CONFIRMED / TERMINATED
+
+In our code (ScscfNode):
+  std::map<std::string, CallState> calls_;   // key = call_id
+  struct CallState {
+      caller_impu, callee_impu, call_id
+      on_hold, in_conference
+  };
+  Inserted on INVITE, updated on re-INVITE, erased on BYE.
+```
+
+### MTAS is stateful — and more than dialog state
+
+```
+MTAS (Multimedia Telephony Application Server) maintains:
+
+1. Dialog state (above) — standard SIP UA state
+2. Subscription state — which UEs are registered, their service profile
+3. Service state — per subscriber:
+     call_waiting_active: bool
+     call_forwarding_number: string
+     barring_flags: OIB, BAIC, BIC-Roam
+     conference_participants: vector<string>
+     hold_dialogs: vector<CallID>
+
+In our code (MtasState namespace + calls_ map in S-CSCF):
+
+  namespace MtasState {
+      std::set<std::string> barred;   // OIB barring state per IMPU
+  }
+
+  // inside ScscfNode::handleInvite():
+  if (MtasState::isBarred(caller_impu)) {
+      sendSip603(caller, "OIB barring active");
+      return;
+  }
+  // MTAS checked service state before allowing the call
+
+Why this matters for scaling:
+  Stateful = you cannot just add a new node and route any call to it
+  The new node has no state for in-flight calls
+  → Need Redis or session replication (see Q1 and Q2)
+```
+
+### Stateless components in our IMS (for comparison)
+
+```
+I-CSCF (not implemented in our sim but conceptually):
+  Stateless SIP proxy
+  Receives REGISTER, does UAR/UAA to HSS, picks S-CSCF, forwards
+  Receives INVITE for incoming calls, does LIR/LIA to HSS, forwards
+  Forgets everything after forwarding
+  Can be load balanced round-robin with no session affinity
+
+P-CSCF:
+  Mostly stateless for SIP routing
+  Does maintain UE socket mapping and call routing tables
+  But those are transport-level, not SIP dialog state
+```
+
+### SAY THIS
+
+> "A stateless SIP proxy processes each message in isolation — it can scale
+> horizontally with no session affinity because it has no memory of previous
+> messages. MTAS is stateful: it maintains dialog state from INVITE to BYE,
+> subscription state per registered UE, and service state — call waiting flags,
+> barring rules, conference participants. In our simulator this is the calls_
+> map in S-CSCF and the MtasState namespace for barring. Because MTAS is
+> stateful, horizontal scaling requires session replication to Redis so any
+> node can pick up a dialog mid-flight. You cannot just round-robin SIP
+> messages to a stateful AS — you need Call-ID hashing for dialog affinity."
+
+---
+
+## Q5. Call processing pipeline for an IMS AS — thread model, queue, stages
+
+### Our current pipeline (single-threaded, works for demo)
+
+```
+P-CSCF TCP socket
+    │
+    ▼
+ScscfNode::receiveLoop()          ← ONE thread does everything
+    │
+    ├── recvFrame()               STAGE 1: receive raw bytes
+    ├── MessageReader::msgType()  STAGE 2: decode TLV header
+    ├── switch(type)              STAGE 3: dispatch
+    │     ├── handleRegister()   STAGE 4A: process registration
+    │     ├── handleInvite()     STAGE 4B: process call setup
+    │     │     ├── invokeMtas() STAGE 4B-i:  MTAS service logic
+    │     │     ├── sendCxSAR()  STAGE 4B-ii: HSS query (BLOCKS)
+    │     │     └── routeToCallee()
+    │     └── handleBye()        STAGE 4C: call teardown
+    └── (back to recvFrame)
+
+Problem: HSS query at stage 4B-ii blocks the ENTIRE pipeline.
+While waiting for HSS response (5-50ms), no other messages processed.
+At 100 calls/sec: 100 × 50ms = 5000ms of blocked time per second.
+```
+
+### Production pipeline — staged, async, sharded
+
+```
+Stage 1: RECEIVE (1 epoll thread)
+  epoll_wait() on all sockets
+  Reads raw bytes into buffer
+  Enqueues to Stage 2 queue
+  Never blocks, never processes
+
+Stage 2: DECODE (N decode workers, stateless)
+  Read TLV frame from Stage 1 queue
+  Parse message type and all IEs
+  Extract Call-ID for routing
+  Push (call_id, parsed_msg) to Stage 3
+
+Stage 3: ROUTE / DISPATCH (1 router thread)
+  hash(call_id) % num_workers → picks worker N
+  Push to worker N's dedicated queue
+  Ensures all messages for one dialog go to same worker
+
+Stage 4: PROCESS (32 stateful workers, each owns a shard)
+  Worker N owns: calls_[N], barring_state_[N]
+  Processes messages for its shard — NO LOCK NEEDED
+  Service logic: invoke MTAS checks (synchronous, in-memory)
+  If HSS needed: fire async request to Stage 5, suspend this task
+
+Stage 5: HSS/DB POOL (8 threads, blocking allowed)
+  Execute Cassandra / Redis query
+  On result: re-enqueue task to Stage 4 worker that suspended it
+
+Stage 6: SEND (1 sender thread or per-worker)
+  Write response to P-CSCF socket
+```
+
+```
+In code (building on our epoll design):
+
+struct Task {
+    std::string         call_id;
+    SipMsgType          type;
+    ParsedSipMsg        msg;
+    std::promise<void>* continuation;  // for async HSS resume
+};
+
+// Stage 3: router
+void routerThread(WorkQueue& in, PerWorkerQueue workers[32]) {
+    while (true) {
+        Task t = in.pop();
+        int w = std::hash<std::string>{}(t.call_id) % 32;
+        workers[w].push(std::move(t));
+    }
+}
+
+// Stage 4: worker (owns shard w)
+void workerThread(int w, PerWorkerQueue& myQ, HssPool& hss) {
+    while (true) {
+        Task t = myQ.pop();
+        switch (t.type) {
+            case SIP_INVITE:
+                if (needsHssQuery(t)) {
+                    // ASYNC: don't block this worker
+                    hss.queryAsync(t.msg.impu, [&myQ, t](Profile p) mutable {
+                        t.profile = p;
+                        myQ.pushFront(t);   // re-enqueue with data
+                    });
+                    break;  // worker immediately takes next task
+                }
+                processInvite(w, t);
+                break;
+            case SIP_BYE:
+                processBye(w, t);
+                break;
+        }
+    }
+}
+```
+
+### What to add to our simulator to show this
+
+```cpp
+// In ScscfNode: replace single receive loop with staged dispatch
+// Minimum change: add a thread pool for INVITE processing
+// so HSS blocking doesn't stall REGISTER processing
+
+class ScscfNode {
+    ThreadPool   invite_pool_{8};   // parallel INVITE processing
+    ThreadPool   reg_pool_{4};      // parallel REGISTER + HSS
+
+    void receiveLoop() {
+        while (!stop_) {
+            recvFrame(pcscf_conn_, payload);
+            auto type = decodeType(payload);
+            if (type == SIP_INVITE) {
+                invite_pool_.submit([this, payload]{ handleInvite(payload); });
+            } else if (type == SIP_REGISTER) {
+                reg_pool_.submit([this, payload]{ handleRegister(payload); });
+            } else {
+                dispatch(type, payload);   // ACK/BYE are fast, inline is fine
+            }
+        }
+    }
+};
+// Now: 8 INVITEs process in parallel, HSS blocking in one does not stall others
+```
+
+### SAY THIS
+
+> "Our simulator uses a single receive loop — simple but the HSS query blocks
+> everything. For production I would use a staged pipeline: one epoll thread
+> receives all traffic, a router thread shards tasks by Call-ID hash to 32
+> stateful workers, and a separate HSS pool handles blocking DB queries
+> asynchronously so workers are never blocked. Workers own their shard of
+> call state — no mutex on the hot path. This gives linear throughput scaling
+> by adding workers and keeps P99 latency predictable even under burst load."
+
+---
+
+## Q6. Active-active vs active-standby HA — which is preferred for MTAS?
+
+### Active-standby
+
+```
+Setup:
+  Node A: PRIMARY — handles all traffic
+  Node B: STANDBY — receives replicated state, handles nothing
+
+Failover:
+  Node A dies (hardware failure, OOM, crash)
+  Load balancer detects failure (health check timeout ~3-10s)
+  Node B promoted to PRIMARY — starts handling traffic
+  Calls in-flight during failover: some drop (depends on replication lag)
+
+State replication:
+  Node A writes every state change to shared storage (Redis/NFS/DB)
+  Node B reads state from shared storage on promotion
+  Replication lag: 10-100ms typically
+
+Pros:
+  Simple — Node B never needs to process during normal operation
+  No shared-state race conditions (only one writer at a time)
+  Easy to reason about consistency
+
+Cons:
+  Node B is wasted capacity during normal operation
+  Failover takes 3-10 seconds (health check interval)
+  Calls in-flight during failover may drop
+
+Used by: Ericsson MTAS on blade servers (active-standby blade pairs)
+```
+
+### Active-active
+
+```
+Setup:
+  Node A: handles 50% of subscribers (hash range 0-499,999)
+  Node B: handles 50% of subscribers (hash range 500,000-999,999)
+  Both handle traffic simultaneously
+
+Failover:
+  Node A dies
+  Load balancer detects failure
+  Node B expands to handle ALL subscribers (0-999,999)
+  Node B reads Node A's state from Redis to serve Node A's calls
+
+Pros:
+  Both nodes used — no wasted capacity
+  Each node only needs to scale to handle the other's load
+  (each sized for 100% load, normally at 50%)
+  Failover is faster — Node B just expands its hash range
+
+Cons:
+  More complex — state must be shared between nodes in real time
+  Both nodes write to Redis — potential write conflicts
+  More expensive (two full-capacity nodes instead of one active + one standby)
+
+Used by: Nokia IMS (geo-redundant active-active across data centres)
+```
+
+### Which is preferred for MTAS?
+
+```
+The industry answer: IT DEPENDS on the deployment.
+
+Single data centre:
+  Active-standby is simpler and sufficient
+  MTAS is already complex — avoid additional shared-state complexity
+  Failover in 3-10s is acceptable for most operators
+
+Geo-redundant (two data centres):
+  Active-active is required — you WANT both sites handling traffic
+  A standby site doing nothing defeats the purpose of geo-redundancy
+  State replication via stretch Redis cluster or database replication
+  Ericsson IMS GeoRed uses active-active between sites
+
+For a candidate answer: say ACTIVE-STANDBY within a site,
+ACTIVE-ACTIVE across sites (geo-redundancy).
+```
+
+### What this means for our code
+
+```cpp
+// Our simulator: no HA at all
+// To add active-standby:
+
+// 1. All state writes go to Redis (not just in-memory map)
+void ScscfNode::handleInvite(const vector<uint8_t>& payload) {
+    // ... process ...
+    CallState cs{caller, callee, call_id};
+    calls_[call_id] = cs;                      // local
+    redis_.set("call:" + call_id, serialize(cs)); // replicated ✓
+}
+
+// 2. On startup (if I am the new primary after failover):
+void ScscfNode::restoreFromRedis() {
+    auto keys = redis_.keys("call:*");
+    for (auto& k : keys) {
+        CallState cs = deserialize(redis_.get(k));
+        calls_[cs.call_id] = cs;
+    }
+    Logger::sys("Restored " + to_string(calls_.size()) + " active calls from Redis");
+}
+
+// 3. Health check endpoint (load balancer pings this):
+// HTTP GET /health → 200 OK if serving, 503 if overloaded/starting
+```
+
+### SAY THIS
+
+> "For a single data centre I prefer active-standby for MTAS — it is simpler
+> to operate, Node B only needs to replay state from Redis on failover, and
+> there is only one writer so no consistency conflicts. Active-standby gives
+> ~5 second failover which is acceptable for most SLAs. For geo-redundancy
+> across two data centres I would use active-active, where each site handles
+> its region's traffic and the other site takes over on site failure. The key
+> enabler for both is externalising all session state to Redis — without that
+> neither HA model works because state lives only in the crashed process's
+> memory."
+
+---
+
+## Combined Interview Cheat Sheet
+
+| Question | One-line answer | Reference in our code |
+|---|---|---|
+| Design for 1M subscribers | Clustered MTAS + Redis session store + Cassandra HSS | `calls_` map → Redis, `registry_` → Cassandra |
+| Horizontal vs vertical | Horizontal preferred; needs session replication | `shared_mutex registry_mtx_` → Redis replication |
+| Throttling | Token bucket per node; SIP 503 + Retry-After | Add `TokenBucket throttle_` before `sendToScscf()` |
+| Stateful vs stateless | MTAS is stateful (dialog + service state) | `calls_` map, `MtasState::barred` set |
+| Call processing pipeline | epoll + staged workers sharded by Call-ID | `receiveLoop()` → add `ThreadPool invite_pool_` |
+| Active-active vs standby | Standby within site, active-active geo-redundant | All state writes → Redis `restoreFromRedis()` on boot |
