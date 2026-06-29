@@ -1,23 +1,31 @@
 // ============================================================
-// CBSD AGENT — Simulated Citizens Broadband Radio Service Device
+// CBSD AGENT — Simulated base station device
 //
-// A CBSD is the "smart" base station in a CBRS deployment:
-//   Category A: indoor/low-power (≤30 dBm EIRP, e.g. office small cell)
-//   Category B: outdoor/high-power (≤47 dBm EIRP, e.g. campus macro cell)
+// THREAD MAP:
+//   [main thread]  — CLI + sends/receives messages, named "main"
+//   No other threads — CBSD is simple: one command at a time.
 //
-// This agent simulates the CBSD firmware's SAS client:
-//   1. Connects to the Domain Proxy on port 8700
-//   2. Runs the full WinnForum SAS-CBSD protocol (WINNF-TS-0016)
-//   3. CLI lets you trigger each step manually — great for demos
+// FULL MESSAGE FLOW (what you see across all 3 terminals):
 //
-// Commands:
-//   REGISTER   — send RegistrationRequest (FCC ID, location, antenna info)
-//   GRANT      — send GrantRequest (desired frequency + bandwidth)
-//   HEARTBEAT  — send HeartbeatRequest (keep transmit window alive)
-//   RELINQUISH — voluntarily return the spectrum grant
-//   DEREGISTER — remove CBSD from SAS database
-//   STATUS     — show current state machine state
-//   QUIT       — disconnect
+//   cbsd_agent          domain_proxy            sas_stub
+//   [main]              [cbsd-conn0]            [dp-conn]
+//      │                     │                      │
+//      │── REGISTER ────────►│                      │
+//      │   (TCP, port 8700)  │── RegistrationReq ──►│
+//      │                     │                      │ assigns cbsdId
+//      │                     │◄── RegistrationResp ─│
+//      │◄── RegistrationResp ─│ (state: REGISTERED) │
+//      │                     │                      │
+//      │── GRANT ────────────►│                      │
+//      │                     │── GrantRequest ──────►│
+//      │                     │                      │ assigns grantId + channel
+//      │                     │◄── GrantResponse ────│
+//      │◄── GrantResponse ───│ (state: GRANTED)     │
+//      │                     │                      │
+//      │── HEARTBEAT ─────────►│                      │
+//      │                     │── HeartbeatRequest ──►│
+//      │                     │◄── HeartbeatResponse ─│
+//      │◄── HeartbeatResponse │ (state: AUTHORIZED)  │
 // ============================================================
 #include <iostream>
 #include <string>
@@ -31,21 +39,12 @@
 static std::atomic<bool> g_stop{false};
 static void sig_handler(int) { g_stop.store(true); }
 
-// ── CBSD configuration (command-line configurable) ──────────────────────────
 struct CbsdConfig {
-    std::string id;            // "CBSD-1", "CBSD-2", etc.
-    std::string fccId;         // FCC equipment authorization ID
-    std::string callSign;      // operator call sign
-    std::string category;      // "A" or "B"
-    double      latitude;
-    double      longitude;
-    double      heightMeters;
-    double      antennaGainDbi;
-    double      desiredFreqMHz;   // center freq the CBSD wants
-    double      desiredBwMHz;     // desired bandwidth
+    std::string id, fccId, callSign, category;
+    double latitude, longitude, heightMeters, antennaGainDbi;
+    double desiredFreqMHz, desiredBwMHz;
 };
 
-// ── Predefined CBSD profiles ─────────────────────────────────────────────────
 static std::map<std::string, CbsdConfig> CBSD_PROFILES = {
     {"1", {"CBSD-1", "FCC-DEVICE-001", "KA1ABC", "A",
            37.4219, -122.0841, 5.0, 6.0, 3555.0, 10.0}},
@@ -56,6 +55,7 @@ static std::map<std::string, CbsdConfig> CBSD_PROFILES = {
 };
 
 int main(int argc, char** argv) {
+    Logger::setThreadName("main");
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     Logger::setSessionFile("cbsd_session.log");
     Logger::setLevelFromEnv();
@@ -71,49 +71,43 @@ int main(int argc, char** argv) {
     }
     const CbsdConfig& cfg = CBSD_PROFILES.at(profileId);
 
-    std::cout << "\n"
-              << "  +==========================================+\n"
-              << "  |  CBSD Agent " << cfg.id << " — Category " << cfg.category << "\n"
-              << "  |  FCC ID:     " << cfg.fccId << "\n"
-              << "  |  Call Sign:  " << cfg.callSign << "\n"
-              << "  |  Location:   " << cfg.latitude << "," << cfg.longitude << "\n"
-              << "  |  Freq:       " << cfg.desiredFreqMHz << " MHz  BW:" << cfg.desiredBwMHz << " MHz\n"
-              << "  +==========================================+\n"
-              << "  Commands: REGISTER  GRANT  HEARTBEAT  RELINQUISH  DEREGISTER  STATUS  QUIT\n"
-              << "  ----------------------------------------\n\n" << std::flush;
+    std::cout
+        << "\n  +============================================+\n"
+        << "  |  CBSD Agent " << cfg.id << " — Category " << cfg.category << "\n"
+        << "  |  FCC ID:     " << cfg.fccId << "\n"
+        << "  |  Freq:       " << cfg.desiredFreqMHz << " MHz  BW:" << cfg.desiredBwMHz << " MHz\n"
+        << "  |  Thread:     main (single-threaded — one command at a time)\n"
+        << "  +============================================+\n"
+        << "  Commands: REGISTER  GRANT  HEARTBEAT  RELINQUISH  DEREGISTER  STATUS  QUIT\n\n";
 
-    Logger::cbsd(Logger::Level::INTERVIEW_T,
-        "[CBRS SPEC] CBSD = Citizens Broadband Radio Service Device. "
-        "Category A: max 30 dBm EIRP, indoor/low-power (small cells). "
-        "Category B: max 47 dBm EIRP, outdoor (macro cells). "
-        "FCC ID is the equipment authorization ID from the FCC OET ELS database. "
-        "All CBSDs must be certified for CBRS and GPS-capable (location required).");
+    Logger::sys("main thread — connecting to Domain Proxy on 127.0.0.1:8700 ...");
 
-    // Connect to Domain Proxy
     Socket conn;
     try {
         conn = Socket::connectTo("127.0.0.1", 8700);
     } catch (const std::exception& ex) {
-        std::cerr << "  Cannot connect to Domain Proxy on port 8700. "
-                  << "Start domain_proxy first!\n";
+        std::cerr << "Cannot connect to Domain Proxy on port 8700. Start it first!\n";
         return 1;
     }
-    std::cout << "  Connected to Domain Proxy ✓\n\n" << std::flush;
+    Logger::sys("Connected to Domain Proxy ✓");
+    Logger::sys("All messages go: cbsd_agent ──TCP:8700──► domain_proxy ──TCP:8800──► sas_stub");
 
-    // State tracking
     SpectrumState state = SpectrumState::UNREGISTERED;
     std::string cbsdId, grantId;
     double grantFreq = 0, grantBw = 0, maxEirp = 0;
 
     auto printState = [&]() {
-        std::cout << "\n  ┌── CBSD STATUS ─────────────────────────────\n"
-                  << "  │  cbsdId:  " << (cbsdId.empty() ? "(not assigned)" : cbsdId) << "\n"
-                  << "  │  state:   " << stateToString(state) << "\n";
+        std::cout
+            << "\n  ┌── CBSD STATE ──────────────────────────────────\n"
+            << "  │  thread:  main  (single-threaded agent)\n"
+            << "  │  cbsdId:  " << (cbsdId.empty() ? "(not yet assigned by SAS)" : cbsdId) << "\n"
+            << "  │  state:   " << stateToString(state) << "\n";
         if (!grantId.empty())
-            std::cout << "  │  grantId: " << grantId << "\n"
-                      << "  │  channel: " << grantFreq << " MHz  BW:" << grantBw
-                      << " MHz  maxEirp:" << maxEirp << " dBm\n";
-        std::cout << "  └─────────────────────────────────────────────\n\n";
+            std::cout
+                << "  │  grantId: " << grantId << "\n"
+                << "  │  channel: " << grantFreq << " MHz  BW:" << grantBw
+                << " MHz  maxEirp:" << maxEirp << " dBm\n";
+        std::cout << "  └───────────────────────────────────────────────\n\n";
     };
 
     std::string line;
@@ -124,117 +118,142 @@ int main(int argc, char** argv) {
 
         std::string resp;
 
+        // ── REGISTER ─────────────────────────────────────────────────────
         if (line == "REGISTER" || line == "register") {
-            // ── Step 1: Registration ────────────────────────────────────────
             if (state != SpectrumState::UNREGISTERED) {
-                std::cout << "  Already registered (cbsdId=" << cbsdId << ")\n";
+                std::cout << "  Already registered (cbsdId=" << cbsdId << ").\n";
                 std::cout << cfg.id << "> " << std::flush; continue;
             }
-            std::cout << "  → RegistrationRequest\n" << std::flush;
-            Logger::cbsd(Logger::Level::BEGINNER,
-                "Sending RegistrationRequest: FCC ID=" + cfg.fccId +
-                " category=" + cfg.category + " location=(" +
-                std::to_string(cfg.latitude) + "," + std::to_string(cfg.longitude) + ")");
-            Logger::ie_field("  fccId:        " + cfg.fccId + "  ← FCC equipment auth ID");
-            Logger::ie_field("  callSign:     " + cfg.callSign + "  ← operator call sign");
-            Logger::ie_field("  cbsdCategory: " + cfg.category + "  ← A(≤30dBm) or B(≤47dBm)");
-            Logger::ie_field("  latitude:     " + std::to_string(cfg.latitude));
-            Logger::ie_field("  longitude:    " + std::to_string(cfg.longitude));
-            Logger::ie_field("  height:       " + std::to_string(cfg.heightMeters) + " m AGL");
-            Logger::ie_field("  antennaGain:  " + std::to_string(cfg.antennaGainDbi) + " dBi");
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "main thread sending RegistrationRequest to Domain Proxy");
+            Logger::cbsd(Logger::Level::ENGINEER, "  Fields being sent:");
+            Logger::ie_field("fccId:          " + cfg.fccId);
+            Logger::ie_field("callSign:       " + cfg.callSign);
+            Logger::ie_field("cbsdCategory:   " + cfg.category);
+            Logger::ie_field("radioTechnology:NR");
+            Logger::ie_field("latitude:       " + std::to_string(cfg.latitude));
+            Logger::ie_field("longitude:      " + std::to_string(cfg.longitude));
+            Logger::ie_field("height:         " + std::to_string(cfg.heightMeters) + " m AGL");
+            Logger::ie_field("antennaGain:    " + std::to_string(cfg.antennaGainDbi) + " dBi");
+
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "──────────────────────────► DP: RegistrationRequest  (blocking send+recv)");
 
             std::string req = json::obj({
-                {"type",           json::str("RegistrationRequest")},
-                {"fccId",          json::str(cfg.fccId)},
-                {"callSign",       json::str(cfg.callSign)},
-                {"cbsdCategory",   json::str(cfg.category)},
-                {"radioTechnology",json::str("NR")},
-                {"latitude",       json::flt(cfg.latitude)},
-                {"longitude",      json::flt(cfg.longitude)},
-                {"height",         json::flt(cfg.heightMeters)},
-                {"heightType",     json::str("AGL")},
-                {"antennaGain",    json::flt(cfg.antennaGainDbi)},
-                {"measCapability", json::str("RECEIVED_POWER_WITH_GRANT")},
+                {"type",            json::str("RegistrationRequest")},
+                {"fccId",           json::str(cfg.fccId)},
+                {"callSign",        json::str(cfg.callSign)},
+                {"cbsdCategory",    json::str(cfg.category)},
+                {"radioTechnology", json::str("NR")},
+                {"latitude",        json::flt(cfg.latitude)},
+                {"longitude",       json::flt(cfg.longitude)},
+                {"height",          json::flt(cfg.heightMeters)},
+                {"heightType",      json::str("AGL")},
+                {"antennaGain",     json::flt(cfg.antennaGainDbi)},
+                {"measCapability",  json::str("RECEIVED_POWER_WITH_GRANT")},
             });
             sendMsg(conn, req);
             if (!recvMsg(conn, resp)) break;
+
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "◄────────────────────────── DP: RegistrationResponse  received");
 
             cbsdId = json::get(resp, "cbsdId");
             std::string rc = json::get(resp, "responseCode");
-            if (rc == "0" || cbsdId.size() > 0) {
+
+            Logger::cbsd(Logger::Level::ENGINEER, "  Fields received:");
+            Logger::ie_field("cbsdId:       " + cbsdId +
+                             "  ← SAS assigned this; include in ALL future messages");
+            Logger::ie_field("responseCode: " + rc +
+                             (rc == "0" ? "  (SUCCESS)" : "  (FAILURE)"));
+
+            if (rc == "0" || !cbsdId.empty()) {
+                std::string prev = stateToString(state);
                 state = SpectrumState::REGISTERED;
-                std::cout << "\n  ╔══════════════════════════════════════╗\n"
-                          << "  ║  ✓ REGISTERED  cbsdId=" << cbsdId << "\n"
-                          << "  ╚══════════════════════════════════════╝\n\n" << std::flush;
-                Logger::cbsd(Logger::Level::BEGINNER,
-                    "Registration complete. Can now request spectrum (type GRANT).");
+                Logger::sys("STATE: " + prev + "  ──►  REGISTERED  [cbsdId=" + cbsdId + "]");
+                std::cout << "\n  ✓ REGISTERED  cbsdId=" << cbsdId
+                          << "\n  Next: type GRANT to request spectrum\n\n";
             } else {
-                std::cout << "  ✗ Registration failed: " << resp << "\n";
+                Logger::warn("CBSD", "Registration failed: " + resp);
             }
 
+        // ── GRANT ─────────────────────────────────────────────────────────
         } else if (line == "GRANT" || line == "grant") {
-            // ── Step 2: Grant Request ────────────────────────────────────────
             if (state != SpectrumState::REGISTERED) {
-                std::cout << "  Must be REGISTERED first. Current: " << stateToString(state) << "\n";
+                std::cout << "  Must REGISTER first. Current: " << stateToString(state) << "\n";
                 std::cout << cfg.id << "> " << std::flush; continue;
             }
-            std::cout << "  → GrantRequest  freq=" << cfg.desiredFreqMHz
-                      << " MHz  BW=" << cfg.desiredBwMHz << " MHz\n" << std::flush;
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "main thread sending GrantRequest to Domain Proxy");
+            Logger::cbsd(Logger::Level::ENGINEER, "  Fields being sent:");
+            Logger::ie_field("cbsdId:               " + cbsdId);
+            Logger::ie_field("operationFrequencyMHz:" + std::to_string(cfg.desiredFreqMHz) +
+                             " MHz");
+            Logger::ie_field("operationBandwidthMHz:" + std::to_string(cfg.desiredBwMHz) +
+                             " MHz");
+            Logger::ie_field("maxEirp:              " +
+                             std::to_string(cfg.category == "A" ? 30 : 47) +
+                             " dBm  ← Cat-A cap=30, Cat-B cap=47");
 
-            Logger::cbsd(Logger::Level::BEGINNER,
-                "Requesting spectrum: " + std::to_string(cfg.desiredFreqMHz) +
-                " MHz center, " + std::to_string(cfg.desiredBwMHz) + " MHz bandwidth");
-            Logger::cbsd(Logger::Level::INTERVIEW_T,
-                "[CBRS SPEC] CBRS operates in 3550-3700 MHz (150 MHz). "
-                "PAL channels: 3550-3620 MHz (7×10 MHz blocks, licensed). "
-                "GAA channels: entire band, opportunistic. "
-                "SAS picks the best available channel based on interference coordination.");
-            Logger::ie_field("  operationFrequencyMHz: " + std::to_string(cfg.desiredFreqMHz));
-            Logger::ie_field("  operationBandwidthMHz: " + std::to_string(cfg.desiredBwMHz));
-            Logger::ie_field("  maxEirp: 30 dBm (Cat-A) — SAS will enforce this cap");
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "──────────────────────────► DP: GrantRequest");
 
             std::string req = json::obj({
-                {"type",                    json::str("GrantRequest")},
-                {"cbsdId",                  json::str(cbsdId)},
-                {"operationFrequencyMHz",   json::flt(cfg.desiredFreqMHz)},
-                {"operationBandwidthMHz",   json::flt(cfg.desiredBwMHz)},
-                {"maxEirp",                 json::num(cfg.category == "A" ? 30 : 47)},
+                {"type",                  json::str("GrantRequest")},
+                {"cbsdId",                json::str(cbsdId)},
+                {"operationFrequencyMHz", json::flt(cfg.desiredFreqMHz)},
+                {"operationBandwidthMHz", json::flt(cfg.desiredBwMHz)},
+                {"maxEirp",               json::num(cfg.category == "A" ? 30 : 47)},
             });
             sendMsg(conn, req);
             if (!recvMsg(conn, resp)) break;
+
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "◄────────────────────────── DP: GrantResponse  received");
 
             grantId = json::get(resp, "grantId");
             try { grantFreq = std::stod(json::get(resp, "operationFrequencyMHz")); } catch (...) {}
             try { grantBw   = std::stod(json::get(resp, "operationBandwidthMHz")); } catch (...) {}
             try { maxEirp   = std::stod(json::get(resp, "maxEirp")); } catch (...) {}
             std::string rc = json::get(resp, "responseCode");
+
+            Logger::cbsd(Logger::Level::ENGINEER, "  Fields received:");
+            Logger::ie_field("grantId:             " + grantId);
+            Logger::ie_field("channelType:         " + json::get(resp, "channelType") +
+                             "  ← GAA=free  PAL=licensed");
+            Logger::ie_field("operationFrequencyMHz:" + std::to_string(grantFreq) + " MHz");
+            Logger::ie_field("operationBandwidthMHz:" + std::to_string(grantBw) + " MHz");
+            Logger::ie_field("maxEirp:             " + std::to_string(maxEirp) + " dBm");
+            Logger::ie_field("heartbeatInterval:   " + json::get(resp, "heartbeatInterval") +
+                             " s  ← send HEARTBEAT within this window or grant is TERMINATED");
+            Logger::ie_field("responseCode:        " + rc);
+
             if (rc == "0" || !grantId.empty()) {
+                std::string prev = stateToString(state);
                 state = SpectrumState::GRANTED;
-                std::cout << "\n  ╔══════════════════════════════════════╗\n"
-                          << "  ║  ✓ GRANTED  grantId=" << grantId << "\n"
-                          << "  ║  freq=" << grantFreq << " MHz  BW=" << grantBw
-                          << " MHz  maxEirp=" << maxEirp << " dBm\n"
-                          << "  ╚══════════════════════════════════════╝\n"
-                          << "  → Type HEARTBEAT to start transmitting\n\n" << std::flush;
-            } else {
-                std::cout << "  ✗ Grant failed: " << resp << "\n";
+                Logger::sys("STATE: " + prev + "  ──►  GRANTED  [grantId=" + grantId + "]");
+                std::cout << "\n  ✓ GRANTED  grantId=" << grantId
+                          << "  freq=" << grantFreq << " MHz  bw=" << grantBw << " MHz"
+                          << "\n  Next: type HEARTBEAT to start transmitting\n\n";
             }
 
+        // ── HEARTBEAT ─────────────────────────────────────────────────────
         } else if (line == "HEARTBEAT" || line == "heartbeat") {
-            // ── Step 3: Heartbeat ─────────────────────────────────────────────
             if (state != SpectrumState::GRANTED && state != SpectrumState::AUTHORIZED) {
-                std::cout << "  Need an active grant first. Type GRANT.\n";
+                std::cout << "  Need an active grant. Type GRANT first.\n";
                 std::cout << cfg.id << "> " << std::flush; continue;
             }
             std::string opState = (state == SpectrumState::AUTHORIZED) ? "AUTHORIZED" : "GRANTED";
-            std::cout << "  → HeartbeatRequest  operationState=" << opState << "\n" << std::flush;
-            Logger::cbsd(Logger::Level::BEGINNER,
-                "Heartbeat sent — refreshes transmit window. Miss it and SAS revokes grant!");
-            Logger::cbsd(Logger::Level::INTERVIEW_T,
-                "[CBRS SPEC] Heartbeat proves the CBSD is still alive and at its registered "
-                "location. heartbeatInterval = 120s (SAS-controlled). Missing a heartbeat: "
-                "SAS sends TERMINATED_GRANT and CBSD must stop TX within 60s (Move List timer). "
-                "ESC sensors can also force immediate heartbeat in emergency.");
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "main thread sending HeartbeatRequest  (operationState=" + opState + ")");
+            Logger::cbsd(Logger::Level::ENGINEER, "  Fields being sent:");
+            Logger::ie_field("cbsdId:         " + cbsdId);
+            Logger::ie_field("grantId:        " + grantId);
+            Logger::ie_field("operationState: " + opState +
+                             "  ← tells SAS if we're ready-to-TX or already-TX");
+
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "──────────────────────────► DP: HeartbeatRequest");
 
             std::string req = json::obj({
                 {"type",           json::str("HeartbeatRequest")},
@@ -244,21 +263,38 @@ int main(int argc, char** argv) {
             });
             sendMsg(conn, req);
             if (!recvMsg(conn, resp)) break;
-            state = SpectrumState::AUTHORIZED;
-            std::cout << "\n  ╔══════════════════════════════════════╗\n"
-                      << "  ║  ✓ AUTHORIZED — CBSD is transmitting\n"
-                      << "  ║  on " << grantFreq << " MHz  (NR 5G private network)\n"
-                      << "  ╚══════════════════════════════════════╝\n\n" << std::flush;
 
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "◄────────────────────────── DP: HeartbeatResponse  received");
+
+            std::string txExpire = json::get(resp, "transmitExpireTime");
+            std::string hbInt    = json::get(resp, "heartbeatInterval");
+
+            Logger::cbsd(Logger::Level::ENGINEER, "  Fields received:");
+            Logger::ie_field("transmitExpireTime: " + txExpire +
+                             " s  ← TX window renewed; must heartbeat again before this expires");
+            Logger::ie_field("heartbeatInterval:  " + hbInt + " s");
+            Logger::ie_field("responseCode:       " + json::get(resp, "responseCode"));
+
+            std::string prev = stateToString(state);
+            state = SpectrumState::AUTHORIZED;
+            Logger::sys("STATE: " + prev + "  ──►  AUTHORIZED  [CBSD is now transmitting]");
+            std::cout << "\n  ✓ AUTHORIZED — transmitting on " << grantFreq << " MHz\n\n";
+
+        // ── RELINQUISH ────────────────────────────────────────────────────
         } else if (line == "RELINQUISH" || line == "relinquish") {
-            // ── Step 4: Relinquishment ────────────────────────────────────────
             if (grantId.empty()) {
-                std::cout << "  No active grant to relinquish.\n";
+                std::cout << "  No active grant.\n";
                 std::cout << cfg.id << "> " << std::flush; continue;
             }
-            std::cout << "  → RelinquishmentRequest  grantId=" << grantId << "\n" << std::flush;
-            Logger::cbsd(Logger::Level::BEGINNER,
-                "Voluntarily returning spectrum grant — frees channel for other CBSDs");
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "Sending RelinquishmentRequest — voluntarily returning spectrum");
+            Logger::cbsd(Logger::Level::ENGINEER, "  Fields being sent:");
+            Logger::ie_field("cbsdId:  " + cbsdId);
+            Logger::ie_field("grantId: " + grantId + "  ← the grant being returned");
+
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "──────────────────────────► DP: RelinquishmentRequest");
 
             std::string req = json::obj({
                 {"type",    json::str("RelinquishmentRequest")},
@@ -267,30 +303,48 @@ int main(int argc, char** argv) {
             });
             sendMsg(conn, req);
             if (!recvMsg(conn, resp)) break;
+
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "◄────────────────────────── DP: RelinquishmentResponse");
+
+            std::string prev = stateToString(state);
             grantId.clear(); grantFreq = 0; grantBw = 0; maxEirp = 0;
             state = SpectrumState::REGISTERED;
-            std::cout << "  ✓ Grant relinquished — state=REGISTERED\n\n" << std::flush;
+            Logger::sys("STATE: " + prev + "  ──►  REGISTERED  [grant cleared locally]");
+            std::cout << "  ✓ Grant relinquished — spectrum returned to SAS pool\n\n";
 
+        // ── DEREGISTER ────────────────────────────────────────────────────
         } else if (line == "DEREGISTER" || line == "deregister") {
-            // ── Step 5: Deregistration ────────────────────────────────────────
             if (cbsdId.empty()) {
                 std::cout << "  Not registered.\n";
                 std::cout << cfg.id << "> " << std::flush; continue;
             }
-            std::cout << "  → DeregistrationRequest  cbsdId=" << cbsdId << "\n" << std::flush;
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "Sending DeregistrationRequest — removing CBSD from SAS");
+            Logger::cbsd(Logger::Level::ENGINEER, "  Fields being sent:");
+            Logger::ie_field("cbsdId: " + cbsdId);
+
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "──────────────────────────► DP: DeregistrationRequest");
+
             std::string req = json::obj({
                 {"type",   json::str("DeregistrationRequest")},
                 {"cbsdId", json::str(cbsdId)},
             });
             sendMsg(conn, req);
             if (!recvMsg(conn, resp)) break;
+
+            Logger::cbsd(Logger::Level::ENGINEER,
+                "◄────────────────────────── DP: DeregistrationResponse");
+
+            std::string prev = stateToString(state);
             cbsdId.clear(); grantId.clear();
             state = SpectrumState::UNREGISTERED;
-            std::cout << "  ✓ Deregistered — state=UNREGISTERED\n\n" << std::flush;
+            Logger::sys("STATE: " + prev + "  ──►  UNREGISTERED");
+            std::cout << "  ✓ Deregistered\n\n";
 
         } else if (line == "STATUS" || line == "status") {
             printState();
-
         } else if (line == "QUIT" || line == "quit") {
             break;
         } else {
@@ -300,6 +354,7 @@ int main(int argc, char** argv) {
         std::cout << cfg.id << "> " << std::flush;
     }
 
+    Logger::sys("main thread exiting");
     Logger::shutdown();
     return 0;
 }

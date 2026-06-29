@@ -1,27 +1,24 @@
 // ============================================================
-// DOMAIN PROXY — CBRS middleware between CBSDs and the SAS
+// DOMAIN PROXY — CBRS middlebox between CBSDs and the SAS
 //
-// Architecture:
+// THREAD MAP (read this first):
 //
-//   CBSD-1 ──TCP:8700──► Domain Proxy ──TCP:8800──► SAS
-//   CBSD-2 ──TCP:8700──►    (this file)
-//   CBSD-N ──TCP:8700──►
+//   [main thread]        — CLI (STATUS / QUIT), startup, named "main"
+//   [accept thread]      — accept() loop, one per process, named "accept"
+//   [cbsd-N thread]      — one per connected CBSD, named "cbsd-{cbsdId}"
+//                          before registration: "cbsd-conn{N}"
 //
-// Role: The Domain Proxy aggregates multiple CBSDs and presents
-// them to the SAS as a single entity.  A real DP runs at a
-// cell tower or indoor deployment and may manage 10–100 CBSDs.
+// SHARED STATE (who touches what):
 //
-// What this file implements (matching the resume):
-//   1. CBSD Registration handler      — validates and forwards RegistrationRequest
-//   2. SAS grant request/response     — forwards GrantRequest, stores grant state
-//   3. Spectrum allocation state machine — enforces valid transitions
-//   4. TCP socket communication       — accept() loop + per-CBSD thread
+//   g_registry      — all cbsd threads read+write (protected by registry mutex)
+//   g_sas_sock      — all cbsd threads use it (protected by g_sas_mtx)
+//   g_sas_mtx       — serialises SAS socket: only ONE cbsd thread talks to
+//                     SAS at a time (one TCP connection, not thread-safe)
 //
-// C++ design patterns used (Radisys interview topics):
-//   - RAII:       Socket class closes fd in destructor
-//   - Mutex:      CbsdRegistry protected by std::mutex (shared state)
-//   - Thread pool: one thread per CBSD connection (std::thread::detach)
-//   - State machine: SpectrumState enum enforced before SAS forward
+// WHY ONE SAS CONNECTION?
+//   Real DPs batch multiple CBSDs into one HTTPS call (JSON arrays).
+//   Here we keep one TCP socket and serialise with a mutex — simpler to
+//   learn, same correctness.  The mutex wait is visible in the logs.
 // ============================================================
 #include <iostream>
 #include <thread>
@@ -33,16 +30,19 @@
 #include "proxy/cbsd_registry.h"
 #include "proxy/spectrum_state.h"
 
-static CbsdRegistry g_registry;
-static std::mutex   g_sas_mtx;   // only one thread talks to SAS at a time
-static Socket       g_sas_sock;  // persistent TCP connection to SAS
+static CbsdRegistry      g_registry;
+static std::mutex         g_sas_mtx;
+static Socket             g_sas_sock;
+static std::atomic<int>   g_conn_counter{0};  // gives each thread a short numeric name
 
-// ── Connect to SAS once at startup ─────────────────────────────────────────
+// ── Connect to SAS once at startup (called from main thread) ────────────────
 static bool connectToSas(const char* host, uint16_t port) {
+    Logger::sys("Connecting to SAS at " + std::string(host) + ":" + std::to_string(port) + " ...");
     try {
         g_sas_sock = Socket::connectTo(host, port);
-        Logger::sys("DP: Connected to SAS at " + std::string(host) +
-                    ":" + std::to_string(port));
+        Logger::sys("Connected to SAS ✓  (persistent TCP — shared by all CBSD threads)");
+        Logger::sys("g_sas_sock shared state: all cbsd-N threads use this one socket");
+        Logger::sys("g_sas_mtx: ensures only ONE cbsd-N thread sends/receives at a time");
         return true;
     } catch (const std::exception& ex) {
         Logger::warn("DP", std::string("Cannot reach SAS: ") + ex.what());
@@ -50,101 +50,203 @@ static bool connectToSas(const char* host, uint16_t port) {
     }
 }
 
-// ── Forward one JSON message to SAS, return the SAS response ───────────────
-// Thread-safe: only one CBSD sends to SAS at a time (g_sas_mtx).
-// Real DP batches multiple CBSD requests in one SAS HTTP call to reduce
-// latency.  Here we serialize for simplicity.
-static std::string forwardToSas(const std::string& req) {
+// ── Forward one message to SAS and wait for the response ───────────────────
+// Called from a cbsd-N thread.  Acquires g_sas_mtx so no other cbsd thread
+// can interleave its own SAS send/receive while we're mid-conversation.
+static std::string forwardToSas(const std::string& req, const std::string& msgType) {
+    Logger::dp(Logger::Level::ENGINEER,
+        "⟳  waiting for g_sas_mtx (other cbsd threads may be using SAS)...");
+
     std::lock_guard<std::mutex> lk(g_sas_mtx);
+    // ── inside the lock ────────────────────────────────────────────────────
+    Logger::dp(Logger::Level::ENGINEER,
+        "✓  g_sas_mtx acquired — sending " + msgType + " to SAS");
+    Logger::dp(Logger::Level::ENGINEER, "──────────────────────────► SAS: " + msgType);
+
     sendMsg(g_sas_sock, req);
+
     std::string resp;
     recvMsg(g_sas_sock, resp);
+
+    std::string respType = json::get(resp, "type");
+    Logger::dp(Logger::Level::ENGINEER, "◄────────────────────────── SAS: " + respType);
+    Logger::dp(Logger::Level::ENGINEER,
+        "✓  g_sas_mtx releasing — next cbsd thread can use SAS");
+    // ── lock released here (lock_guard destructor) ─────────────────────────
     return resp;
 }
 
-// ── Per-CBSD connection handler ──────────────────────────────────────────────
-// Runs in its own thread.  Receives CBRS messages from one CBSD, validates
-// the state machine transition, forwards to SAS, returns response.
-static void handleCbsd(Socket cbsdSock) {
-    std::string myCbsdId;  // assigned by SAS after registration
+// ── Per-CBSD connection handler — runs in its own thread ───────────────────
+static void handleCbsd(Socket cbsdSock, int connId) {
+    // Name this thread so it appears in all log lines while it runs.
+    // Before registration we use "cbsd-conn1", "cbsd-conn2" etc.
+    // After SAS assigns a cbsdId we rename to "cbsd-CBSD-SAS-1" etc.
+    std::string threadLabel = "cbsd-conn" + std::to_string(connId);
+    Logger::setThreadName(threadLabel);
 
-    Logger::dp(Logger::Level::BEGINNER,
-        "New CBSD connected. Waiting for RegistrationRequest...");
-    Logger::dp(Logger::Level::INTERVIEW_T,
-        "[CBRS SPEC] CBSD must always register before requesting spectrum. "
-        "The Domain Proxy enforces this order (state machine check) BEFORE "
-        "forwarding to SAS — saves a round-trip to the cloud SAS server.");
+    std::string myCbsdId;
+
+    Logger::sys("Thread started — waiting for first message from CBSD");
+    Logger::sys("This thread handles exactly ONE CBSD for its entire lifetime");
 
     while (true) {
+        // ── Receive next message from the CBSD ───────────────────────────
         std::string req;
         if (!recvMsg(cbsdSock, req)) {
-            Logger::sys("DP: CBSD " + (myCbsdId.empty() ? "?" : myCbsdId) + " disconnected");
-            if (!myCbsdId.empty()) g_registry.remove(myCbsdId);
+            std::string who = myCbsdId.empty() ? threadLabel : myCbsdId;
+            Logger::sys("CBSD " + who + " disconnected (recv returned false)");
+            if (!myCbsdId.empty()) {
+                g_registry.remove(myCbsdId);
+                Logger::sys("Removed " + myCbsdId + " from registry");
+            }
             break;
         }
 
         std::string type = json::get(req, "type");
-        Logger::dp(Logger::Level::ENGINEER, "← " + type +
-                   (myCbsdId.empty() ? "" : "  [cbsdId=" + myCbsdId + "]"));
+        Logger::dp(Logger::Level::ENGINEER,
+            "◄── CBSD sent: " + type +
+            (myCbsdId.empty() ? "" : "  [cbsdId=" + myCbsdId + "]"));
 
-        // ── State machine guard ─────────────────────────────────────────────
-        // Enforce legal transitions BEFORE talking to SAS.
-        // This is the "spectrum allocation state machine" from the resume.
+        // ── Read the current state for this CBSD ─────────────────────────
         CbsdInfo info;
         if (!myCbsdId.empty()) g_registry.get(myCbsdId, info);
+        std::string curState = stateToString(info.state);
 
-        if (type == "GrantRequest" &&
-            info.state != SpectrumState::REGISTERED) {
-            Logger::warn("DP", "GrantRequest rejected: state=" +
-                         stateToString(info.state) + " (must be REGISTERED first)");
+        // ── STATE MACHINE GUARD ──────────────────────────────────────────
+        // Reject illegal transitions BEFORE contacting SAS.
+        // This saves a round-trip to the cloud if the CBSD is out-of-order.
+        if (type == "GrantRequest" && info.state != SpectrumState::REGISTERED) {
+            Logger::warn("DP",
+                "GrantRequest REJECTED — current state=" + curState +
+                " (must be REGISTERED).  Not forwarding to SAS.");
             std::string err = json::obj({
                 {"type",     json::str("GrantResponse")},
                 {"response", json::obj({{"responseCode",    json::num(103)},
-                                        {"responseMessage", json::str("Out-of-order: must be REGISTERED")}})}
+                                        {"responseMessage", json::str("Must be REGISTERED first")}})}
             });
             sendMsg(cbsdSock, err);
+            Logger::dp(Logger::Level::ENGINEER, "──► CBSD: GrantResponse [error, not forwarded]");
             continue;
         }
         if (type == "HeartbeatRequest" &&
             info.state != SpectrumState::GRANTED &&
             info.state != SpectrumState::AUTHORIZED) {
-            Logger::warn("DP", "Heartbeat rejected: no active grant");
+            Logger::warn("DP",
+                "HeartbeatRequest REJECTED — no active grant (state=" + curState + ")");
             std::string err = json::obj({
                 {"type",     json::str("HeartbeatResponse")},
                 {"response", json::obj({{"responseCode",    json::num(400)},
                                         {"responseMessage", json::str("TERMINATED_GRANT")}})}
             });
             sendMsg(cbsdSock, err);
+            Logger::dp(Logger::Level::ENGINEER, "──► CBSD: HeartbeatResponse [error]");
             continue;
         }
 
-        // ── Forward to SAS ─────────────────────────────────────────────────
-        Logger::dp(Logger::Level::ENGINEER, "→ SAS: " + type);
-        std::string resp = forwardToSas(req);
-        Logger::dp(Logger::Level::ENGINEER, "← SAS: " + resp);
+        // ── Print fields of the incoming message ──────────────────────────
+        if (type == "RegistrationRequest") {
+            Logger::dp(Logger::Level::ENGINEER, "  Fields received from CBSD:");
+            Logger::ie_field("fccId:          " + json::get(req, "fccId") +
+                             "  ← FCC equipment authorization ID");
+            Logger::ie_field("callSign:       " + json::get(req, "callSign") +
+                             "  ← FCC operator call sign");
+            Logger::ie_field("cbsdCategory:   " + json::get(req, "cbsdCategory") +
+                             "  ← A=indoor(≤30dBm)  B=outdoor(≤47dBm)");
+            Logger::ie_field("radioTechnology:" + json::get(req, "radioTechnology"));
+            Logger::ie_field("latitude:       " + json::get(req, "latitude"));
+            Logger::ie_field("longitude:      " + json::get(req, "longitude"));
+            Logger::ie_field("height:         " + json::get(req, "height") + " m AGL");
+            Logger::ie_field("antennaGain:    " + json::get(req, "antennaGain") + " dBi");
+        } else if (type == "GrantRequest") {
+            Logger::dp(Logger::Level::ENGINEER, "  Fields received from CBSD:");
+            Logger::ie_field("cbsdId:                  " + json::get(req, "cbsdId"));
+            Logger::ie_field("operationFrequencyMHz:   " + json::get(req, "operationFrequencyMHz") +
+                             " MHz  ← center frequency requested");
+            Logger::ie_field("operationBandwidthMHz:   " + json::get(req, "operationBandwidthMHz") +
+                             " MHz  ← bandwidth requested");
+            Logger::ie_field("maxEirp:                 " + json::get(req, "maxEirp") +
+                             " dBm  ← transmit power limit");
+        } else if (type == "HeartbeatRequest") {
+            Logger::dp(Logger::Level::ENGINEER, "  Fields received from CBSD:");
+            Logger::ie_field("cbsdId:         " + json::get(req, "cbsdId"));
+            Logger::ie_field("grantId:        " + json::get(req, "grantId"));
+            Logger::ie_field("operationState: " + json::get(req, "operationState") +
+                             "  ← GRANTED or AUTHORIZED");
+        } else if (type == "RelinquishmentRequest") {
+            Logger::dp(Logger::Level::ENGINEER, "  Fields:");
+            Logger::ie_field("cbsdId:  " + json::get(req, "cbsdId"));
+            Logger::ie_field("grantId: " + json::get(req, "grantId") +
+                             "  ← spectrum being returned");
+        } else if (type == "DeregistrationRequest") {
+            Logger::dp(Logger::Level::ENGINEER, "  Fields:");
+            Logger::ie_field("cbsdId: " + json::get(req, "cbsdId") +
+                             "  ← will be removed from SAS database");
+        }
 
+        // ── Forward to SAS (acquires g_sas_mtx inside) ───────────────────
+        std::string resp = forwardToSas(req, type);
+
+        // ── Print fields of the SAS response ─────────────────────────────
         std::string respType = json::get(resp, "type");
         std::string rc       = json::get(resp, "responseCode");
         bool success = (rc == "0" || rc.empty());
 
-        // ── Update local state after SAS response ──────────────────────────
+        Logger::dp(Logger::Level::ENGINEER, "  Fields in SAS response:");
+
+        if (respType == "RegistrationResponse") {
+            Logger::ie_field("cbsdId:       " + json::get(resp, "cbsdId") +
+                             "  ← assigned by SAS for this session");
+            Logger::ie_field("responseCode: " + rc +
+                             (rc == "0" ? "  (SUCCESS)" : "  (FAILURE)"));
+        } else if (respType == "GrantResponse") {
+            Logger::ie_field("cbsdId:                " + json::get(resp, "cbsdId"));
+            Logger::ie_field("grantId:               " + json::get(resp, "grantId") +
+                             "  ← unique ID for this spectrum grant");
+            Logger::ie_field("channelType:           " + json::get(resp, "channelType") +
+                             "  ← GAA=free-to-use  PAL=licensed");
+            Logger::ie_field("operationFrequencyMHz: " + json::get(resp, "operationFrequencyMHz") +
+                             " MHz");
+            Logger::ie_field("operationBandwidthMHz: " + json::get(resp, "operationBandwidthMHz") +
+                             " MHz");
+            Logger::ie_field("maxEirp:               " + json::get(resp, "maxEirp") +
+                             " dBm  ← hard cap from SAS");
+            Logger::ie_field("heartbeatInterval:     " + json::get(resp, "heartbeatInterval") +
+                             " s  ← CBSD must heartbeat within this window");
+            Logger::ie_field("grantExpireTime:       " + json::get(resp, "grantExpireTime") +
+                             " s  ← entire grant expires after this");
+            Logger::ie_field("responseCode:          " + rc +
+                             (rc == "0" ? "  (SUCCESS)" : "  (FAILURE)"));
+        } else if (respType == "HeartbeatResponse") {
+            Logger::ie_field("cbsdId:             " + json::get(resp, "cbsdId"));
+            Logger::ie_field("grantId:            " + json::get(resp, "grantId"));
+            Logger::ie_field("transmitExpireTime: " + json::get(resp, "transmitExpireTime") +
+                             " s  ← TX window renewed until this many seconds from now");
+            Logger::ie_field("heartbeatInterval:  " + json::get(resp, "heartbeatInterval") +
+                             " s  ← next heartbeat must arrive within this window");
+            Logger::ie_field("responseCode:       " + rc);
+        }
+
+        // ── Update local state AFTER confirmed SAS response ───────────────
+        std::string prevState = stateToString(info.state);
+
         if (respType == "RegistrationResponse" && success) {
             myCbsdId = json::get(resp, "cbsdId");
+
+            // Now that we have a real cbsdId, rename this thread
+            threadLabel = "cbsd-" + myCbsdId;
+            Logger::setThreadName(threadLabel);
+
             CbsdInfo newInfo;
-            newInfo.cbsdId   = myCbsdId;
-            newInfo.fccId    = json::get(req, "fccId");
-            newInfo.callSign = json::get(req, "callSign");
-            newInfo.category = json::get(req, "cbsdCategory");
-            newInfo.state    = SpectrumState::REGISTERED;
+            newInfo.cbsdId    = myCbsdId;
+            newInfo.fccId     = json::get(req, "fccId");
+            newInfo.callSign  = json::get(req, "callSign");
+            newInfo.category  = json::get(req, "cbsdCategory");
+            newInfo.state     = SpectrumState::REGISTERED;
             g_registry.upsert(newInfo);
 
-            Logger::dp(Logger::Level::BEGINNER,
-                "✓ CBSD registered: cbsdId=" + myCbsdId +
-                "  total registered=" + std::to_string(g_registry.count()));
-            Logger::ie_field("  fccId:    " + newInfo.fccId);
-            Logger::ie_field("  callSign: " + newInfo.callSign);
-            Logger::ie_field("  category: " + newInfo.category +
-                             " (A=indoor ≤30dBm, B=outdoor ≤47dBm)");
+            Logger::sys("STATE: " + prevState + "  ──►  REGISTERED"
+                        "  [cbsdId=" + myCbsdId + "]");
+            Logger::sys("Registry now holds " + std::to_string(g_registry.count()) + " CBSD(s)");
 
         } else if (respType == "GrantResponse" && success) {
             std::string grantId = json::get(resp, "grantId");
@@ -153,103 +255,127 @@ static void handleCbsd(Socket cbsdSock) {
             try { bwMHz   = std::stod(json::get(resp, "operationBandwidthMHz")); } catch (...) {}
             try { maxEirp = std::stod(json::get(resp, "maxEirp")); } catch (...) {}
             g_registry.setGrant(myCbsdId, grantId, freqMHz, bwMHz, maxEirp);
+            // setGrant() also sets state = GRANTED inside the registry
 
-            Logger::dp(Logger::Level::BEGINNER,
-                "✓ Spectrum grant: " + std::to_string(freqMHz) + " MHz  BW=" +
-                std::to_string(bwMHz) + " MHz  maxEirp=" + std::to_string(maxEirp) + " dBm");
-            Logger::ie_field("  grantId:     " + grantId);
-            Logger::ie_field("  channelType: GAA (General Authorized Access)");
-            Logger::ie_field("  heartbeat:   every 120s or SAS revokes grant");
-            Logger::dp(Logger::Level::INTERVIEW_T,
-                "[CBRS SPEC] GAA is free-to-use spectrum. PAL holders (licensed via FCC "
-                "auction) get priority. If a PAL holder shows up, SAS sends Move List to "
-                "revoke GAA grants in that channel (ESC sensor triggers this).");
+            Logger::sys("STATE: " + prevState + "  ──►  GRANTED"
+                        "  [grantId=" + grantId +
+                        "  freq=" + std::to_string(freqMHz) + " MHz"
+                        "  bw=" + std::to_string(bwMHz) + " MHz]");
+            Logger::sys("CBSD may now send HeartbeatRequest to start transmitting");
 
         } else if (respType == "HeartbeatResponse" && success) {
             g_registry.setState(myCbsdId, SpectrumState::AUTHORIZED);
-            Logger::dp(Logger::Level::BEGINNER,
-                "✓ Heartbeat OK — CBSD " + myCbsdId + " is AUTHORIZED (transmitting)");
+            Logger::sys("STATE: " + prevState + "  ──►  AUTHORIZED"
+                        "  [cbsdId=" + myCbsdId + " is now transmitting]");
 
         } else if (respType == "RelinquishmentResponse" && success) {
             g_registry.clearGrant(myCbsdId);
-            Logger::dp(Logger::Level::BEGINNER,
-                "✓ Grant relinquished — spectrum returned to SAS pool");
+            // clearGrant() sets state back to REGISTERED
+            Logger::sys("STATE: " + prevState + "  ──►  REGISTERED"
+                        "  [grant released, spectrum returned to SAS pool]");
 
         } else if (respType == "DeregistrationResponse") {
             g_registry.remove(myCbsdId);
-            Logger::dp(Logger::Level::BEGINNER,
-                "✓ CBSD " + myCbsdId + " deregistered");
+            Logger::sys("STATE: " + prevState + "  ──►  UNREGISTERED"
+                        "  [" + myCbsdId + " removed from SAS and registry]");
             sendMsg(cbsdSock, resp);
+            Logger::dp(Logger::Level::ENGINEER, "──► CBSD: DeregistrationResponse  (closing connection)");
             break;
         }
 
-        // Forward SAS response back to CBSD
+        // ── Forward SAS response back to CBSD ────────────────────────────
         sendMsg(cbsdSock, resp);
+        Logger::dp(Logger::Level::ENGINEER, "──► CBSD: " + respType);
     }
+
+    Logger::sys("Thread exiting — cbsdId=" +
+                (myCbsdId.empty() ? "(never registered)" : myCbsdId));
 }
 
-// ── STATUS command — print all known CBSDs ──────────────────────────────────
+// ── STATUS command ───────────────────────────────────────────────────────────
 static void printStatus() {
-    Logger::step("Domain Proxy STATUS — " + std::to_string(g_registry.count()) + " CBSD(s)");
+    Logger::step("Domain Proxy STATUS");
+    Logger::sys("Registry: " + std::to_string(g_registry.count()) + " CBSD(s) known");
     g_registry.forEach([](const CbsdInfo& c) {
         Logger::dp(Logger::Level::BEGINNER,
-            "  " + c.cbsdId + "  state=" + stateToString(c.state) +
+            "  cbsdId=" + c.cbsdId +
+            "  fcc=" + c.fccId +
+            "  cat=" + c.category +
+            "  state=" + stateToString(c.state) +
             (c.grantId.empty() ? "" :
              "  grant=" + c.grantId +
-             "  freq=" + std::to_string(c.grantFreqMHz) + " MHz"));
+             "  freq=" + std::to_string(c.grantFreqMHz) + " MHz"
+             "  bw=" + std::to_string(c.grantBwMHz) + " MHz"));
     });
 }
 
-// ── main ────────────────────────────────────────────────────────────────────
+// ── main ─────────────────────────────────────────────────────────────────────
 int main() {
+    Logger::setThreadName("main");
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     Logger::setSessionFile("dp_session.log");
     Logger::setLevelFromEnv();
 
-    std::cout <<
-        "\n  +=========================================+\n"
-        "  |  CBRS DOMAIN PROXY                     |\n"
-        "  |  Listens for CBSDs  on port 8700        |\n"
-        "  |  Connects to SAS    on port 8800        |\n"
-        "  |  Commands: STATUS  QUIT                  |\n"
-        "  +=========================================+\n\n";
+    std::cout
+        << "\n  +============================================+\n"
+        << "  |  CBRS DOMAIN PROXY                         |\n"
+        << "  |  Listens for CBSDs   on  port 8700         |\n"
+        << "  |  Connects to SAS     on  port 8800         |\n"
+        << "  |  Log level: set LOG_LEVEL=BEGINNER or ALL  |\n"
+        << "  |  Commands:  STATUS   QUIT                  |\n"
+        << "  +============================================+\n\n";
 
-    Logger::dp(Logger::Level::INTERVIEW_T,
-        "[CBRS SPEC] Domain Proxy role: aggregates multiple CBSDs into one "
-        "SAS connection. Enforces the state machine (UNREGISTERED→REGISTERED→"
-        "GRANTED→AUTHORIZED) locally, batches requests to SAS (JSON arrays), "
-        "and shields individual CBSDs from SAS connectivity issues.");
+    Logger::sys("main thread starting — will start accept thread then run CLI");
 
-    // Connect to SAS
     if (!connectToSas("127.0.0.1", 8800)) {
-        std::cerr << "  Start sas_stub first on port 8800!\n";
+        std::cerr << "  Start sas_stub first!\n";
         return 1;
     }
 
-    // Start CBSD listener
     auto server = Socket::createServer("0.0.0.0", 8700);
-    Logger::sys("DP: Listening for CBSD connections on 0.0.0.0:8700");
+    Logger::sys("Listening for CBSD connections on 0.0.0.0:8700");
 
     std::atomic<bool> stop{false};
 
-    // Accept loop in background thread
+    // ── Accept thread: waits for new CBSD connections and spawns a handler ──
+    // This thread is named "accept" so you can see it in logs.
     std::thread acceptThread([&]() {
+        Logger::setThreadName("accept");
+        Logger::sys("accept thread started — blocking on accept() waiting for CBSDs");
         while (!stop.load()) {
             try {
                 auto client = server.accept();
-                std::thread(handleCbsd, std::move(client)).detach();
-            } catch (...) { if (!stop.load()) Logger::warn("DP", "accept() error"); }
+                int connId  = g_conn_counter.fetch_add(1);
+                Logger::sys("New CBSD connected — spawning cbsd-conn" +
+                            std::to_string(connId) + " thread to handle it");
+                // Detach: this thread will run independently until the CBSD disconnects.
+                // We don't join it because we don't know when it will finish.
+                std::thread(handleCbsd, std::move(client), connId).detach();
+                Logger::sys("cbsd-conn" + std::to_string(connId) +
+                            " thread detached — accept thread back to blocking on accept()");
+            } catch (...) {
+                if (!stop.load()) Logger::warn("DP", "accept() threw — server socket closed?");
+            }
         }
+        Logger::sys("accept thread exiting");
     });
     acceptThread.detach();
 
-    // CLI in main thread
+    // ── CLI in main thread ────────────────────────────────────────────────
+    Logger::sys("main thread now running CLI loop (STATUS / QUIT)");
     std::string line;
     std::cout << "dp> " << std::flush;
-    while (std::getline(std::cin, line)) {
+    while (!stop.load()) {
+        if (!std::getline(std::cin, line)) {
+            // stdin closed (e.g. redirected from /dev/null in scripted runs)
+            // keep the proxy alive until SIGINT or stop is set
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
+        }
         if (line == "STATUS" || line == "status") {
             printStatus();
         } else if (line == "QUIT" || line == "quit") {
+            Logger::sys("QUIT — shutting down");
             break;
         } else if (!line.empty()) {
             std::cout << "  Commands: STATUS  QUIT\n";

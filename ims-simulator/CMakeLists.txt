@@ -53,3 +53,11 @@ add_executable(ue_sim
 )
 target_include_directories(ue_sim PRIVATE src)
 target_link_libraries(ue_sim Threads::Threads ${PLATFORM_LIBS})
+
+# ── PERFORMANCE SCENARIOS — 5 interview prep scenarios ──────────
+add_executable(perf_scenarios
+    src/perf_scenarios_main.cpp
+    src/perf_scenarios.cpp
+)
+target_include_directories(perf_scenarios PRIVATE src)
+target_link_libraries(perf_scenarios Threads::Threads ${PLATFORM_LIBS})

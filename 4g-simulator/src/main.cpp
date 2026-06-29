@@ -10,6 +10,7 @@
 #include "common/logger.h"
 #include "common/visual_logger.h"
 #include "common/pcap_writer.h"
+#include "perf/perf_scenarios.h"
 #include "common/thread_pool.h"
 #include "common/metrics.h"
 #include "common/prometheus_server.h"
@@ -191,6 +192,16 @@ int main() {
             else Logger::sys("MODE: use BEGINNER / ENGINEER / INTERVIEW");
             Logger::sys("Log mode set to " + mode);
         }
+        else if (cmd=="PERF") {
+            // PERF <1-5> <buggy|fixed> [n]
+            // Runs one of 5 standalone performance scenarios with before/after metrics.
+            // No MME/eNB stack needed — scenarios are self-contained.
+            int s = 1; std::string mode; int n = 0;
+            iss >> s >> mode >> n;
+            for (auto& c : mode) c = char(std::tolower(unsigned(c)));
+            bool buggy = (mode != "fixed");
+            Perf::run(s, buggy, n);
+        }
         else if (cmd=="CHAOS") {
             std::string arg; iss >> arg;
             for(auto& c:arg) c=char(std::toupper(unsigned(c)));
@@ -198,8 +209,8 @@ int main() {
         }
         else {
             Logger::sys("Unknown: '" + line + "'.");
-            Logger::sys("Commands: CR <n>  BULK <n>  TAU <ue_id>  HO <ue_id>  STATUS  MODE <level>  CHAOS <on|off>  QUIT");
-            Logger::sys("Examples: CR 1   BULK 10   TAU 1   HO 1   MODE BEGINNER   CHAOS ON");
+            Logger::sys("Commands: CR <n>  BULK <n>  TAU <ue_id>  HO <ue_id>  STATUS  MODE <level>  CHAOS <on|off>  PERF <1-5> <buggy|fixed>  QUIT");
+            Logger::sys("Examples: CR 1   BULK 10   TAU 1   HO 1   MODE BEGINNER   PERF 1 buggy   PERF 1 fixed");
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));

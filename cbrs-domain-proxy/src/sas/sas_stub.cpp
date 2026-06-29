@@ -1,164 +1,178 @@
 // ============================================================
-// SAS STUB — Simulated Spectrum Access System
+// SAS STUB — Simulated Spectrum Access System (port 8800)
 //
-// Listens on TCP port 8800 for connections from the Domain Proxy.
+// THREAD MAP:
+//   [main thread]   — binds/listens on port 8800, named "main"
+//   [dp-conn thread]— one per Domain Proxy connection, named "dp-conn"
+//                     (a production SAS expects only one DP per zone)
 //
-// A real SAS (e.g. Google SAS, Federated Wireless, CommScope) is
-// a cloud service accessed over HTTPS.  This stub uses plain TCP
-// with length-prefixed JSON so there are zero TLS dependencies.
-//
-// Supported message types (WInnForum WINNF-TS-0016):
-//   RegistrationRequest    → RegistrationResponse  (assigns cbsdId)
-//   GrantRequest           → GrantResponse          (assigns grantId + channel)
-//   HeartbeatRequest       → HeartbeatResponse      (refreshes transmit window)
-//   RelinquishmentRequest  → RelinquishmentResponse (releases spectrum)
-//   DeregistrationRequest  → DeregistrationResponse (removes CBSD record)
-//
-// Grant policy (simplified):
-//   - Always approves registration
-//   - Grants GAA-tier spectrum at the requested center frequency and
-//     bandwidth (up to 20 MHz) with max EIRP capped at 30 dBm
-//   - Heartbeat interval is 120 seconds
-//   - Grant expire time is 3600 seconds
+// MESSAGE FLOW (this process only sees DP↔SAS, not CBSD↔DP):
+//   DP sends a request for ONE CBSD at a time (serialised by g_sas_mtx in DP)
+//   SAS processes it and sends a response
+//   DP may then immediately send another CBSD's request
 // ============================================================
 #include <iostream>
 #include <string>
 #include <thread>
 #include <atomic>
-#include <chrono>
 #include "common/logger.h"
 #include "common/wire.h"
 
 static std::atomic<int> g_cbsdCounter{1};
 static std::atomic<int> g_grantCounter{1};
 
-// Build a CBRS-style "cbsdId" — in real SAS this is globally unique.
-static std::string makeCbsdId() {
-    return "CBSD-SAS-" + std::to_string(g_cbsdCounter++);
-}
-static std::string makeGrantId() {
-    return "GRANT-" + std::to_string(g_grantCounter++);
-}
+static std::string makeCbsdId()  { return "CBSD-SAS-" + std::to_string(g_cbsdCounter++); }
+static std::string makeGrantId() { return "GRANT-"    + std::to_string(g_grantCounter++); }
 
-// ─────────────────────────────────────────────────────────────
-// Handle one Domain Proxy connection (runs in its own thread).
-// In real CBRS the SAS would receive *batched* arrays from the DP;
-// here we handle one message at a time for clarity.
-// ─────────────────────────────────────────────────────────────
+// ── Handle one Domain Proxy connection ──────────────────────────────────────
 static void handleDpConnection(Socket dpSock) {
-    Logger::sys("SAS: Domain Proxy connected");
+    Logger::setThreadName("dp-conn");
+    Logger::sys("Domain Proxy connected — dp-conn thread started");
+    Logger::sys("Will handle all CBSD messages that DP forwards (one at a time)");
 
     while (true) {
+        // ── Receive from Domain Proxy ─────────────────────────────────────
         std::string req;
         if (!recvMsg(dpSock, req)) {
-            Logger::sys("SAS: Domain Proxy disconnected");
+            Logger::sys("Domain Proxy disconnected");
             break;
         }
 
-        Logger::sas(Logger::Level::ENGINEER, "RX: " + req);
-
         std::string type = json::get(req, "type");
+        Logger::sas(Logger::Level::ENGINEER,
+            "◄────────────────────────── DP: " + type);
+
         std::string resp;
 
+        // ── Process each message type ─────────────────────────────────────
         if (type == "RegistrationRequest") {
-            // ── Step 1: Registration ────────────────────────────────
-            // SAS assigns a cbsdId.  Real SAS also checks FCC ID against
-            // the FCC equipment authorization database (OET ELS).
             std::string fccId    = json::get(req, "fccId");
             std::string callSign = json::get(req, "callSign");
+            std::string cat      = json::get(req, "cbsdCategory");
+            std::string lat      = json::get(req, "latitude");
+            std::string lon      = json::get(req, "longitude");
+            std::string height   = json::get(req, "height");
             std::string newId    = makeCbsdId();
 
-            Logger::sas(Logger::Level::BEGINNER,
-                "CBRS Step 1: Registration — FCC ID=" + fccId +
-                " CallSign=" + callSign + " → assigned cbsdId=" + newId);
+            Logger::sas(Logger::Level::ENGINEER, "  Fields received:");
+            Logger::ie_field("fccId:        " + fccId +
+                             "  ← SAS checks this against FCC ELS database");
+            Logger::ie_field("callSign:     " + callSign);
+            Logger::ie_field("cbsdCategory: " + cat +
+                             "  ← determines max EIRP (A=30dBm, B=47dBm)");
+            Logger::ie_field("latitude:     " + lat +
+                             "  ← must be accurate to 50 m (GPS required)");
+            Logger::ie_field("longitude:    " + lon);
+            Logger::ie_field("height:       " + height + " m AGL");
 
-            Logger::sas(Logger::Level::INTERVIEW_T,
-                "[CBRS SPEC] Registration validates: FCC equipment authorization, "
-                "antenna height, category A (<30 dBm EIRP) or B (<47 dBm EIRP), "
-                "location accuracy (<50 m).  SAS checks against PAL database and "
-                "ESC sensor network before issuing grants.");
+            Logger::sas(Logger::Level::ENGINEER,
+                "Assigning cbsdId=" + newId + "  (CBSD-SAS-" +
+                std::to_string(g_cbsdCounter-1) + " is the " +
+                std::to_string(g_cbsdCounter-1) + "th CBSD registered this session)");
 
             resp = json::obj({
                 {"type",     json::str("RegistrationResponse")},
                 {"cbsdId",   json::str(newId)},
-                {"response", json::obj({{"responseCode", json::num(0)},
+                {"response", json::obj({{"responseCode",    json::num(0)},
                                         {"responseMessage", json::str("SUCCESS")}})}
             });
 
+            Logger::sas(Logger::Level::ENGINEER, "  Fields in response:");
+            Logger::ie_field("cbsdId:       " + newId +
+                             "  ← SAS-assigned ID, CBSD must include this in all future msgs");
+            Logger::ie_field("responseCode: 0  (SUCCESS)");
+
         } else if (type == "GrantRequest") {
-            // ── Step 2: Spectrum Grant ──────────────────────────────
-            // SAS finds a free channel and issues a grant.
-            // Real SAS checks: PAL occupancy, incumbent protection zones
-            // (ESC sensors for naval radar), and inter-CBSD interference.
             std::string cbsdId  = json::get(req, "cbsdId");
             std::string freqStr = json::get(req, "operationFrequencyMHz");
             std::string bwStr   = json::get(req, "operationBandwidthMHz");
+            std::string eirpStr = json::get(req, "maxEirp");
             double freq = freqStr.empty() ? 3555.0 : std::stod(freqStr);
             double bw   = bwStr.empty()   ? 10.0   : std::stod(bwStr);
-            if (bw > 20.0) bw = 20.0; // GAA cap
-
+            double eirp = eirpStr.empty()  ? 30.0   : std::stod(eirpStr);
+            if (bw > 20.0) bw = 20.0;   // GAA cap per Part 96
+            if (eirp > 30.0) eirp = 30.0;
             std::string grantId = makeGrantId();
 
-            Logger::sas(Logger::Level::BEGINNER,
-                "CBRS Step 2: Grant — cbsdId=" + cbsdId +
-                " freq=" + std::to_string(freq) + " MHz bw=" +
-                std::to_string(bw) + " MHz → grantId=" + grantId);
+            Logger::sas(Logger::Level::ENGINEER, "  Fields received:");
+            Logger::ie_field("cbsdId:               " + cbsdId);
+            Logger::ie_field("operationFrequencyMHz:" + freqStr +
+                             " MHz  ← CBSD's desired center frequency");
+            Logger::ie_field("operationBandwidthMHz:" + bwStr +
+                             " MHz  ← desired bandwidth (capped at 20 MHz for GAA)");
+            Logger::ie_field("maxEirp:              " + eirpStr +
+                             " dBm  ← capped at 30 dBm for Cat-A");
 
-            Logger::sas(Logger::Level::INTERVIEW_T,
-                "[CBRS SPEC] Channel types: PAL (Priority Access License, 70 MHz "
-                "block, licensed via FCC auction) vs GAA (General Authorized Access, "
-                "opportunistic).  This stub always grants GAA.  maxEirp capped at "
-                "30 dBm for Category A CBSDs per Part 96 rules.");
+            Logger::sas(Logger::Level::ENGINEER,
+                "Grant approved: GAA channel at " + std::to_string(freq) +
+                " MHz  bw=" + std::to_string(bw) +
+                " MHz  → assigning grantId=" + grantId);
+            Logger::sas(Logger::Level::ENGINEER,
+                "heartbeatInterval=120s — CBSD must heartbeat within 120s or grant is TERMINATED");
 
             resp = json::obj({
-                {"type",                     json::str("GrantResponse")},
-                {"cbsdId",                   json::str(cbsdId)},
-                {"grantId",                  json::str(grantId)},
-                {"channelType",              json::str("GAA")},
-                {"operationFrequencyMHz",    json::flt(freq)},
-                {"operationBandwidthMHz",    json::flt(bw)},
-                {"maxEirp",                  json::num(30)},
-                {"grantExpireTime",          json::num(3600)},
-                {"heartbeatInterval",        json::num(120)},
-                {"response",                 json::obj({{"responseCode", json::num(0)}})}
+                {"type",                    json::str("GrantResponse")},
+                {"cbsdId",                  json::str(cbsdId)},
+                {"grantId",                 json::str(grantId)},
+                {"channelType",             json::str("GAA")},
+                {"operationFrequencyMHz",   json::flt(freq)},
+                {"operationBandwidthMHz",   json::flt(bw)},
+                {"maxEirp",                 json::num((int)eirp)},
+                {"grantExpireTime",         json::num(3600)},
+                {"heartbeatInterval",       json::num(120)},
+                {"response",                json::obj({{"responseCode", json::num(0)}})}
             });
 
+            Logger::sas(Logger::Level::ENGINEER, "  Fields in response:");
+            Logger::ie_field("grantId:             " + grantId);
+            Logger::ie_field("channelType:         GAA  ← General Authorized Access (free)");
+            Logger::ie_field("operationFrequencyMHz:" + std::to_string(freq) + " MHz");
+            Logger::ie_field("operationBandwidthMHz:" + std::to_string(bw) + " MHz");
+            Logger::ie_field("maxEirp:             " + std::to_string((int)eirp) + " dBm");
+            Logger::ie_field("heartbeatInterval:   120 s");
+            Logger::ie_field("grantExpireTime:     3600 s  (1 hour)");
+            Logger::ie_field("responseCode:        0  (SUCCESS)");
+
         } else if (type == "HeartbeatRequest") {
-            // ── Step 3: Heartbeat ────────────────────────────────────
-            // CBSD must heartbeat every `heartbeatInterval` seconds or SAS
-            // revokes the grant.  SAS uses this to detect dead/moved devices.
             std::string cbsdId  = json::get(req, "cbsdId");
             std::string grantId = json::get(req, "grantId");
             std::string opState = json::get(req, "operationState");
 
-            Logger::sas(Logger::Level::BEGINNER,
-                "CBRS Step 3: Heartbeat — cbsdId=" + cbsdId +
-                " grantId=" + grantId + " state=" + opState);
+            Logger::sas(Logger::Level::ENGINEER, "  Fields received:");
+            Logger::ie_field("cbsdId:         " + cbsdId);
+            Logger::ie_field("grantId:        " + grantId);
+            Logger::ie_field("operationState: " + opState +
+                             "  ← GRANTED=ready-but-not-TX, AUTHORIZED=actively-TX");
 
-            Logger::sas(Logger::Level::INTERVIEW_T,
-                "[CBRS SPEC] heartbeatInterval keeps SAS aware of active transmitters. "
-                "If the CBSD misses a heartbeat, SAS transitions the grant to TERMINATED "
-                "and the CBSD must stop transmitting within 60 s (the Move List timer).");
+            Logger::sas(Logger::Level::ENGINEER,
+                "Heartbeat OK — renewing transmit window for " + cbsdId);
+            Logger::sas(Logger::Level::ENGINEER,
+                "transmitExpireTime=3600s — CBSD may transmit until then (or next heartbeat)");
 
             resp = json::obj({
-                {"type",              json::str("HeartbeatResponse")},
-                {"cbsdId",            json::str(cbsdId)},
-                {"grantId",           json::str(grantId)},
+                {"type",               json::str("HeartbeatResponse")},
+                {"cbsdId",             json::str(cbsdId)},
+                {"grantId",            json::str(grantId)},
                 {"transmitExpireTime", json::num(3600)},
-                {"heartbeatInterval", json::num(120)},
-                {"response",          json::obj({{"responseCode", json::num(0)}})}
+                {"heartbeatInterval",  json::num(120)},
+                {"response",           json::obj({{"responseCode", json::num(0)}})}
             });
 
+            Logger::sas(Logger::Level::ENGINEER, "  Fields in response:");
+            Logger::ie_field("transmitExpireTime: 3600 s  ← renewed TX window");
+            Logger::ie_field("heartbeatInterval:  120 s   ← must send next HB within this");
+            Logger::ie_field("responseCode:       0  (SUCCESS)");
+
         } else if (type == "RelinquishmentRequest") {
-            // ── Step 4: Relinquishment ──────────────────────────────
-            // CBSD voluntarily returns the grant before it expires.
-            // Frees spectrum for other CBSDs immediately.
             std::string cbsdId  = json::get(req, "cbsdId");
             std::string grantId = json::get(req, "grantId");
 
-            Logger::sas(Logger::Level::BEGINNER,
-                "CBRS Step 4: Relinquishment — cbsdId=" + cbsdId +
-                " grantId=" + grantId + " (spectrum freed)");
+            Logger::sas(Logger::Level::ENGINEER, "  Fields received:");
+            Logger::ie_field("cbsdId:  " + cbsdId);
+            Logger::ie_field("grantId: " + grantId + "  ← being returned to spectrum pool");
+
+            Logger::sas(Logger::Level::ENGINEER,
+                "Grant " + grantId + " relinquished — channel freed for other CBSDs");
 
             resp = json::obj({
                 {"type",     json::str("RelinquishmentResponse")},
@@ -168,12 +182,13 @@ static void handleDpConnection(Socket dpSock) {
             });
 
         } else if (type == "DeregistrationRequest") {
-            // ── Step 5: Deregistration ──────────────────────────────
-            // CBSD is being decommissioned or moved.  SAS removes its record.
             std::string cbsdId = json::get(req, "cbsdId");
 
-            Logger::sas(Logger::Level::BEGINNER,
-                "CBRS Step 5: Deregistration — cbsdId=" + cbsdId + " removed");
+            Logger::sas(Logger::Level::ENGINEER, "  Fields received:");
+            Logger::ie_field("cbsdId: " + cbsdId + "  ← being removed from SAS database");
+
+            Logger::sas(Logger::Level::ENGINEER,
+                cbsdId + " removed — future messages with this cbsdId will fail");
 
             resp = json::obj({
                 {"type",     json::str("DeregistrationResponse")},
@@ -185,45 +200,47 @@ static void handleDpConnection(Socket dpSock) {
             Logger::warn("SAS", "Unknown message type: " + type);
             resp = json::obj({
                 {"type",     json::str("ErrorResponse")},
-                {"response", json::obj({{"responseCode", json::num(103)},
+                {"response", json::obj({{"responseCode",    json::num(103)},
                                         {"responseMessage", json::str("INVALID_VALUE")}})}
             });
         }
 
-        Logger::sas(Logger::Level::ENGINEER, "TX: " + resp);
+        // ── Send response back to DP ──────────────────────────────────────
+        std::string respType = json::get(resp, "type");
+        Logger::sas(Logger::Level::ENGINEER,
+            "──────────────────────────► DP: " + respType);
         sendMsg(dpSock, resp);
     }
+
+    Logger::sys("dp-conn thread exiting");
 }
 
-// ─────────────────────────────────────────────────────────────
-// main — listen for Domain Proxy connections on port 8800
-// ─────────────────────────────────────────────────────────────
 int main() {
+    Logger::setThreadName("main");
     Logger::setSessionFile("sas_session.log");
     Logger::setLevelFromEnv();
 
-    Logger::step("SAS Stub starting — port 8800");
-    Logger::sas(Logger::Level::BEGINNER,
-        "Simulated Spectrum Access System ready. "
-        "Waiting for Domain Proxy connection...");
+    std::cout
+        << "\n  +============================================+\n"
+        << "  |  CBRS SAS STUB                             |\n"
+        << "  |  Listens for Domain Proxy on port 8800     |\n"
+        << "  |  Simulates a Spectrum Access System        |\n"
+        << "  +============================================+\n\n";
 
-    Logger::sas(Logger::Level::INTERVIEW_T,
-        "[CBRS SPEC] Real SAS operators (Google, Federated Wireless, CommScope) "
-        "must be certified by the FCC.  They protect Navy radar incumbents via "
-        "ESC (Environmental Sensing Capability) sensors on the coasts.  All "
-        "CBSD communication to SAS is mutually-authenticated TLS.");
+    Logger::sys("main thread — binding to port 8800, waiting for Domain Proxy");
 
     try {
         auto server = Socket::createServer("0.0.0.0", 8800);
-        Logger::sys("SAS: listening on 0.0.0.0:8800");
+        Logger::sys("SAS listening on 0.0.0.0:8800");
+        Logger::sys("Start domain_proxy next — it will connect here");
 
         while (true) {
             auto client = server.accept();
-            // spawn a thread per DP connection (typically only one DP per SAS zone)
+            Logger::sys("Domain Proxy connected — spawning dp-conn thread");
             std::thread(handleDpConnection, std::move(client)).detach();
         }
     } catch (const std::exception& ex) {
-        Logger::warn("SAS", std::string(ex.what()));
+        Logger::warn("SAS", ex.what());
         return 1;
     }
     return 0;

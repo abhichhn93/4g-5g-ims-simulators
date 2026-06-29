@@ -1,8 +1,8 @@
 # 4G + IMS/VoLTE + 5G Core Network Simulators (C++17)
 
-Three from-scratch simulations of mobile core networks — **4G EPC**, **IMS/VoLTE**,
-and **5G Core (Service-Based Architecture)** — written in C++17 using raw
-sockets, multithreading, and real protocol encoding.
+Four from-scratch simulations of mobile core networks — **4G EPC**, **IMS/VoLTE**,
+**5G Core (Service-Based Architecture)**, and a **CBRS Domain Proxy** —
+written in C++17 using raw sockets, multithreading, and real protocol encoding.
 
 A hands-on reference implementation for engineers studying 3GPP protocols,
 C++ systems programming, and cloud-native telecom infrastructure.
@@ -53,9 +53,23 @@ instead of full Milenage. Each project's own README/docs spell these out.
 Each project builds independently:
 
 ```
-cd 4g-simulator && mkdir build && cd build && cmake .. && make
-cd ims-simulator && mkdir build && cd build && cmake .. && make
-cd 5g-simulator && mkdir build && cd build && cmake .. && make
+cd 4g-simulator       && cmake -B build && cmake --build build
+cd ims-simulator      && cmake -B build && cmake --build build
+cd 5g-simulator       && cmake -B build && cmake --build build
+cd cbrs-domain-proxy  && cmake -B build && cmake --build build
+```
+
+### Run CBRS (3 terminals)
+```bash
+# Terminal 1 — start SAS first
+./cbrs-domain-proxy/build/sas_stub
+
+# Terminal 2 — start Domain Proxy
+./cbrs-domain-proxy/build/domain_proxy
+
+# Terminal 3 — run a CBSD device
+./cbrs-domain-proxy/build/cbsd_agent 1
+# then type: REGISTER → GRANT → HEARTBEAT → RELINQUISH → DEREGISTER
 ```
 
 See each subfolder's `README.md` for run order, CLI commands, and how to
