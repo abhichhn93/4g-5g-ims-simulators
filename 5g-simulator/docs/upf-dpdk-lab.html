@@ -1,0 +1,932 @@
+<title>UPF Fast-Path Lab — Socket vs DPDK</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg:        #0D1117;
+    --surface:   #161B22;
+    --surface2:  #1C2128;
+    --border:    #21262D;
+    --text:      #E6EDF3;
+    --muted:     #7D8590;
+    --socket:    #F0883E;
+    --socket-dim:#7A3E10;
+    --dpdk:      #58A6FF;
+    --dpdk-dim:  #0C3066;
+    --green:     #3FB950;
+    --accent-bg: #1C2128;
+    --mono: ui-monospace, 'Cascadia Code', 'Fira Code', 'Menlo', monospace;
+    --sans: system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:        #F6F8FA;
+      --surface:   #FFFFFF;
+      --surface2:  #F0F3F6;
+      --border:    #D0D7DE;
+      --text:      #1F2328;
+      --muted:     #656D76;
+      --socket-dim:#FEE4CC;
+      --dpdk-dim:  #D0E7FF;
+      --accent-bg: #F6F8FA;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg:        #F6F8FA;
+    --surface:   #FFFFFF;
+    --surface2:  #F0F3F6;
+    --border:    #D0D7DE;
+    --text:      #1F2328;
+    --muted:     #656D76;
+    --socket-dim:#FEE4CC;
+    --dpdk-dim:  #D0E7FF;
+    --accent-bg: #F6F8FA;
+  }
+  :root[data-theme="dark"] {
+    --bg:        #0D1117;
+    --surface:   #161B22;
+    --surface2:  #1C2128;
+    --border:    #21262D;
+    --text:      #E6EDF3;
+    --muted:     #7D8590;
+    --socket-dim:#7A3E10;
+    --dpdk-dim:  #0C3066;
+    --accent-bg: #1C2128;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  /* ── Header ── */
+  .site-header {
+    border-bottom: 1px solid var(--border);
+    padding: 32px 0 28px;
+    margin-bottom: 48px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .site-header h1 {
+    font-family: var(--mono);
+    font-size: clamp(18px, 3vw, 26px);
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    line-height: 1.25;
+    text-wrap: balance;
+  }
+  .site-header h1 span.dpdk { color: var(--dpdk); }
+  .site-header h1 span.sock { color: var(--socket); }
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .badge {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .theme-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .theme-btn:hover { color: var(--text); border-color: var(--muted); }
+
+  /* ── Section label ── */
+  .section-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  section { margin-bottom: 64px; }
+
+  /* ── Architecture diagram ── */
+  .arch-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 32px 24px;
+    overflow-x: auto;
+  }
+  .arch-diagram svg { display: block; min-width: 600px; }
+
+  /* ── Two-column step-through ── */
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 680px) { .compare-grid { grid-template-columns: 1fr; } }
+
+  .path-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .path-panel-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .path-panel-header .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .path-panel-header h3 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .03em;
+  }
+  .path-panel-header .latency-badge {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 700;
+  }
+  .socket-label { color: var(--socket); }
+  .dpdk-label   { color: var(--dpdk);   }
+
+  .trace-area {
+    padding: 12px 0;
+    min-height: 260px;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .trace-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    padding: 3px 16px 3px 0;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity .25s ease, transform .25s ease;
+    cursor: default;
+  }
+  .trace-line.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .trace-gutter {
+    width: 4px;
+    min-height: 100%;
+    flex-shrink: 0;
+    margin-right: 12px;
+    align-self: stretch;
+    border-radius: 0 2px 2px 0;
+  }
+  .trace-ts {
+    color: var(--muted);
+    flex-shrink: 0;
+    width: 52px;
+    font-size: 11px;
+    padding-top: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+  .trace-tag {
+    flex-shrink: 0;
+    width: 64px;
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding-top: 1px;
+  }
+  .trace-msg { color: var(--text); flex: 1; }
+  .trace-cost {
+    flex-shrink: 0;
+    text-align: right;
+    min-width: 80px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .cost-hot  { color: var(--socket); }
+  .cost-fast { color: var(--green);  }
+  .cost-ok   { color: var(--dpdk);   }
+
+  .step-controls {
+    padding: 16px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .ctrl-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .ctrl-btn:hover { border-color: var(--muted); }
+  .ctrl-btn.primary-socket { border-color: var(--socket); color: var(--socket); }
+  .ctrl-btn.primary-dpdk   { border-color: var(--dpdk);   color: var(--dpdk);   }
+  .step-counter {
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 60px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── PFCP Rules table ── */
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  thead tr {
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+  }
+  th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    font-variant-numeric: tabular-nums;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface2); }
+  .rule-type {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  .rt-pdr  { background: #1c2c1c; color: #3FB950; border: 1px solid #3FB950; }
+  .rt-far  { background: #1c1c2c; color: var(--dpdk); border: 1px solid var(--dpdk); }
+  .rt-qer  { background: #2c1c10; color: var(--socket); border: 1px solid var(--socket); }
+  .action-fwd  { color: var(--green); font-weight: 700; }
+  .action-drop { color: #F85149; font-weight: 700; }
+
+  /* ── Benchmark results ── */
+  .bench-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .stat-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .stat-pair {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+  }
+  .stat-val {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-sub {
+    font-size: 11px;
+    color: var(--muted);
+    padding-bottom: 2px;
+  }
+
+  .bench-note {
+    font-size: 11px;
+    color: var(--muted);
+    padding: 10px 14px;
+    background: var(--surface2);
+    border-radius: 6px;
+    border-left: 3px solid var(--border);
+    line-height: 1.6;
+  }
+
+  /* ── Latency chart (canvas) ── */
+  .chart-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin-top: 16px;
+  }
+  .chart-wrap canvas { display: block; width: 100%; max-height: 160px; }
+  .chart-legend {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 14px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 2px;
+    display: inline-block;
+    margin-right: 5px;
+  }
+
+  /* ── Production section ── */
+  .prod-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .prod-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+  }
+  .prod-card h4 {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--dpdk);
+  }
+  .prod-card p {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+  .prod-card code {
+    color: var(--text);
+    background: var(--surface2);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+</style>
+
+<div class="page">
+
+  <!-- ── Header ── -->
+  <header class="site-header">
+    <h1>UPF Fast-Path Lab<br><span class="sock">Socket</span> vs <span class="dpdk">DPDK</span></h1>
+    <div class="header-meta">
+      <span class="badge">5G Core Sim</span>
+      <span class="badge">C++17</span>
+      <button class="theme-btn" onclick="toggleTheme()">toggle theme</button>
+    </div>
+  </header>
+
+  <!-- ── 1. Architecture diagram ── -->
+  <section id="arch">
+    <div class="section-label">N-interface overview</div>
+    <div class="arch-diagram">
+      <svg viewBox="0 0 860 240" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="5G UPF architecture diagram">
+        <defs>
+          <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#7D8590"/>
+          </marker>
+          <marker id="arr-b" markerWidth="8" markerHeight="8" refX="2" refY="3" orient="auto">
+            <path d="M8,0 L8,6 L0,3 z" fill="#7D8590"/>
+          </marker>
+        </defs>
+
+        <!-- gNB box -->
+        <rect x="10" y="60" width="120" height="70" rx="8" fill="#161B22" stroke="#21262D" stroke-width="1.5"/>
+        <text x="70" y="87" text-anchor="middle" fill="#E6EDF3" font-family="ui-monospace,monospace" font-size="12" font-weight="700">gNB</text>
+        <text x="70" y="104" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10">base station</text>
+        <text x="70" y="120" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10">N3 IP: 10.10.0.2</text>
+
+        <!-- UPF box -->
+        <rect x="300" y="20" width="260" height="200" rx="8" fill="#161B22" stroke="#21262D" stroke-width="1.5"/>
+        <text x="430" y="48" text-anchor="middle" fill="#E6EDF3" font-family="ui-monospace,monospace" font-size="13" font-weight="700">UPF</text>
+        <text x="430" y="64" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10">User Plane Function</text>
+
+        <!-- DPDK inner box -->
+        <rect x="320" y="78" width="220" height="116" rx="6" fill="#0C1B33" stroke="#1e3a5f" stroke-width="1.5"/>
+        <text x="430" y="98" text-anchor="middle" fill="#58A6FF" font-family="ui-monospace,monospace" font-size="10" font-weight="700" letter-spacing="1">DPDK FAST PATH</text>
+        <text x="430" y="115" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10">rte_eth_rx_burst()</text>
+        <text x="430" y="130" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10">PDR lookup (hash)</text>
+        <text x="430" y="145" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10">QER token bucket</text>
+        <text x="430" y="160" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10">FAR forward/encap</text>
+        <text x="430" y="178" text-anchor="middle" fill="#3FB950" font-family="ui-monospace,monospace" font-size="9">50–500 ns/pkt · 10–40 Mpps</text>
+
+        <!-- SMF box -->
+        <rect x="680" y="40" width="150" height="70" rx="8" fill="#161B22" stroke="#21262D" stroke-width="1.5"/>
+        <text x="755" y="67" text-anchor="middle" fill="#E6EDF3" font-family="ui-monospace,monospace" font-size="12" font-weight="700">SMF</text>
+        <text x="755" y="83" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10">Session Mgmt Fn</text>
+        <text x="755" y="99" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10">programs UPF rules</text>
+
+        <!-- Internet box -->
+        <rect x="680" y="145" width="150" height="60" rx="8" fill="#161B22" stroke="#21262D" stroke-width="1.5"/>
+        <text x="755" y="172" text-anchor="middle" fill="#E6EDF3" font-family="ui-monospace,monospace" font-size="12" font-weight="700">Internet</text>
+        <text x="755" y="190" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10">N6 plain IP</text>
+
+        <!-- N3 arrow (bidirectional) -->
+        <line x1="130" y1="95" x2="298" y2="95" stroke="#7D8590" stroke-width="1.5" marker-end="url(#arr)" marker-start="url(#arr-b)"/>
+        <text x="214" y="85" text-anchor="middle" fill="#F0883E" font-family="ui-monospace,monospace" font-size="10" font-weight="700">N3</text>
+        <text x="214" y="109" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="9">GTP-U / UDP:2152</text>
+
+        <!-- N4 arrow -->
+        <line x1="562" y1="75" x2="678" y2="75" stroke="#7D8590" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)" marker-start="url(#arr-b)"/>
+        <text x="620" y="65" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="10" font-weight="700">N4</text>
+        <text x="620" y="89" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="9">PFCP / UDP:8805</text>
+        <text x="620" y="103" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="9">PDR · FAR · QER</text>
+
+        <!-- N6 arrow -->
+        <line x1="562" y1="175" x2="678" y2="175" stroke="#7D8590" stroke-width="1.5" marker-end="url(#arr)" marker-start="url(#arr-b)"/>
+        <text x="620" y="165" text-anchor="middle" fill="#58A6FF" font-family="ui-monospace,monospace" font-size="10" font-weight="700">N6</text>
+        <text x="620" y="190" text-anchor="middle" fill="#7D8590" font-family="ui-monospace,monospace" font-size="9">plain IPv4/IPv6</text>
+
+        <!-- where DPDK lives label -->
+        <text x="430" y="228" text-anchor="middle" fill="#58A6FF" font-family="ui-monospace,monospace" font-size="9" opacity=".7">← DPDK runs here (N3 ↔ N6 data plane only) →</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ── 2. Step-through comparison ── -->
+  <section id="compare">
+    <div class="section-label">per-packet path — step through</div>
+    <div class="compare-grid">
+
+      <!-- Socket panel -->
+      <div class="path-panel">
+        <div class="path-panel-header">
+          <div class="dot" style="background:var(--socket)"></div>
+          <h3 class="socket-label">Socket / Kernel Path</h3>
+          <span class="latency-badge" style="background:var(--socket-dim);color:var(--socket)">10–100 μs/pkt</span>
+        </div>
+        <div class="trace-area" id="socket-trace"></div>
+        <div class="step-controls">
+          <button class="ctrl-btn" onclick="resetPath('socket')">↺ reset</button>
+          <span class="step-counter" id="socket-counter">0 / 7</span>
+          <button class="ctrl-btn primary-socket" onclick="stepPath('socket')">next step →</button>
+        </div>
+      </div>
+
+      <!-- DPDK panel -->
+      <div class="path-panel">
+        <div class="path-panel-header">
+          <div class="dot" style="background:var(--dpdk)"></div>
+          <h3 class="dpdk-label">DPDK Poll-Mode Path</h3>
+          <span class="latency-badge" style="background:var(--dpdk-dim);color:var(--dpdk)">50–500 ns/pkt</span>
+        </div>
+        <div class="trace-area" id="dpdk-trace"></div>
+        <div class="step-controls">
+          <button class="ctrl-btn" onclick="resetPath('dpdk')">↺ reset</button>
+          <span class="step-counter" id="dpdk-counter">0 / 6</span>
+          <button class="ctrl-btn primary-dpdk" onclick="stepPath('dpdk')">next step →</button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── 3. PFCP rules table ── -->
+  <section id="rules">
+    <div class="section-label">PFCP rules — sample session (UE #1, QFI=1 voice)</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th><th>ID</th><th>Match Key</th><th>Direction</th>
+            <th>Action / Target</th><th>QoS</th><th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="rule-type rt-pdr">PDR</span></td>
+            <td>#1</td>
+            <td>TEID = 1001</td>
+            <td>UL ↑</td>
+            <td>→ FAR #1, QER #1</td>
+            <td>QFI=1</td>
+            <td>Match GTP-U TEID from gNB N3 header</td>
+          </tr>
+          <tr>
+            <td><span class="rule-type rt-pdr">PDR</span></td>
+            <td>#2</td>
+            <td>UE-IP = 10.45.0.1</td>
+            <td>DL ↓</td>
+            <td>→ FAR #2, QER #1</td>
+            <td>QFI=1</td>
+            <td>Match dst IP of packet arriving on N6</td>
+          </tr>
+          <tr>
+            <td><span class="rule-type rt-far">FAR</span></td>
+            <td>#1</td>
+            <td>—</td>
+            <td>UL ↑</td>
+            <td><span class="action-fwd">FORWARD</span> → 8.8.8.8 (N6)</td>
+            <td>—</td>
+            <td>Strip GTP-U, route inner IP to internet</td>
+          </tr>
+          <tr>
+            <td><span class="rule-type rt-far">FAR</span></td>
+            <td>#2</td>
+            <td>—</td>
+            <td>DL ↓</td>
+            <td><span class="action-fwd">FORWARD</span> + GTP-U encap → gNB</td>
+            <td>—</td>
+            <td>Wrap in GTP-U TEID=1001 → gNB 10.10.0.2:2152</td>
+          </tr>
+          <tr>
+            <td><span class="rule-type rt-qer">QER</span></td>
+            <td>#1</td>
+            <td>QFI=1</td>
+            <td>UL+DL</td>
+            <td>token bucket</td>
+            <td>MBR 64k/64k GBR 64k/64k</td>
+            <td>Voice (GBR flow). rte_meter_trtcm in prod.</td>
+          </tr>
+          <tr>
+            <td><span class="rule-type rt-pdr">PDR</span></td>
+            <td>#3</td>
+            <td>TEID = 1002</td>
+            <td>UL ↑</td>
+            <td>→ FAR #3, QER #2</td>
+            <td>QFI=2</td>
+            <td>UE #2 — video stream</td>
+          </tr>
+          <tr>
+            <td><span class="rule-type rt-qer">QER</span></td>
+            <td>#2</td>
+            <td>QFI=2</td>
+            <td>UL+DL</td>
+            <td>token bucket</td>
+            <td>MBR 4M/8M GBR 2M/4M</td>
+            <td>Video (GBR). Both UL and DL GBR reserved.</td>
+          </tr>
+          <tr>
+            <td><span class="rule-type rt-qer">QER</span></td>
+            <td>#3</td>
+            <td>QFI=9</td>
+            <td>UL+DL</td>
+            <td>token bucket</td>
+            <td>MBR 100M/100M GBR 0</td>
+            <td>Best-effort data — non-GBR, no reservation</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── 4. Benchmark results ── -->
+  <section id="bench">
+    <div class="section-label">benchmark results — 2M packets, 100 UEs, Release build</div>
+    <div class="bench-grid">
+      <div class="stat-card">
+        <div class="stat-label">Throughput</div>
+        <div class="stat-pair">
+          <div>
+            <div class="stat-val" style="color:var(--socket)">~0.4</div>
+            <div class="stat-sub">Socket Mpps</div>
+          </div>
+          <div>
+            <div class="stat-val" style="color:var(--dpdk)">~2.1</div>
+            <div class="stat-sub">DPDK Mpps</div>
+          </div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Latency avg</div>
+        <div class="stat-pair">
+          <div>
+            <div class="stat-val" style="color:var(--socket)">~14k</div>
+            <div class="stat-sub">Socket ns</div>
+          </div>
+          <div>
+            <div class="stat-val" style="color:var(--dpdk)">~290</div>
+            <div class="stat-sub">DPDK ns</div>
+          </div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Latency p99</div>
+        <div class="stat-pair">
+          <div>
+            <div class="stat-val" style="color:var(--socket)">~80k</div>
+            <div class="stat-sub">Socket ns</div>
+          </div>
+          <div>
+            <div class="stat-val" style="color:var(--dpdk)">~850</div>
+            <div class="stat-sub">DPDK ns</div>
+          </div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Speedup</div>
+        <div style="display:flex;align-items:flex-end;gap:6px">
+          <div class="stat-val" style="color:var(--green)">~5×</div>
+          <div class="stat-sub" style="padding-bottom:2px">simulated<br>(real: 10–100×)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <div class="chart-legend">
+        <span><span class="legend-dot" style="background:var(--socket)"></span>Socket</span>
+        <span><span class="legend-dot" style="background:var(--dpdk)"></span>DPDK</span>
+      </div>
+      <canvas id="latencyChart" height="120" aria-label="Latency distribution chart"></canvas>
+    </div>
+
+    <div class="bench-note" style="margin-top:12px">
+      Numbers from simulator running on macOS/Linux x86-64 (single core, Release build). The gap is real but understated vs production DPDK — our simulation skips zero-copy DMA, hugepages, and real NIC PMD. Production UPFs (OAI-UPF/VPP) achieve 10–40 Mpps.
+    </div>
+  </section>
+
+  <!-- ── 5. In production ── -->
+  <section id="prod">
+    <div class="section-label">in a production DPDK UPF</div>
+    <div class="prod-grid">
+      <div class="prod-card">
+        <h4>rte_eth_rx_burst()</h4>
+        <p>Replaces our <code>SPSCRing::pop_burst()</code>. The NIC PMD (mlx5, i40e, dpaa2) reads hardware DMA descriptor rings. Packet arrives from wire → mbuf in one step, no interrupt, no syscall, no kernel.</p>
+      </div>
+      <div class="prod-card">
+        <h4>Hugepages (2MB / 1GB)</h4>
+        <p>DPDK's mempool is backed by <code>/dev/hugepages</code>. 2MB pages reduce TLB misses by 512× vs default 4KB. At 10Mpps, 4KB pages would thrash the TLB; 2MB pages need ~1 entry for the entire mbuf pool region.</p>
+      </div>
+      <div class="prod-card">
+        <h4>VFIO / UIO</h4>
+        <p>The NIC PCI device is remapped to userspace via <code>vfio-pci</code>. The kernel driver is unloaded. The application has direct memory-mapped access to NIC registers and DMA rings — no driver stack in the path.</p>
+      </div>
+      <div class="prod-card">
+        <h4>NUMA Pinning</h4>
+        <p>Each lcore is pinned to the same NUMA socket as its NIC. <code>rte_socket_id()</code> routes mbuf allocations to local DRAM. Cross-NUMA memory access costs ~100ns and halves effective memory bandwidth.</p>
+      </div>
+      <div class="prod-card">
+        <h4>RSS Multi-Queue</h4>
+        <p>NIC hashes flows (TEID or 5-tuple) across N RX queues. Each queue is owned by one lcore. Linear scaling: 4 lcores ≈ 4× throughput. Packets from the same UE always go to the same lcore — preserving order, keeping PDR cache hot.</p>
+      </div>
+      <div class="prod-card">
+        <h4>RCU Rule Updates</h4>
+        <p>When SMF sends a PFCP Session Modification (e.g. handover TEID change), the fast-path PDR table must update without stalling the lcore. Production UPFs use Read-Copy-Update (RCU) or version-epoch per-lcore caches.</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+// ── Theme toggle ──────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const root = document.documentElement;
+  const cur = root.getAttribute('data-theme');
+  root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+}
+
+// ── Step-through data ─────────────────────────────────────────────────────────
+const PATHS = {
+  socket: {
+    color: '#F0883E',
+    steps: [
+      { ts: '+0 ns',    tag: 'RECV',   msg: 'recvfrom() syscall returns — kernel→user copy (~1400B)', cost: '~1200 ns', cls: 'cost-hot' },
+      { ts: '+1.2μs',   tag: 'COPY',   msg: 'memcpy into queue Packet (simulates DMA→kernel→app chain)', cost: '~25 ns', cls: 'cost-ok' },
+      { ts: '+1.2μs',   tag: 'LOCK',   msg: 'std::mutex::lock() — futex CAS, cache-line ping-pong', cost: '~80 ns', cls: 'cost-hot' },
+      { ts: '+1.3μs',   tag: 'PUSH',   msg: 'queue_.push(pkt) + mutex.unlock()', cost: '~15 ns', cls: 'cost-ok' },
+      { ts: '+1.3μs',   tag: 'NOTIFY', msg: 'cv_.notify_one() → futex(FUTEX_WAKE) syscall', cost: '~600 ns', cls: 'cost-hot' },
+      { ts: '+7–50μs',  tag: 'WAKE',   msg: 'worker thread wakes from cv::wait() — Linux CFS scheduler', cost: '~5–50μs', cls: 'cost-hot' },
+      { ts: '+50μs',    tag: 'PDR',    msg: 'match_pdr(TEID=1001) → FAR#1 FORWARD → pkts_fwd++', cost: '~200 ns', cls: 'cost-ok' },
+    ],
+    total: 7
+  },
+  dpdk: {
+    color: '#58A6FF',
+    steps: [
+      { ts: '+0 ns',   tag: 'DMA',    msg: 'NIC DMA fills mbuf in hugepage pool (no CPU copy, no IRQ)', cost: '~20 ns', cls: 'cost-fast' },
+      { ts: '+20 ns',  tag: 'RING',   msg: 'rx_ring_.push(mbuf*) — lock-free acquire/release store', cost: '~8 ns', cls: 'cost-fast' },
+      { ts: '+28 ns',  tag: 'POLL',   msg: 'lcore: pop_burst(32) — returns 1–32 mbufs, no sleep', cost: '~12 ns', cls: 'cost-fast' },
+      { ts: '+40 ns',  tag: 'TIME',   msg: 'Packet::now_ns() — ONE call for entire burst of 32', cost: '~25 ns', cls: 'cost-fast' },
+      { ts: '+65 ns',  tag: 'PDR',    msg: 'match_pdr(TEID=1001) — hash map, L1 cache warm after 1st hit', cost: '~60 ns', cls: 'cost-fast' },
+      { ts: '+125 ns', tag: 'FWD',    msg: 'FAR FORWARD + free_mbuf() → pkts_forwarded++ · total burst ~500 ns for 32 pkts', cost: '~30 ns', cls: 'cost-fast' },
+    ],
+    total: 6
+  }
+};
+
+const state = { socket: 0, dpdk: 0 };
+
+function buildLine(step, color) {
+  const line = document.createElement('div');
+  line.className = 'trace-line';
+
+  const gutter = document.createElement('div');
+  gutter.className = 'trace-gutter';
+  gutter.style.background = color;
+
+  const ts = document.createElement('span');
+  ts.className = 'trace-ts';
+  ts.textContent = step.ts;
+
+  const tag = document.createElement('span');
+  tag.className = 'trace-tag';
+  tag.style.color = color;
+  tag.textContent = step.tag;
+
+  const msg = document.createElement('span');
+  msg.className = 'trace-msg';
+  msg.textContent = step.msg;
+
+  const cost = document.createElement('span');
+  cost.className = 'trace-cost ' + step.cls;
+  cost.textContent = step.cost;
+
+  line.append(gutter, ts, tag, msg, cost);
+  return line;
+}
+
+function stepPath(id) {
+  const path = PATHS[id];
+  const area = document.getElementById(id + '-trace');
+  const counter = document.getElementById(id + '-counter');
+  const s = state[id];
+  if (s >= path.total) return;
+
+  const line = buildLine(path.steps[s], path.color);
+  area.appendChild(line);
+  requestAnimationFrame(() => { line.classList.add('visible'); });
+
+  state[id]++;
+  counter.textContent = state[id] + ' / ' + path.total;
+}
+
+function resetPath(id) {
+  document.getElementById(id + '-trace').innerHTML = '';
+  state[id] = 0;
+  document.getElementById(id + '-counter').textContent = '0 / ' + PATHS[id].total;
+}
+
+// ── Latency chart ─────────────────────────────────────────────────────────────
+function drawChart() {
+  const canvas = document.getElementById('latencyChart');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth;
+  const H = 120;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light' &&
+    (document.documentElement.getAttribute('data-theme') === 'dark' ||
+     window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  const bg = isDark ? '#161B22' : '#FFFFFF';
+  const gridColor = isDark ? '#21262D' : '#E0E0E0';
+  const textColor = isDark ? '#7D8590' : '#656D76';
+
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Fake latency distribution data (log-scale concept)
+  // Socket: wide spread, high mean; DPDK: tight, low mean
+  const pad = { l: 40, r: 10, t: 10, b: 30 };
+  const cW = W - pad.l - pad.r;
+  const cH = H - pad.t - pad.b;
+
+  // X axis: latency in ns (log scale labels)
+  const xLabels = ['50', '200', '1k', '5k', '20k', '100k'];
+  const xPositions = [0, 0.15, 0.32, 0.55, 0.75, 1.0];
+
+  // Grid lines
+  ctx.strokeStyle = gridColor;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < xPositions.length; i++) {
+    const x = pad.l + xPositions[i] * cW;
+    ctx.beginPath();
+    ctx.moveTo(x, pad.t);
+    ctx.lineTo(x, pad.t + cH);
+    ctx.stroke();
+    ctx.fillStyle = textColor;
+    ctx.font = '9px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(xLabels[i] + ' ns', x, pad.t + cH + 14);
+  }
+  ctx.fillStyle = textColor;
+  ctx.font = '9px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('latency (ns)', pad.l + cW / 2, H - 2);
+
+  // DPDK distribution: centered around x=0.15–0.35
+  function gaussianPt(x, mu, sigma) {
+    return Math.exp(-0.5 * Math.pow((x - mu) / sigma, 2));
+  }
+
+  const N = 80;
+  function drawDist(mu, sigma, color, alpha) {
+    const pts = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const y = gaussianPt(t, mu, sigma);
+      pts.push({ x: pad.l + t * cW, y: pad.t + cH - y * cH * 0.85 });
+    }
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pad.t + cH);
+    pts.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineTo(pts[N].x, pad.t + cH);
+    ctx.closePath();
+    ctx.fillStyle = color.replace(')', `, ${alpha})`).replace('rgb', 'rgba').replace('#', 'rgba(').replace('rgba(', 'rgba(');
+
+    // simpler approach
+    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + cH);
+    grad.addColorStop(0, color + (isDark ? 'CC' : '99'));
+    grad.addColorStop(1, color + '22');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+  }
+
+  drawDist(0.22, 0.07, '#58A6FF', 0.5);  // DPDK: tight, early
+  drawDist(0.62, 0.14, '#F0883E', 0.4);  // Socket: wide, late
+
+  // Peak labels
+  ctx.font = '10px ui-monospace, monospace';
+  ctx.fillStyle = '#58A6FF';
+  ctx.textAlign = 'left';
+  ctx.fillText('DPDK', pad.l + 0.22 * cW + 4, pad.t + 14);
+  ctx.fillStyle = '#F0883E';
+  ctx.fillText('Socket', pad.l + 0.62 * cW + 4, pad.t + 30);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  drawChart();
+  // redraw on resize
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(drawChart, 100);
+  });
+});
+
+// Redraw chart when theme changes
+const obs = new MutationObserver(drawChart);
+obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+</script>

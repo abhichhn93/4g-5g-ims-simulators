@@ -49,3 +49,18 @@ add_executable(upf_sim
 )
 target_include_directories(upf_sim PRIVATE src)
 target_link_libraries(upf_sim Threads::Threads)
+
+# ── UPF Fast-Path DPDK Learning Lab ──────────────────────────
+add_executable(upf_fastpath_demo
+    src/upf_fastpath/upf_fastpath_demo.cpp
+)
+target_include_directories(upf_fastpath_demo PRIVATE src/upf_fastpath src)
+target_compile_features(upf_fastpath_demo PRIVATE cxx_std_17)
+target_link_libraries(upf_fastpath_demo Threads::Threads)
+
+add_executable(upf_benchmark
+    src/upf_fastpath/benchmark.cpp
+)
+target_include_directories(upf_benchmark PRIVATE src/upf_fastpath src)
+target_compile_features(upf_benchmark PRIVATE cxx_std_17)
+target_link_libraries(upf_benchmark Threads::Threads)

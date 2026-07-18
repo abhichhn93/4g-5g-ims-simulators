@@ -1,0 +1,34 @@
+# UPF Fast-Path Benchmark — Example Output
+# Run: ./build/upf_benchmark --duration 3 --ues 100
+# Machine: macOS, Apple Silicon (simulation only — numbers differ on Linux x86 DPDK)
+
+UEs        : 100
+Packets    : 2,000,000 (2M pre-generated, all matching PDRs)
+Batch size : 32 (DPDK burst size)
+
+╔══════════════════════════════════════════════════════════════════════╗
+║            FORWARDING PATH BENCHMARK — COMPARISON RESULTS           ║
+╠══════════════════════════╦═══════════════════╦═════════════════════╣
+║ Metric                   ║ Socket            ║ DPDK                ║
+╠══════════════════════════╬═══════════════════╬═════════════════════╣
+║ Throughput (Mpps)        ║ 8.076             ║ 8.117               ║
+║ Forwarded                ║ 2,000,000         ║ 2,000,000           ║
+║ Dropped (queue overflow) ║ 9,271             ║ 0                   ║
+╠══════════════════════════╬═══════════════════╬═════════════════════╣
+║ Latency avg              ║ 311,337 ns        ║ 173 ns              ║
+║ Latency p50              ║ 327,958 ns        ║ 167 ns              ║
+║ Latency p95              ║ 470,083 ns        ║ 209 ns              ║
+║ Latency p99              ║ 504,167 ns        ║ 250 ns              ║
+║ Latency min              ║ 1,667 ns          ║ 42 ns               ║
+╚══════════════════════════╩═══════════════════╩═════════════════════╝
+
+KEY TAKEAWAY:
+  Throughput gap: ~1x (both fast in-process simulation)
+  Latency gap:   ~1,800x at p50 (327μs vs 167ns)
+
+  The throughput gap is small here because both paths share the same
+  process and hash-map lookups dominate. In production:
+    - Socket/kernel UPF:  0.2–1 Mpps per core
+    - DPDK UPF:           10–40 Mpps per core
+  The latency gap is REAL even in simulation:
+    condition_variable wake latency (~300μs) vs lock-free poll (~167ns).
