@@ -1,0 +1,90 @@
+# Standalone Kafka stack for the Go services layer's event pipeline. Separate
+# from the top-level 5g-simulator/docker-compose.yml (which runs the C++ NFs)
+# so you can bring Kafka up/down independently while iterating on Go code.
+#
+# Usage from this directory:
+#   docker compose -f docker-compose.kafka.yml up -d
+#   KAFKA_BROKERS=localhost:9092 go run ./cmd/event-gateway
+#   KAFKA_BROKERS=localhost:9092 go run ./cmd/kpi-consumer
+services:
+  # kafka: a single Kafka broker running in KRaft mode. KRaft (Kafka's own
+  # Raft-based consensus) replaces the old ZooKeeper coordination layer, so
+  # this is the ONLY container needed to get a working Kafka — no separate
+  # ZooKeeper service, no multi-node quorum to reason about. That's the right
+  # trade for a learning/demo setup; a real production cluster still runs 3+
+  # broker nodes for fault tolerance, which KRaft also supports natively.
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: kafka
+    ports:
+      - "9092:9092" # PLAINTEXT listener — what event-gateway/kpi-consumer connect to from the host
+    environment:
+      # This node acts as both the controller (KRaft consensus/metadata) and
+      # the broker (stores partitions, serves produce/fetch requests) — fine
+      # for one node; production separates these roles across dedicated nodes.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Two listeners: PLAINTEXT_HOST is what your Go code on the host machine
+      # connects to (localhost:9092); PLAINTEXT is the in-Docker-network name
+      # (kafka:29092), used if you later containerize event-gateway/kpi-consumer
+      # on this same compose network instead of running `go run` on the host.
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:9093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Single broker => replication factor must be 1. A real cluster sets
+      # this to 3 so each partition survives losing one broker.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # 3 partitions on the events topic even at this tiny scale, so the
+      # consumer-group behavior (partitions split across group members) is
+      # actually observable if you later run kpi-consumer with >1 replica.
+      KAFKA_NUM_PARTITIONS: 3
+      CLUSTER_ID: "g5-kafka-lab-cluster-1"
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # kafka-init: creates the topics this repo needs, then exits. Pre-creating
+  # topics (rather than relying on auto-creation) matters for two reasons:
+  # 1. It's what real deployments do — auto-creation is commonly disabled in
+  #    production Kafka clusters precisely because a typo'd topic name
+  #    silently creating a new empty topic (instead of erroring) hides bugs.
+  # 2. It sidesteps a real race we hit while building this: kafka-go's
+  #    Writer does not auto-create topics by default (AllowAutoTopicCreation
+  #    defaults false), and even with it enabled, a low-volume, one-shot
+  #    write (like a DLQ write, which may not happen for minutes) can lose
+  #    the race against the broker's async topic creation and time out.
+  #    Creating both topics up front removes that race entirely.
+  kafka-init:
+    image: apache/kafka:3.7.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic 5g-sim-events --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic 5g-sim-events-dlq --partitions 1 --replication-factor 1
+        echo "topics ready"
+
+  # kafka-ui: optional web UI to browse topics/partitions/messages/consumer
+  # groups while learning — not required, just makes "what did I just send"
+  # visible without the Kafka CLI. Skip this service if you'd rather stay CLI-only.
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy

@@ -2,6 +2,107 @@
 // =============================================================================
 // pfcp_rules.h — PDR, FAR, QER rule tables (PFCP data model)
 //
+// ─────────────────────────────────────────────────────────────────────────────
+// WHERE THESE RULES FIT IN THE DPDK PIPELINE:
+//
+//           WIRE → NIC → RX RING (HW) → lcore → rte_ring (SW) → Worker lcore
+//                                                                     |
+//                                                                     | THIS FILE
+//                                                                     v
+//                                                            ┌─────────────────┐
+//                                                            │  PDR lookup     │
+//                                                            │  (which UE?)    │
+//                                                            └────────┬────────┘
+//                                                                     |
+//                                                                     v
+//                                                            ┌─────────────────┐
+//                                                            │  QER lookup     │
+//                                                            │  (rate check)   │
+//                                                            └────────┬────────┘
+//                                                                     |
+//                                                                     v
+//                                                            ┌─────────────────┐
+//                                                            │  FAR lookup     │
+//                                                            │  (what to do)   │
+//                                                            └────────┬────────┘
+//                                                                     |
+//                                                           FORWARD / DROP / BUFFER
+//                                                                     |
+//                                                                     v
+//                                               rte_ring → TX lcore → TX RING → WIRE
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// HOW RULES GET INSTALLED (the control plane flow):
+//
+//   1. UE sends PDU Session Establishment Request to gNB
+//   2. gNB sends it to AMF (N2 interface, NGAP)
+//   3. AMF tells SMF to set up the session (N11 interface)
+//   4. SMF fetches UE's subscriber profile from UDM (N10) — gets QoS limits
+//   5. SMF sends PFCP Session Establishment Request to UPF (N4 interface)
+//      → This message contains: PDRs, FARs, QERs for this specific UE session
+//   6. UPF installs them into the fast-path tables (this file)
+//   7. SMF tells gNB the UPF's TEID via AMF (N2) so gNB knows what TEID to use
+//   8. Now: every packet the UE sends is classified in <1μs using these rules
+//
+//   build_demo_rules() in this file simulates step 5-6 for N demo UEs.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// THE THREE-STAGE PIPELINE (per packet, in process_burst()):
+//
+//   PACKET ARRIVES (mbuf, with TEID extracted from GTP-U header)
+//         |
+//         v
+//   ┌─────────────────────────────────────────────────────────────┐
+//   │  PDR (Packet Detection Rule)                               │
+//   │  "Which UE sent this? Which session?"                      │
+//   │                                                             │
+//   │  UL: teid_to_pdr_.find(pkt.teid) → PDR ID                 │
+//   │  DL: ueip_to_pdr_.find(pkt.ue_ip) → PDR ID                │
+//   │                                                             │
+//   │  PDR struct has: { far_id, qer_id, precedence }            │
+//   │  These tell us which FAR and QER to look up next.          │
+//   │                                                             │
+//   │  If no match: drop + pkts_no_pdr++                         │
+//   └─────────────────────────────────────────────────────────────┘
+//         |
+//         v
+//   ┌─────────────────────────────────────────────────────────────┐
+//   │  QER (QoS Enforcement Rule)                                │
+//   │  "Is this UE allowed to send at this rate?"                │
+//   │                                                             │
+//   │  get_qer(pdr->qer_id) → QER struct                        │
+//   │  QER has: { qfi, ul_mbr_kbps, dl_mbr_kbps, gbr }         │
+//   │                                                             │
+//   │  GBR flows (QFI=1 voice, QFI=2 video): guaranteed rate    │
+//   │  Non-GBR flows (QFI=9 data): best effort, no guarantee    │
+//   │                                                             │
+//   │  In production: rte_meter_trtcm token bucket check         │
+//   │  If over MBR: drop packet                                  │
+//   │  In our simulation: lookup only, no enforcement            │
+//   └─────────────────────────────────────────────────────────────┘
+//         |
+//         v
+//   ┌─────────────────────────────────────────────────────────────┐
+//   │  FAR (Forwarding Action Rule)                              │
+//   │  "What do I actually do with this packet?"                 │
+//   │                                                             │
+//   │  get_far(pdr->far_id) → FAR struct                        │
+//   │  FAR has: { action, dst_ip, dst_port, encap_gtpu }        │
+//   │                                                             │
+//   │  action=FORWARD + encap_gtpu=false → UL: strip GTP-U,      │
+//   │    send inner IP to N6 (internet)                          │
+//   │                                                             │
+//   │  action=FORWARD + encap_gtpu=true → DL: prepend GTP-U,     │
+//   │    send wrapped packet to gNB on N3 (dst_port=2152)        │
+//   │                                                             │
+//   │  action=DROP → discard, free mbuf                          │
+//   │  action=BUFFER → hold during handover (not simulated)      │
+//   └─────────────────────────────────────────────────────────────┘
+//         |
+//         v
+//   mbuf free → pool → NIC reuses for next packet
+//
+// ─────────────────────────────────────────────────────────────────────────────
 // PFCP (Packet Forwarding Control Protocol, 3GPP TS 29.244) is the N4 protocol
 // between SMF and UPF. When a UE sets up a PDU session:
 //

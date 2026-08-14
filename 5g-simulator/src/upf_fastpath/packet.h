@@ -2,6 +2,73 @@
 // =============================================================================
 // packet.h — Core packet descriptor for UPF fast-path simulation
 //
+// ─────────────────────────────────────────────────────────────────────────────
+// WHERE THIS FITS IN THE DPDK PIPELINE:
+//
+//           WIRE
+//             |
+//             v
+//         +-------+
+//         |  NIC  |
+//         +-------+
+//             |
+//             | DMA → NIC writes raw bytes into mbuf.data (Ethernet+IP+UDP+GTP-U)
+//             v
+//    ===================
+//    RX RING  (HW/DPDK)
+//    ===================
+//             |
+//             v
+//         RX lcore
+//             |  rte_pktmbuf_mtod(m, uint8_t*) → parse raw bytes → fill Packet struct
+//             |  In our simulation: Packet struct is pre-filled by rx_enqueue()
+//             v
+//    ===================        The Packet struct (THIS FILE) is the extracted
+//    rte_ring  (SW)             metadata from the raw bytes. It travels through
+//    ===================        the pipeline carrying TEID, UE_IP, QFI, etc.
+//             |
+//             v
+//       Worker lcore  → match_pdr(pkt) → get_qer() → get_far() → forward/drop
+//             |
+//             v
+//    ===================
+//    rte_ring  (SW)
+//    ===================
+//             |
+//             v
+//         TX lcore → TX RING → WIRE
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// WHAT A REAL UPF PACKET LOOKS LIKE ON THE WIRE (UL, gNB → UPF):
+//
+//   Bytes 0-13:   Outer Ethernet header (14 bytes)
+//                 src=gNB_MAC, dst=UPF_N3_MAC
+//
+//   Bytes 14-33:  Outer IP header (20 bytes)
+//                 src=gNB_N3_IP (10.10.0.1), dst=UPF_N3_IP (10.10.0.2)
+//                 protocol=UDP (17)
+//
+//   Bytes 34-41:  Outer UDP header (8 bytes)
+//                 src_port=random, dst_port=2152 (GTP-U port, IANA assigned)
+//
+//   Bytes 42-49:  GTP-U header (8 bytes minimum):
+//                 [flags][msg_type][total_length][TEID 4 bytes]
+//                 TEID at bytes 46-49 (offset 46 from frame start)
+//                 TEID = 1001 (identifies UE #1's PDU session tunnel)
+//
+//   Bytes 50+:    Inner IP packet (the UE's actual traffic)
+//                 src=UE_IP (10.45.0.1), dst=8.8.8.8
+//                 TCP/UDP payload: whatever the UE is sending
+//
+//   In real DPDK lcore:
+//     const uint8_t* data = rte_pktmbuf_mtod(m, uint8_t*);
+//     uint32_t teid = ntohl(*(uint32_t*)(data + 46));  ← extract TEID
+//     uint32_t ue_ip = ntohl(*(uint32_t*)(data + 50 + 12)); ← inner IP src
+//
+//   In our simulation: these fields are pre-filled in the Packet struct
+//   by make_demo_packet() in upf_fastpath_demo.cpp.
+//
+// ─────────────────────────────────────────────────────────────────────────────
 // In a real UPF (e.g., OAI-UPF, free5GC UPF, VPP-UPF):
 //   - UL packets arrive on N3 (gNB → UPF) as GTP-U encapsulated UDP/IP.
 //     The UPF strips the GTP-U header, extracts the inner IP packet,

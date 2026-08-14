@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "go-services/internal/grpc/authpb";
+
+// AuthService validates JWT tokens for service-to-service calls.
+// Other Go microservices call CheckToken instead of duplicating JWT logic.
+service AuthService {
+  rpc CheckToken (AuthCheckRequest) returns (AuthCheckResponse);
+}
+
+message AuthCheckRequest {
+  string token = 1;
+}
+
+message AuthCheckResponse {
+  bool   valid    = 1;
+  string username = 2;
+  string role     = 3; // "viewer" | "operator" | "admin"
+  string reason   = 4; // non-empty when valid=false
+}

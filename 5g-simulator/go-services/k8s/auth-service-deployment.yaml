@@ -1,0 +1,73 @@
+# auth-service Deployment + Service.
+#
+# JWT_SECRET comes from a Secret (go-services-jwt-secret), not the ConfigMap.
+# Secrets are mounted as env vars rather than files here for simplicity, but
+# mounting as a file (volume) prevents the value from appearing in `kubectl
+# describe pod`. For production, use Sealed Secrets or Vault Agent Injector.
+#
+# To create the secret before applying:
+#   kubectl create secret generic go-services-jwt-secret \
+#     --from-literal=JWT_SECRET='<your-strong-secret>'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-auth-service
+  labels:
+    app: go-auth-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: go-auth-service
+  template:
+    metadata:
+      labels:
+        app: go-auth-service
+    spec:
+      containers:
+        - name: auth-service
+          image: go-auth-service:latest
+          imagePullPolicy: Never   # pre-loaded into minikube with `minikube image load`
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: go-services-config
+          env:
+            # JWT_SECRET from Secret overrides any ConfigMap value of the same name.
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: go-services-jwt-secret
+                  key: JWT_SECRET
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "64Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-auth-svc
+spec:
+  selector:
+    app: go-auth-service
+  ports:
+    - port: 8081
+      targetPort: 8081

@@ -1,0 +1,87 @@
+# event-gateway Deployment + Service.
+#
+# This service tails C++ log files from SIM_LOG_DIR (/tmp by default).
+# For this to work in K8s, the C++ pods and this pod must share a volume.
+# Options:
+#   1. emptyDir volume: works if all pods are on the same node (hostPath alternative)
+#   2. hostPath volume: mounts /tmp from the node (fine for single-node minikube)
+#   3. PersistentVolume: use ReadWriteMany (NFS/EFS) for multi-node clusters
+#
+# In production: replace the log-tail approach with a Kafka consumer.
+# Each C++ NF publishes structured JSON events to a Kafka topic; event-gateway
+# consumes from its consumer group. This eliminates shared-volume coupling and
+# enables at-least-once delivery guarantees.
+#
+# The hostPath volume below is suitable for minikube development only.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-event-gateway
+  labels:
+    app: go-event-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: go-event-gateway
+  template:
+    metadata:
+      labels:
+        app: go-event-gateway
+    spec:
+      volumes:
+        # hostPath gives the container access to /tmp on the minikube node,
+        # which is where C++ NF containers write their g5_*.log files.
+        - name: sim-logs
+          hostPath:
+            path: /tmp
+            type: Directory
+      containers:
+        - name: event-gateway
+          image: go-event-gateway:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8083
+          volumeMounts:
+            - name: sim-logs
+              mountPath: /tmp
+          envFrom:
+            - configMapRef:
+                name: go-services-config
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: go-services-jwt-secret
+                  key: JWT_SECRET
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-event-svc
+spec:
+  selector:
+    app: go-event-gateway
+  ports:
+    - port: 8083
+      targetPort: 8083

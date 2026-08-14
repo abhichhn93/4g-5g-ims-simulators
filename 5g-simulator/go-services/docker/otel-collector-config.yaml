@@ -1,0 +1,88 @@
+# OTEL Collector pipeline configuration
+#
+# Anatomy of a Collector config:
+#
+#   receivers   → WHERE data comes in   (OTLP gRPC from Go services)
+#   processors  → HOW data is processed (batch to reduce network calls)
+#   exporters   → WHERE data goes out   (Jaeger for traces, Prometheus for metrics)
+#   service     → which pieces connect  (receiver → processor → exporter)
+#
+# Interview: "What does the Collector do?"
+# "It decouples services from backends. Services send to one address (:4317).
+#  The Collector receives, batches, samples, and fans out to Jaeger and
+#  Prometheus — without any service knowing which backend is used."
+
+receivers:
+  # OTLP = OpenTelemetry Protocol. The standard wire format for traces, metrics, logs.
+  # gRPC on 4317, HTTP on 4318 (both are standard OTLP ports).
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317  # All Go services send spans here
+      http:
+        endpoint: 0.0.0.0:4318  # Alternative HTTP endpoint (browser SDK uses this)
+
+processors:
+  # BatchProcessor accumulates spans in memory and sends them in bulk.
+  # Why? Each export call has network overhead. Batching 512 spans per call
+  # instead of 512 individual calls = 512× fewer TCP round-trips.
+  # send_batch_size: send when batch reaches this size
+  # timeout: send whatever is buffered after this time, even if batch not full
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+  # memory_limiter prevents the Collector from OOM-ing under high load.
+  # It starts dropping spans gracefully before the process crashes.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+
+exporters:
+  # Debug exporter: prints received spans to stdout (useful during development).
+  # Remove this in production — it's expensive at high volume.
+  debug:
+    verbosity: basic
+
+  # Jaeger exporter: sends traces to Jaeger's gRPC model.proto endpoint.
+  # Jaeger stores them; the Jaeger UI at :16686 lets you search by service,
+  # trace ID, span name, and time range.
+  otlp/jaeger:
+    endpoint: jaeger:4318      # OTLP HTTP endpoint on Jaeger container
+    tls:
+      insecure: true            # dev only; production uses real TLS
+
+  # Prometheus exporter: exposes a /metrics endpoint that Prometheus scrapes.
+  # OTEL metrics from all services arrive here as OTLP, get translated to
+  # Prometheus text format, and are served at :8889/metrics.
+  #
+  # Note: this is DIFFERENT from the Prometheus bridge in telemetry.Init().
+  # The bridge exposes each service's OTEL metrics at its OWN /metrics endpoint.
+  # This Collector exporter aggregates ALL services' metrics in one place.
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "otelcol"        # prefix added to all metric names
+
+service:
+  # Pipelines wire receivers → processors → exporters.
+  # traces pipeline: receives OTLP spans, batches them, exports to Jaeger.
+  # metrics pipeline: receives OTLP metrics, batches, exports to Prometheus exporter.
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [memory_limiter, batch]
+      exporters:  [debug, otlp/jaeger]
+
+    metrics:
+      receivers:  [otlp]
+      processors: [memory_limiter, batch]
+      exporters:  [debug, prometheus]
+
+  # Telemetry for the Collector itself (meta-monitoring).
+  # Collector exposes its own /metrics at :8888 (how many spans it received,
+  # dropped, export latency — useful to know if the Collector is the bottleneck).
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: 0.0.0.0:8888

@@ -1,0 +1,73 @@
+# docker-compose-otel.yml — OTEL observability stack
+#
+# What each service does:
+#
+#   otel-collector  receives OTLP spans/metrics from all Go services (port 4317)
+#                   batches and fans out to Jaeger (traces) + Prometheus (metrics)
+#
+#   jaeger          stores and visualises distributed traces
+#                   UI at http://localhost:16686
+#                   click on a trace → see waterfall of spans across services
+#
+#   prometheus      scrapes /metrics from kpi-consumer (and otel-collector itself)
+#                   stores time-series; Grafana or the built-in UI at :9090
+#
+# Run with:
+#   docker compose -f docker-compose-otel.yml up
+#
+# Then start Go services with OTLP_ENDPOINT=localhost:4317
+#
+# Shutdown:
+#   docker compose -f docker-compose-otel.yml down
+#
+# Note: this file only runs the OBSERVABILITY stack.
+# For the full microservice stack, see docker-compose.yml.
+
+services:
+
+  # ── OTEL Collector ─────────────────────────────────────────────────────────
+  # The Collector is the hub of the observability pipeline. It receives spans
+  # from all services, applies transformations (batching, tail-based sampling),
+  # and exports to multiple backends (Jaeger + Prometheus here).
+  #
+  # Interview hook: "Why a Collector instead of exporting directly to Jaeger?"
+  # → Decoupling. Services only need to know one address (the Collector).
+  #   Changing the backend (e.g. switch Jaeger to Tempo) requires zero service
+  #   restarts — just update the Collector config and hot-reload it.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.109.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC — all Go services point here
+      - "8888:8888"   # Collector's own Prometheus /metrics (self-monitoring)
+      - "8889:8889"   # Prometheus exporter port (where Prometheus scrapes)
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      - jaeger
+
+  # ── Jaeger (all-in-one) ────────────────────────────────────────────────────
+  # Stores traces and provides the Jaeger UI for exploring them.
+  # all-in-one = collector + query + UI in one container (good for dev/demo).
+  # Production: use Jaeger with a real storage backend (Cassandra or Elasticsearch).
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    ports:
+      - "16686:16686"  # Jaeger UI — open http://localhost:16686 to see traces
+      - "4318:4318"    # OTLP HTTP receiver (used by otel-collector → jaeger)
+      - "14250:14250"  # gRPC from otel-collector → jaeger (model.proto)
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  # ── Prometheus ──────────────────────────────────────────────────────────────
+  # Scrapes /metrics endpoints from Go services + the OTEL Collector's exporter.
+  # The Prometheus bridge in telemetry.Init() exposes OTEL metrics at the
+  # service's /metrics endpoint so Prometheus picks them up automatically.
+  prometheus:
+    image: prom/prometheus:v2.53.3
+    ports:
+      - "9090:9090"  # Prometheus UI — http://localhost:9090
+    volumes:
+      - ./prometheus-otel.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - otel-collector

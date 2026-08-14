@@ -1,0 +1,10 @@
+# Private keys — never commit private keys to a public repo.
+# Run ./gen_pki.sh to regenerate the full PKI (takes 5 seconds).
+pki/**/*.key
+pki/**/*.srl
+
+# Packet captures (can be large)
+capture/*.pcap
+
+# macOS
+.DS_Store

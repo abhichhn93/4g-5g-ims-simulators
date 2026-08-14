@@ -1,0 +1,78 @@
+# control-api Deployment + Service.
+#
+# This service exposes POST /scenarios/start|stop which calls exec.Command
+# to launch C++ NF binaries. This model works for:
+#   - Local development (binaries in ./build/)
+#   - Docker-compose (shared volume with C++ image)
+#
+# In production K8s: replace exec.Command with the Kubernetes API client
+# (k8s.io/client-go). Scale Deployments instead of spawning local processes:
+#   clientset.AppsV1().Deployments(ns).Update(ctx, deploy, metav1.UpdateOptions{})
+# This requires a ServiceAccount with RBAC permission to patch Deployments.
+#
+# The control-api does not require auth-service to be running (it verifies JWTs
+# independently using the shared JWT_SECRET). Start order: apply ConfigMap and
+# Secret first, then this Deployment. K8s will restart the pod if env vars are
+# missing at startup.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-control-api
+  labels:
+    app: go-control-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: go-control-api
+  template:
+    metadata:
+      labels:
+        app: go-control-api
+    spec:
+      containers:
+        - name: control-api
+          image: go-control-api:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: go-services-config
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: go-services-jwt-secret
+                  key: JWT_SECRET
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "500m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-control-svc
+spec:
+  selector:
+    app: go-control-api
+  ports:
+    - port: 8082
+      targetPort: 8082

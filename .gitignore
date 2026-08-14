@@ -8,7 +8,23 @@ build/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
+# Ignore CMake-generated Makefiles, but NOT our hand-written ones
 Makefile
+!5g-simulator/src/upf_fastpath/Makefile
+!ipsec-lab/Makefile
+
+# UPF fast-path compiled binaries (built locally — don't commit)
+5g-simulator/src/upf_fastpath/upf_demo
+5g-simulator/src/upf_fastpath/upf_benchmark
+5g-simulator/src/upf_fastpath/upf_real
+
+# IPSec lab — exclude captured traffic (may be large), keep configs + PKI
+ipsec-lab/capture/*.pcap
+
+# Go build artifacts
+go-services/bin/
+*.test
+
 # Scratch/personal files
 test_AI_answers
 Perplexity*

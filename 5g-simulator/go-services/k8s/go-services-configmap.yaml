@@ -1,0 +1,40 @@
+# ConfigMap for the Go microservice layer.
+#
+# Only non-sensitive values live here. JWT_SECRET must come from a K8s Secret
+# (see auth-service-deployment.yaml) — Secrets are base64-encoded and can be
+# managed by external secret managers (Vault, AWS Secrets Manager, Sealed Secrets)
+# whereas ConfigMap values are plaintext in etcd.
+#
+# NRF_ADDR uses the in-cluster Service DNS name (g5-nrf-svc) so the Go services
+# can reach the C++ NRF without knowing its Pod IP, which changes on restarts.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: go-services-config
+data:
+  AUTH_PORT: "8081"
+  CONTROL_PORT: "8082"
+  EVENT_PORT: "8083"
+  NRF_ADDR: "http://g5-nrf-svc:29510"
+  SIM_LOG_DIR: "/tmp"
+  # SIM_BIN_DIR is not set here: control-api uses exec.Command which is
+  # intended for local/Docker-compose mode only. In K8s, the control-api
+  # should use the Kubernetes API (client-go) to manage Deployments instead.
+
+  # KAFKA_BROKERS is deliberately empty: config.go treats "" as "Kafka
+  # disabled" (see internal/config/config.go), so event-gateway defaults to
+  # local-only SSE and kpi-consumer refuses to start — matching local/Docker
+  # dev behavior with zero surprises. This repo doesn't run Kafka as a K8s
+  # workload yet (see kpi-consumer-deployment.yaml for why). To enable it,
+  # deploy Kafka in-cluster (e.g. via the Strimzi operator) and set this to
+  # its Service DNS name, e.g. "kafka.kafka.svc.cluster.local:9092" — do NOT
+  # point it at an unreachable host: KafkaPublisher.Publish uses a 3s dial/
+  # write timeout per call and is invoked synchronously from logWatcher
+  # (every 500ms) and nrfPoller (every 5s), so an unreachable broker would
+  # stall those loops rather than fail fast.
+  KAFKA_BROKERS: ""
+  KAFKA_TOPIC: "5g-sim-events"
+  KAFKA_DLQ_TOPIC: "5g-sim-events-dlq"
+  KAFKA_GROUP_ID: "kpi-readers"
+  KPI_WINDOW_SECS: "60"
+  KPI_CONSUMER_PORT: "8084"

@@ -2,6 +2,10 @@
 
 20 interview Q&A pairs covering UPF architecture, PFCP, DPDK, GTP-U, and QoS.
 
+**Interactive visual guides (open in browser):**
+- DPDK Concepts + Interview Q&A: https://claude.ai/code/artifact/ada986a3-b413-4f5d-9e92-e917d8c78e8f
+- DPDK Packet Flow Diagram + Oracle Cloud setup: https://claude.ai/code/artifact/a2b8705d-39e1-4d9e-82e0-3dfcc2de1e50
+
 ---
 
 **Q1: What is the UPF and what does it do?**
